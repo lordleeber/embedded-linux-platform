@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 1 · 建立開發環境基線</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101827;color:#edf2f7}
+    *{box-sizing:border-box}body{max-width:920px;margin:auto;padding:1.4rem 1.25rem 4rem;line-height:1.75}
+    h1,h2,h3{line-height:1.25}h1{font-size:2.2rem}h2{margin-top:2.8rem;border-bottom:1px solid #395268;padding-bottom:.4rem}
+    a{color:#76d5e3} code,pre{font-family:ui-monospace,SFMono-Regular,monospace}code{color:#e6c998}
+    pre{overflow:auto;padding:1rem;border-radius:10px;background:#172638;border:1px solid #395268;color:#edf2f7}
+    .lede,.muted{color:#aec2d0}.pagenav{display:flex;justify-content:space-between;gap:1rem;border-block:1px solid #395268;padding:.8rem 0}
+    .note{background:#183448;border-left:4px solid #76d5e3;padding:1rem 1.2rem;border-radius:4px}
+    table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid #395268;padding:.55rem;text-align:left}th{background:#1c2d40}
+  </style>
+</head>
+<body>
+  <nav class="pagenav" aria-label="頂部章節導覽"><a href="index.html">← 教材目錄</a><span>Step 1 / Phase 0</span></nav>
+  <main>
+    <h1>Step 1 · 建立可重複的開發環境基線</h1>
+    <p class="lede">先把這台 Jetson 的板型、系統版本、kernel 和工具記下來。後面的 module 與 Device Tree 都要以這份資料為起點。</p>
+
+    <h2>這一步的資料流</h2>
+    <p>執行者在 Jetson target 上啟動 <code>scripts/check_host_env.sh</code>。腳本只讀取系統檔案、呼叫 <code>uname</code> 和檢查指令是否存在，最後輸出結果或寫入版本快照。這一步沒有 I2C/SPI controller 與 target 之間的交易，也沒有新增 driver 或 MCU firmware。</p>
+    <pre>Jetson 系統檔 / 指令 → check_host_env.sh → PASS/FAIL 報告
+                                            └→ docs/jetson-version.txt</pre>
+
+    <h2>1. 執行與解讀結果</h2>
+    <pre>bash scripts/check_host_env.sh
+bash scripts/check_host_env.sh --record docs/jetson-version.txt</pre>
+    <p><code>--record</code> 會覆寫指定快照檔。可先只執行第一行檢查；要更新基線時才執行第二行。輸出分成平台資訊、平台檢查和工具檢查。<code>PASS</code> 表示當前檢查通過，<code>FAIL</code> 會讓腳本以狀態碼 1 結束。參數不正確或無法寫快照時回傳 2。</p>
+    <p>工具檢查包含 <code>gcc</code>、<code>g++</code>、<code>cmake</code>、<code>make</code>、<code>git</code>、<code>dtc</code>、<code>i2cdetect</code> 和 <code>v4l2-ctl</code>。最後三個指令分別由 device-tree-compiler、i2c-tools 和 v4l-utils 套件提供。</p>
+
+    <h2>2. 為什麼記錄這些版本</h2>
+    <table>
+      <thead><tr><th>資料</th><th>來源</th><th>後面如何使用</th></tr></thead>
+      <tbody>
+        <tr><td>板型</td><td><code>/proc/device-tree/model</code></td><td>確認實際 target 與 pinout 文件相符。</td></tr>
+        <tr><td>Kernel release / 架構</td><td><code>uname</code></td><td>對照 module 與 headers。</td></tr>
+        <tr><td>Ubuntu 版本</td><td><code>/etc/os-release</code></td><td>記錄 userspace 基底。</td></tr>
+        <tr><td>L4T release</td><td><code>/etc/nv_tegra_release</code></td><td>對照 Jetson BSP。</td></tr>
+        <tr><td>JetPack 套件</td><td><code>dpkg-query</code></td><td>記錄本機安裝的套件版本；缺失時標為 unavailable。</td></tr>
+        <tr><td>Kernel headers</td><td><code>/lib/modules/$(uname -r)/build</code></td><td>下個 Step 編譯 kernel module 時使用。</td></tr>
+      </tbody>
+    </table>
+    <p class="note">快照會同時記錄 headers 路徑與 <code>Kernel headers present: yes/no</code>，避免缺失目錄仍看似可用。目前的檢查只確認目錄存在。能否編譯並載入與正在執行的 kernel 相符的 module，要在 Step 2 實際驗證。</p>
+
+    <h2>3. 接線先記錄，之後再驗證</h2>
+    <p>本 Step 執行時硬體尚未接線。<a href="hardware-wiring.md">接線表</a>先列出 INA219、OLED、LED、STM32 和 IMX219 的訊號與待填欄位。接線時要逐一填入 Jetson 40-pin header 的實體 pin、Linux controller 或 bus、電壓、對端 pin 和驗證方式。header pin 號不能直接當 Linux GPIO 編號；電壓和共地也必須先核對。實際 bus 掃描留在後續對應的 Step。</p>
+
+    <h2>4. 驗收與重現</h2>
+    <pre>python3 -m unittest discover -s tests -v
+python3 scripts/check_book.py docs</pre>
+    <p>五個測試用模擬的 Jetson 資料與工具路徑驗證：全部可用時回傳 0；缺 <code>dtc</code> 時明確回報失敗；缺 <code>v4l2-ctl</code> 時仍可留下平台快照；缺板型與 L4T 資料時也會失敗；缺 headers 目錄時快照明確記錄 <code>no</code>。教材檢查會核對本章連結與導覽。</p>
+    <p>這台 Jetson 的檢查輸出保存在 <a href="jetson-version.txt">版本快照</a>，驗收結果和限制保存在 <a href="baseline.md">基線紀錄</a>。換機或更新 JetPack 後重跑腳本，逐項比對版本和板型。</p>
+    <p class="muted">範圍：本章只建立工具與硬體資訊基線；沒有實作 kernel driver、修改 Device Tree、安裝 Yocto 或撰寫 STM32 firmware。</p>
+  </main>
+  <nav class="pagenav" aria-label="底部章節導覽"><a href="index.html">← 教材目錄</a><span>Step 1 / Phase 0</span></nav>
+</body>
+</html>

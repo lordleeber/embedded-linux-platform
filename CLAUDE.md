@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案現況
 
-這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。目前 repo **只有規劃文件**，還沒有任何程式碼、build system 或測試框架：
+這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本、測試、實機版本快照與第一章教材：
 
 - `ROADMAP.md` — 總覽、Phase 索引、共通 Step 規則（先讀這份）
 - `phase00.md` … `phase12.md` — 每個 Phase 的目的與 Step 詳細規劃
@@ -79,9 +79,10 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 
 ## 指令
 
-目前只有 `check_book.py` 已經放進 repo，其餘都還沒建立：
+目前已實作 Step 1 的指令，其餘功能尚未建立：
 
-- Host/target 環境檢查：`scripts/check_host_env.sh`（Step 1）
+- Jetson target 環境檢查：`bash scripts/check_host_env.sh`（Step 1）；更新快照用 `bash scripts/check_host_env.sh --record docs/jetson-version.txt`
+- Step 1 測試：`python3 -m unittest discover -s tests -v`
 - 教材全書驗收：`python3 scripts/check_book.py docs`（結束碼：0 = 通過、1 = 檢查沒過、2 = 環境或參數有問題）
 - Kernel module：在 `kernel/<name>/` 下 `make`，以 `insmod` / `rmmod` 載入卸載，觀察 `dmesg`
 - C++ userspace：CMake
