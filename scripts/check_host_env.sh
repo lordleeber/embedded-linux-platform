@@ -50,6 +50,7 @@ if [[ -r $root/proc/device-tree/model ]]; then
 fi
 [[ -n $model ]] || model='unavailable'
 headers=$root/lib/modules/$kernel/build
+has_headers() { [[ -d $headers ]]; }
 jetpack='unavailable (nvidia-jetpack package not installed or dpkg-query missing)'
 if command -v dpkg-query >/dev/null 2>&1; then
     version=$(dpkg-query -W -f='${Version}' nvidia-jetpack 2>/dev/null) || version=''
@@ -72,6 +73,11 @@ snapshot() {
     printf 'L4T: %s\n' "$l4t"
     printf 'JetPack package: %s\n' "$jetpack"
     printf 'Kernel headers path: %s\n' "$headers"
+    if has_headers; then
+        printf '%s\n' 'Kernel headers present: yes'
+    else
+        printf '%s\n' 'Kernel headers present: no'
+    fi
 }
 
 printf '%s\n' '== Jetson target =='
@@ -91,7 +97,6 @@ check() {
 available() { command -v "$1" >/dev/null 2>&1; }
 present() { [[ $1 != unavailable ]]; }
 nonempty() { [[ -n $1 ]]; }
-has_headers() { [[ -d $headers ]]; }
 
 printf '\n%s\n' '== Platform checks =='
 check 'board model' present "$model"

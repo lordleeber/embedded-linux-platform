@@ -60,7 +60,18 @@ class HostEnvTest(unittest.TestCase):
         snapshot = record.read_text()
         self.assertIn("Test Jetson Board", snapshot)
         self.assertIn("5.15.148-tegra", snapshot)
+        self.assertIn("Kernel headers present: yes", snapshot)
         self.assertNotIn("PASS", snapshot)
+
+    def test_record_marks_missing_kernel_headers(self):
+        (self.root / "lib/modules/5.15.148-tegra/build").rmdir()
+        record = self.root / "record.txt"
+        result = self.run_check("--record", str(record))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL kernel headers", result.stdout)
+        snapshot = record.read_text()
+        self.assertIn("Kernel headers path: ", snapshot)
+        self.assertIn("Kernel headers present: no", snapshot)
 
     def test_missing_l4t_and_board_fail(self):
         (self.root / "etc/nv_tegra_release").unlink()

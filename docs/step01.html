@@ -44,7 +44,7 @@ bash scripts/check_host_env.sh --record docs/jetson-version.txt</pre>
         <tr><td>Kernel headers</td><td><code>/lib/modules/$(uname -r)/build</code></td><td>下個 Step 編譯 kernel module 時使用。</td></tr>
       </tbody>
     </table>
-    <p class="note">目前的 headers 檢查只確認目錄存在。能否編譯並載入與正在執行的 kernel 相符的 module，要在 Step 2 實際驗證。</p>
+    <p class="note">快照會同時記錄 headers 路徑與 <code>Kernel headers present: yes/no</code>，避免缺失目錄仍看似可用。目前的檢查只確認目錄存在。能否編譯並載入與正在執行的 kernel 相符的 module，要在 Step 2 實際驗證。</p>
 
     <h2>3. 接線先記錄，之後再驗證</h2>
     <p>本 Step 執行時硬體尚未接線。<a href="hardware-wiring.md">接線表</a>先列出 INA219、OLED、LED、STM32 和 IMX219 的訊號與待填欄位。接線時要逐一填入 Jetson 40-pin header 的實體 pin、Linux controller 或 bus、電壓、對端 pin 和驗證方式。header pin 號不能直接當 Linux GPIO 編號；電壓和共地也必須先核對。實際 bus 掃描留在後續對應的 Step。</p>
@@ -52,7 +52,7 @@ bash scripts/check_host_env.sh --record docs/jetson-version.txt</pre>
     <h2>4. 驗收與重現</h2>
     <pre>python3 -m unittest discover -s tests -v
 python3 scripts/check_book.py docs</pre>
-    <p>四個測試用模擬的 Jetson 資料與工具路徑驗證：全部可用時回傳 0；缺 <code>dtc</code> 時明確回報失敗；缺 <code>v4l2-ctl</code> 時仍可留下平台快照；缺板型與 L4T 資料時也會失敗。教材檢查會核對本章連結與導覽。</p>
+    <p>五個測試用模擬的 Jetson 資料與工具路徑驗證：全部可用時回傳 0；缺 <code>dtc</code> 時明確回報失敗；缺 <code>v4l2-ctl</code> 時仍可留下平台快照；缺板型與 L4T 資料時也會失敗；缺 headers 目錄時快照明確記錄 <code>no</code>。教材檢查會核對本章連結與導覽。</p>
     <p>這台 Jetson 的檢查輸出保存在 <a href="jetson-version.txt">版本快照</a>，驗收結果和限制保存在 <a href="baseline.md">基線紀錄</a>。換機或更新 JetPack 後重跑腳本，逐項比對版本和板型。</p>
     <p class="muted">範圍：本章只建立工具與硬體資訊基線；沒有實作 kernel driver、修改 Device Tree、安裝 Yocto 或撰寫 STM32 firmware。</p>
   </main>
