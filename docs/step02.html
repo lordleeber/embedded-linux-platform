@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 2　最小 character device — Embedded Linux Platform</title>
+<style id="inline-style">
+/* ============================================================
+   repo → HTML 教材 — 共用樣式表（深色主題，通用樣板）
+   completed-repo-to-html-textbook 與 incremental-html-textbook 兩個 skill
+   共用這一份（唯一來源）。class 名稱是與章節骨架的契約，不可改名。
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #10141a;
+  --bg-panel: #161c24;
+  --fg: #dde5ec;
+  --muted: #93a1af;
+  --accent: #58a6ff;
+  --accent-2: #79c0ff;
+  --accent-warm: #e3b341;
+  --link: #58a6ff;
+  --link-visited: #b0a3e8;
+  --hairline: #2b3540;
+
+  --code-bg: #171d25;
+  --code-border: #2b3540;
+  --code-fg: #d6dee6;
+
+  --shell-bg: #0a0e12;
+  --shell-fg: #c8d6e0;
+
+  --note-bg: #142433;
+  --note-border: #3a6ea5;
+  --warn-bg: #2d2416;
+  --warn-border: #b08834;
+  --lab-bg: #14281a;
+  --lab-border: #3f7d4e;
+  --recap-bg: #211b31;
+  --recap-border: #7458b5;
+
+  --ok: #4ac26b;
+  --bad: #ff7b72;
+
+  --table-head-bg: #1b2330;
+  --kbd-bg: #232b36;
+
+  /* syntax highlight tokens */
+  --tok-kw: #79b8ff;
+  --tok-type: #66d4cf;
+  --tok-str: #a5d691;
+  --tok-num: #e0b76e;
+  --tok-cmt: #7d8b99;
+  --tok-pre: #d2a8ff;
+  --tok-fn: #dcbdfb;
+  --sh-prompt: #58d68d;
+  --sh-cmd: #eaf1f8;
+  --sh-out: #94a6b5;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+  /* 1080px. Wider than the 50-70 character prose convention on purpose: these
+     pages are not prose. They carry terminal output, generated dependency
+     lists and other long unwrappable lines, wide tables, and mechanism figures
+     drawn on a viewBox="0 0 900 H" grid -- all of which are forced to scroll or
+     shrink at the ~832px this used to be. Matches the incremental-html-textbook
+     sibling, so a reader moving between the two books sees one layout.
+
+     Knock-on effect: a figure at width:100% now scales up about 1.2x, so a 13px
+     .s-lbl renders near 15.6px, close to body text. That has been read and
+     accepted. If one page's figures look too heavy for it, cap that page with
+     figure.fig svg { max-width: 900px; margin: 0 auto; } -- do not narrow the
+     page back, or the long-line problem returns. */
+  max-width: 67.5rem;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(88, 166, 255, 0.07), transparent 60%),
+    var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+    "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.95;
+}
+
+::selection { background: rgba(88, 166, 255, 0.35); }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:visited { color: var(--link-visited); }
+
+/* ---------- 捲軸 ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #2e3947; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #3b485a; }
+
+/* ---------- 導覽列 ---------- */
+nav.chapnav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 1.25rem;
+  padding: 0.85rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 0.95rem;
+  background: rgba(16, 20, 26, 0.88);
+  backdrop-filter: blur(8px);
+}
+nav.chapnav.bottom {
+  position: static;
+  border-bottom: none;
+  border-top: 1px solid var(--hairline);
+  margin-top: 3rem;
+  background: none;
+  backdrop-filter: none;
+}
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav a { color: var(--muted); }
+nav.chapnav a:hover { color: var(--accent); text-decoration: none; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.55; }
+
+/* ---------- 章首 ---------- */
+header.chap-header {
+  margin: 2.5rem 0 2.5rem;
+  padding: 1.6rem 1.8rem;
+  background: linear-gradient(135deg, rgba(88, 166, 255, 0.10), rgba(88, 166, 255, 0.02) 55%), var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+}
+header.chap-header .book-title {
+  margin: 0 0 0.5rem;
+  color: var(--accent-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+header.chap-header h1 {
+  margin: 0 0 0.9rem;
+  font-size: 1.85rem;
+  line-height: 1.4;
+  color: #eef4fa;
+}
+header.chap-header .chap-lead {
+  color: var(--muted);
+  font-size: 1rem;
+  margin: 0;
+}
+
+/* ---------- 本章目錄（JS 自動生成） ---------- */
+.toc-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 0.9rem 1.3rem;
+  margin: 0 0 2rem;
+  font-size: 0.93rem;
+}
+.toc-box .toc-box-title {
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  margin: 0 0 0.4rem;
+}
+.toc-box ol { margin: 0; padding-left: 1.4rem; }
+.toc-box li { margin: 0.1rem 0; }
+
+/* ---------- 標題 ---------- */
+h1, h2, h3, h4 { line-height: 1.5; font-weight: 650; }
+h2 {
+  margin: 3rem 0 1.2rem;
+  padding: 0.15rem 0 0.15rem 0.85rem;
+  font-size: 1.42rem;
+  color: #e8f0f8;
+  border-left: 4px solid var(--accent);
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 0.45rem;
+}
+h3 { margin: 2.2rem 0 0.9rem; font-size: 1.16rem; color: var(--accent-2); }
+h4 { margin: 1.6rem 0 0.7rem; font-size: 1.02rem; }
+
+h2:target, h3:target { animation: flash 1.6s ease-out 1; }
+@keyframes flash {
+  0% { background: rgba(88, 166, 255, 0.25); }
+  100% { background: transparent; }
+}
+
+p { margin: 0 0 1.1rem; }
+ul, ol { margin: 0 0 1.1rem; padding-left: 1.6rem; }
+li { margin-bottom: 0.35rem; }
+strong { font-weight: 700; color: #f0f6fc; }
+
+hr { border: none; border-top: 1px solid var(--hairline); margin: 2.5rem 0; }
+
+/* ---------- 程式碼 ---------- */
+code, kbd, pre {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", "Noto Sans Mono CJK TC", monospace;
+}
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0.08em 0.35em;
+  font-size: 0.86em;
+  color: var(--accent-2);
+}
+kbd {
+  background: var(--kbd-bg);
+  border: 1px solid var(--hairline);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+  font-size: 0.82em;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 0 0 1.2rem;
+  overflow-x: auto;
+  line-height: 1.6;
+  font-size: 0.85rem;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--code-fg);
+}
+
+/* 語法上色 token（由 JS 標注；C 與 GAS 組語 pre.asm 共用同一組） */
+.tok-kw  { color: var(--tok-kw); font-weight: 600; }
+.tok-type{ color: var(--tok-type); }
+.tok-str { color: var(--tok-str); }
+.tok-num { color: var(--tok-num); }
+.tok-cmt { color: var(--tok-cmt); font-style: italic; }
+.tok-pre { color: var(--tok-pre); }
+.tok-fn  { color: var(--tok-fn); }
+
+/* 行級強調（<pre data-hot="3,5-7">，由 JS 包 span）：把讀者的眼睛
+   釘在教學重點行上。原始碼在 HTML source 保持純文字，逐字 diff 不受影響。 */
+.hot-line {
+  display: inline-block;
+  width: 100%;
+  background: rgba(227, 179, 65, 0.13);
+  border-left: 3px solid var(--accent-warm);
+  margin-left: -1.1rem;
+  padding-left: calc(1.1rem - 3px);
+}
+
+/* 終端機指令 */
+pre.shell {
+  background: var(--shell-bg);
+  color: var(--sh-out);
+  border-color: #1d2733;
+}
+pre.shell .sh-prompt { color: var(--sh-prompt); font-weight: 700; }
+pre.shell .sh-cmd { color: var(--sh-cmd); }
+pre.shell .sh-cmt { color: var(--tok-cmt); font-style: italic; }
+/* 「要讀者貼上執行」的指令塊：加 cmd，與輸出塊分得開，指令才數得出來。 */
+pre.shell.cmd { border-left: 3px solid var(--accent); }
+pre.shell.cmd::before {
+  content: "貼上執行";
+  display: block;
+  font-family: system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+
+/* ASCII 結構圖 */
+pre.diagram {
+  background: linear-gradient(180deg, rgba(88, 166, 255, 0.05), transparent 40%), var(--code-bg);
+  border-style: dashed;
+  line-height: 1.45;
+  color: #b9c9d8;
+}
+
+/* 標注版終端輸出：pre 內寫 «N»（JS 轉成圓形標記），下方 ol.notes 逐點對照。
+   「實測輸出逐行解讀」是驗證章的招牌元件。 */
+.mk {
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  padding: 0 0.45em;
+  font-weight: 700;
+}
+pre .mk { margin-left: 0.5em; }
+ol.notes { font-size: 0.9rem; list-style: none; padding-left: 0; }
+ol.notes li { margin: 0.45rem 0; padding-left: 1.8em; text-indent: -1.8em; }
+ol.notes .mk { margin-right: 0.5em; }
+
+/* 圖例（建議全書統一「色彩 = 執行者」語意，例如 CPU／組語／C／外部硬體） */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.7rem 0 0;
+}
+.legend i {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 3px;
+  vertical-align: -0.08em;
+  margin-right: 0.4em;
+  font-style: normal;
+}
+
+/* 手繪 inline SVG 圖（契約與畫法見 assets/svg-figures.md） */
+figure.fig {
+  margin: 0 0 1.4rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 1rem 1rem 0.6rem;
+  overflow-x: auto;
+}
+figure.fig svg { display: block; width: 100%; height: auto; min-width: 520px; }
+figure.fig figcaption {
+  margin-top: 0.7rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.s-lbl  { fill: var(--fg);    font-size: 13px;   font-family: inherit; }
+.s-sm   { fill: var(--muted); font-size: 11.5px; font-family: inherit; }
+.s-mono { fill: var(--muted); font-size: 11.5px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.s-box  { fill: var(--code-bg); stroke: var(--hairline); stroke-width: 1.5; }
+/* 圖內關鍵字／短程式碼片段。fill 一定要寫：SVG 沒有繼承 color，
+   沒寫就吃預設的黑色，在深色底上等於隱形。 */
+.s-key  { fill: var(--fg);    font-size: 12.5px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+/* 公式／定義塊 */
+.eq {
+  background: var(--shell-bg);
+  border: 1px solid var(--code-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.75rem 1.1rem;
+  margin: 0 0 1.2rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  color: var(--code-fg);
+  overflow-x: auto;
+}
+
+/* 並排小卡（術語群、對照組） */
+.cardgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.9rem; margin: 0 0 1.4rem; }
+.cardgrid .card { background: var(--bg-panel); border: 1px solid var(--hairline); border-radius: 8px; padding: 0.8rem 1rem; }
+.cardgrid .card h4 { margin: 0 0 0.3rem; font-size: 0.95rem; color: var(--accent-warm); }
+.cardgrid .card p { margin: 0.2rem 0; font-size: 0.88rem; color: var(--muted); }
+
+/* 原始碼列表（含出處標註） */
+figure.listing { margin: 0 0 1.4rem; }
+figure.listing figcaption {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--accent-2);
+  background: #1d2530;
+  border: 1px solid var(--code-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 1.1rem;
+}
+figure.listing figcaption::before { content: "◈ "; color: var(--accent); }
+figure.listing pre {
+  margin-bottom: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* ---------- 表格 ---------- */
+.tablewrap { overflow-x: auto; margin: 0 0 1.4rem; border-radius: 8px; border: 1px solid var(--hairline); }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+th, td {
+  border: 1px solid var(--hairline);
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.tablewrap table { margin: 0; }
+.tablewrap th, .tablewrap td { border-left: none; border-right: none; }
+th {
+  background: var(--table-head-bg);
+  font-weight: 650;
+  color: var(--accent-2);
+  border-bottom: 2px solid var(--accent);
+}
+tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.025); }
+tbody tr:hover { background: rgba(88, 166, 255, 0.06); }
+
+/* ---------- 提示框 ---------- */
+.note, .warn, .lab, .recap {
+  border: 1px solid;
+  border-left-width: 4px;
+  border-radius: 0 10px 10px 0;
+  padding: 0.9rem 1.2rem;
+  margin: 0 0 1.4rem;
+}
+.note  { background: var(--note-bg);  border-color: var(--note-border); }
+.warn  { background: var(--warn-bg);  border-color: var(--warn-border); }
+.lab   { background: var(--lab-bg);   border-color: var(--lab-border); }
+.recap { background: var(--recap-bg); border-color: var(--recap-border); }
+
+.note > :first-child, .warn > :first-child,
+.lab > :first-child, .recap > :first-child { margin-top: 0; }
+.note > :last-child, .warn > :last-child,
+.lab > :last-child, .recap > :last-child { margin-bottom: 0; }
+
+.note h4, .warn h4, .lab h4, .recap h4 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+.note h4::before  { content: "💡 "; }
+.warn h4::before  { content: "⚠️ "; }
+.lab h4::before   { content: "🧪 "; }
+.recap h4::before { content: "📌 "; }
+
+/* ---------- 自我測驗 ---------- */
+details.quiz {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 0.7rem 1.1rem;
+  margin: 0 0 0.9rem;
+  background: var(--bg-panel);
+}
+details.quiz summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.7;
+}
+details.quiz summary::marker { color: var(--accent); }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz[open] summary { margin-bottom: 0.6rem; }
+
+/* ---------- 隨 PR 共生章（incremental-html-textbook）的元件 ----------
+   取自該 skill 實戰寫成的書，改成本表的深色 token。批次成書也可以用。 */
+
+/* hero：step 徽章、導言、meta、動到的檔案 chips */
+.hero { margin: 1.5rem 0 2rem; }
+.badge {
+  display: inline-block;
+  background: var(--ok);
+  color: var(--bg);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  margin-bottom: 0.6rem;
+}
+.hero h1 { margin: 0.2rem 0 0.6rem; font-size: 1.9rem; line-height: 1.4; }
+.lead { font-size: 1.05rem; color: var(--fg); }
+.meta { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+.meta span + span::before { content: " · "; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 1rem 0; }
+.chip {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  background: var(--bg-panel);
+  color: var(--muted);
+}
+.chip.new { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.chip.new::before { content: "+ "; }
+
+/* 散文裡的語意強調色：只掛在既有 <b> 上，多數 <b> 維持不上色 */
+b.hl-ok  { color: var(--ok); }      /* 驗證通過／修好了／正向結果 */
+b.hl-bad { color: var(--bad); }     /* 缺陷／錯誤／反例／警告 */
+b.hl-key { color: var(--accent); }  /* 貫穿全章的關鍵詞或核心主張 */
+
+/* 常見錯誤格網：每格「症狀 → 後果 → 正解」 */
+.pitfalls {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 1rem 0 1.4rem;
+}
+.pit {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: var(--bg-panel);
+}
+.pit h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.pit dl { margin: 0; font-size: 0.9rem; }
+.pit dt { font-weight: 600; color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+/* 判準清單：li.pass / li.partial / li.fail */
+ul.criteria { list-style: none; padding-left: 0; }
+ul.criteria li { margin: 0.5rem 0; padding-left: 1.9rem; text-indent: -1.9rem; }
+ul.criteria li::before { display: inline-block; width: 1.9rem; text-indent: 0; }
+li.pass::before    { content: "✅"; }
+li.partial::before { content: "⚠"; }
+li.fail::before    { content: "❌"; }
+
+/* 「你可能以為要自己做／實際上」兩欄表 */
+table.twocol td:first-child { color: var(--muted); width: 42%; }
+table.twocol td:last-child  { color: var(--fg); }
+
+/* 導讀卡：hero 之後、正文之前，先給一個站得住的全貌 */
+.tldr {
+  border: 1px solid var(--hairline);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-panel);
+  padding: 1rem 1.15rem 0.9rem;
+  margin: 1.5rem 0 2.25rem;
+}
+.tldr .tag { display: inline-block; font-size: 0.72rem; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; }
+.tldr .one { font-size: 1.12rem; font-weight: 600; margin: 0.35rem 0 1rem; }
+.tldr h3 { margin: 1.15rem 0 0.35rem; font-size: 0.92rem; color: var(--muted); }
+.tldr ul { margin: 0.35rem 0; padding-left: 1.25rem; }
+.tldr li { margin: 0.28rem 0; }
+
+/* 專案位置條：已完成／這一步／之後 */
+.where { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0 0.2rem; }
+.where span {
+  font-size: 0.82rem;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  padding: 0.18rem 0.55rem;
+  background: var(--bg);
+  color: var(--muted);
+}
+.where span.now { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 700; }
+.where i { color: var(--muted); font-style: normal; }
+
+/* ---------- 目錄頁 ---------- */
+ol.toc { list-style: none; padding: 0; counter-reset: chap; }
+ol.toc > li {
+  border-bottom: 1px solid var(--hairline);
+  padding: 0.85rem 0.2rem;
+  margin: 0;
+}
+ol.toc > li:hover { background: rgba(88, 166, 255, 0.05); }
+ol.toc .toc-title { font-weight: 650; font-size: 1.05rem; }
+ol.toc .toc-desc { color: var(--muted); font-size: 0.92rem; margin: 0.15rem 0 0; }
+
+/* ---------- 頁尾 ---------- */
+footer.chap-footer {
+  margin-top: 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media print {
+  nav.chapnav { display: none; }
+  body { max-width: none; }
+}
+
+</style>
+<style>
+  /* 本書的「色彩 = 執行者」：userspace / kernel 核心 / 我們的 driver / 資料 */
+  :root { --c-user: #79c0ff; --c-kern: #b0a3e8; --c-drv: #e3b341; --c-data: #4ac26b; }
+  .s-arrow { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .s-back  { stroke: var(--muted); stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<nav class="chapnav"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+<header class="hero">
+  <span class="badge">STEP 2 · PHASE 1</span>
+  <h1>最小 character device：<code>/dev/edge_test</code></h1>
+  <p class="lead">寫第一個 kernel module。它在 <code>/dev</code> 底下長出一個裝置節點，背後是一塊 256 bytes 的 kernel buffer：<code>echo</code> 寫進去、<code>cat</code> 讀出來。這一章要看懂的是：userspace 一個普通的 <code>write()</code>，怎麼一路走進你自己寫的 kernel function。</p>
+  <div class="chips"><span class="chip new">kernel/edge_test/edge_test.c</span><span class="chip new">kernel/edge_test/Makefile</span><span class="chip new">kernel/edge_test/load.sh</span><span class="chip new">kernel/edge_test/unload.sh</span><span class="chip new">kernel/edge_test/README.md</span><span class="chip new">scripts/verify_edge_test.sh</span><span class="chip new">tests/test_edge_test_device.py</span><span class="chip">docs/baseline.md</span></div>
+  <div class="where"><span>Step 1 環境基線</span><i>→</i><span class="now">Step 2 character device</span><i>→</i><span>Step 3 ioctl + C++ client</span><i>→</i><span>Step 4 GPIO / LED</span></div>
+</header>
+<main>
+
+<div class="tldr">
+  <span class="tag">一句話</span>
+  <p class="one">character device 就是 kernel 借用「檔案」這個介面：userspace 照常 <code>open/read/write</code>，VFS 依裝置號碼把呼叫轉給 driver 登記的 <code>file_operations</code>。</p>
+  <h3>這一章的互動雙方</h3>
+  <ul>
+    <li><b>呼叫端</b>：userspace 程式（<code>echo</code>、<code>cat</code>、Python 測試）。<b>被呼叫端</b>：<code>edge_test.ko</code>。中間經過 system call 和 VFS。</li>
+    <li>沒有外接硬體，也沒有 bus 上的 controller / target——資料只在 userspace 記憶體和 kernel 記憶體之間搬。</li>
+    <li>這一步<b>不做</b>：ioctl（Step 3）、interrupt、任何真實硬體控制。</li>
+  </ul>
+</div>
+
+<div class="cardgrid">
+  <div class="card"><h4>.ko / insmod / rmmod</h4><p><code>.ko</code>（kernel object）是編好的 kernel module，相當於可以在系統執行中插進 kernel 的一段程式。<code>insmod edge_test.ko</code> 載入它並呼叫它的初始化函式；<code>rmmod edge_test</code> 呼叫它的結束函式後卸載。兩者都要 root。</p></div>
+  <div class="card"><h4>VFS</h4><p>Virtual File System：kernel 裡處理所有「檔案」操作的那一層。不管背後是 ext4 的檔案、pipe 還是裝置，<code>read()</code>/<code>write()</code> 都先到 VFS，再由它轉給真正負責的程式碼。</p></div>
+  <div class="card"><h4>file_operations</h4><p>一個裝滿函式指標的 struct：「有人對這個檔案 open / read / write 時，請呼叫這些函式」。driver 填好一張，登記給 kernel。</p></div>
+  <div class="card"><h4>devtmpfs / uevent / udev</h4><p>devtmpfs 是掛在 <code>/dev</code> 的記憶體檔案系統，kernel 每登記一個裝置就在裡面建節點。同時 kernel 送出 uevent（「有新裝置」的通知），userspace 的 udev 收到後可依規則（udev rule）再調整權限、群組或建立別名。</p></div>
+  <div class="card"><h4>class 與 /sys/class</h4><p>class 是 kernel 的裝置分類（例如 <code>tty</code>、<code>input</code>），會出現在 <code>/sys/class/&lt;名稱&gt;/</code>。<code>device_create()</code> 要掛在某個 class 底下，devtmpfs 才會替它建 <code>/dev</code> 節點。</p></div>
+  <div class="card"><h4>dmesg 與 Oops</h4><p><code>dmesg</code> 印出 kernel 的 log；module 裡的 <code>pr_info()</code> 就寫到這裡。Oops / BUG / WARNING 是 kernel 偵測到自己出錯時印的訊息，driver 寫壞了常會在這裡看到。</p></div>
+</div>
+
+<h2 id="why">2.1　為什麼需要這一步</h2>
+<p>後面每一個 driver——GPIO、INA219、OLED、STM32 的 SPI 通道——最後都要給 userspace 一個入口。最原始、也最直接的入口就是 <code>/dev</code> 底下的 character device。先用一個<b>完全不碰硬體</b>的 driver 把這條路走通，之後換成真的硬體時，出問題就能分得清是「入口沒接好」還是「硬體沒回應」。</p>
+<p>這一步同時收掉 Step 1 留下的一個未驗證項目：Step 1 只確認了 <code>/lib/modules/$(uname -r)/build</code> 目錄存在。這次真的用它編出 module 並載入成功，才算證明 headers 和正在跑的 kernel 對得上。</p>
+
+<h2 id="journey">2.2　全景：一次 <code>echo hello</code> 的旅程</h2>
+<figure class="fig">
+<svg viewBox="0 0 900 250" role="img" aria-label="write 從 userspace 經 system call、VFS 到 edge_test_write 再存入 kernel buffer，read 走反方向">
+  <defs>
+    <marker id="ar2a" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+    <marker id="ar2b" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--muted)"/></marker>
+  </defs>
+  <text class="s-sm" x="10" y="40">write 路徑 →</text>
+  <rect x="10" y="60" width="130" height="120" rx="10" class="s-box" style="stroke:var(--c-user)"/>
+  <text class="s-lbl" x="75" y="92" text-anchor="middle" font-weight="700">userspace</text>
+  <text class="s-key" x="75" y="122" text-anchor="middle">echo hello &gt;</text>
+  <text class="s-key" x="75" y="152" text-anchor="middle">cat</text>
+
+  <rect x="170" y="60" width="130" height="120" rx="10" class="s-box" style="stroke:var(--c-kern)"/>
+  <text class="s-lbl" x="235" y="92" text-anchor="middle" font-weight="700">system call</text>
+  <text class="s-key" x="235" y="122" text-anchor="middle">write(2)</text>
+  <text class="s-key" x="235" y="152" text-anchor="middle">read(2)</text>
+
+  <rect x="330" y="60" width="150" height="120" rx="10" class="s-box" style="stroke:var(--c-kern)"/>
+  <text class="s-lbl" x="405" y="92" text-anchor="middle" font-weight="700">VFS</text>
+  <text class="s-key" x="405" y="122" text-anchor="middle">f_op-&gt;write</text>
+  <text class="s-key" x="405" y="152" text-anchor="middle">f_op-&gt;read</text>
+
+  <a href="#write"><rect x="510" y="60" width="190" height="120" rx="10" class="s-box" style="stroke:var(--c-drv)"/>
+  <text class="s-lbl" x="605" y="92" text-anchor="middle" font-weight="700">edge_test driver</text>
+  <text class="s-key" x="605" y="122" text-anchor="middle">edge_test_write()</text>
+  <text class="s-key" x="605" y="152" text-anchor="middle">edge_test_read()</text></a>
+
+  <rect x="730" y="60" width="160" height="120" rx="10" class="s-box" style="stroke:var(--c-data)"/>
+  <text class="s-lbl" x="810" y="92" text-anchor="middle" font-weight="700">kernel buffer</text>
+  <text class="s-key" x="810" y="122" text-anchor="middle">edge_test_buf</text>
+  <text class="s-sm" x="810" y="152" text-anchor="middle">256 bytes</text>
+
+  <line x1="142" y1="105" x2="166" y2="105" class="s-arrow" marker-end="url(#ar2a)"/>
+  <line x1="302" y1="105" x2="326" y2="105" class="s-arrow" marker-end="url(#ar2a)"/>
+  <line x1="482" y1="105" x2="506" y2="105" class="s-arrow" marker-end="url(#ar2a)"/>
+  <line x1="702" y1="105" x2="726" y2="105" class="s-arrow" marker-end="url(#ar2a)"/>
+  <line x1="168" y1="140" x2="144" y2="140" class="s-back" marker-end="url(#ar2b)"/>
+  <line x1="328" y1="140" x2="304" y2="140" class="s-back" marker-end="url(#ar2b)"/>
+  <line x1="508" y1="140" x2="484" y2="140" class="s-back" marker-end="url(#ar2b)"/>
+  <line x1="728" y1="140" x2="704" y2="140" class="s-back" marker-end="url(#ar2b)"/>
+
+  <text class="s-sm" x="605" y="205" text-anchor="middle">寫：copy_from_user() → tmp → memcpy</text>
+  <text class="s-sm" x="605" y="225" text-anchor="middle">讀：copy_to_user()</text>
+  <text class="s-sm" x="890" y="40" text-anchor="end">← read 路徑（虛線）</text>
+</svg>
+<figcaption>圖 2.1 — userspace 從頭到尾只看到「一個檔案」；是 VFS 依 <code>/dev/edge_test</code> 的裝置號碼，把 <code>write()</code> 轉給我們登記的函式。跨越 user/kernel 邊界的那一下只發生在 <code>copy_from_user()</code> / <code>copy_to_user()</code>。</figcaption>
+</figure>
+<div class="legend"><span><i style="background:var(--c-user)"></i>userspace 程式</span><span><i style="background:var(--c-kern)"></i>kernel 核心（syscall / VFS / devtmpfs）</span><span><i style="background:var(--c-drv)"></i>我們寫的 driver</span><span><i style="background:var(--c-data)"></i>資料存放處</span></div>
+
+<p>為什麼 VFS 知道要呼叫 <code>edge_test_write()</code>？因為 <code>/dev/edge_test</code> 這個節點本身只記錄一組號碼：<b class="hl-key">major / minor</b>。開檔時 kernel 用這組號碼查到我們在 <code>insmod</code> 時登記的 <code>struct cdev</code>，再從 cdev 拿到 <code>file_operations</code> 表。這張表在 <code>edge_test.c</code> 裡長這樣：</p>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:103–109 — 全景圖裡 f_op 指向的那張表</figcaption>
+<pre data-hot="107-108">static const struct file_operations edge_test_fops = {
+	.owner		= THIS_MODULE,
+	.open		= edge_test_open,
+	.release	= edge_test_release,
+	.read		= edge_test_read,
+	.write		= edge_test_write,
+};</pre></figure>
+<p>圖 2.1 的 <code>f_op-&gt;write</code> 就是這裡的 <code>.write</code> 欄位，指向 <code>edge_test_write</code>。<code>release</code> 是最後一個使用者 <code>close()</code> 時呼叫的。沒填的欄位（例如 <code>ioctl</code>）是 NULL，VFS 會替你回錯誤。<code>THIS_MODULE</code> 指向這個 module 自己：只要還有人開著 <code>/dev/edge_test</code>，kernel 就不讓 <code>rmmod</code> 卸掉它，免得呼叫到已經不存在的函式。下一節講這張表怎麼登記上去。</p>
+
+<h2 id="register">2.3　註冊：<code>insmod</code> 時建立四樣東西</h2>
+<figure class="fig">
+<svg viewBox="0 0 900 230" role="img" aria-label="insmod 依序呼叫 alloc_chrdev_region、cdev_add、class_create、device_create；rmmod 與錯誤路徑反向拆除">
+  <defs>
+    <marker id="ar2c" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+    <marker id="ar2d" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--muted)"/></marker>
+  </defs>
+  <text class="s-sm" x="25" y="30">insmod：module_init 依序建立 →</text>
+  <rect x="25" y="45" width="190" height="110" rx="10" class="s-box" style="stroke:var(--c-drv)"/>
+  <text class="s-key" x="120" y="75" text-anchor="middle">alloc_chrdev_region</text>
+  <text class="s-sm" x="120" y="103" text-anchor="middle">向 kernel 要一組號碼</text>
+  <text class="s-sm" x="120" y="128" text-anchor="middle">→ /proc/devices</text>
+
+  <rect x="245" y="45" width="190" height="110" rx="10" class="s-box" style="stroke:var(--c-drv)"/>
+  <text class="s-key" x="340" y="75" text-anchor="middle">cdev_init / cdev_add</text>
+  <text class="s-sm" x="340" y="103" text-anchor="middle">號碼 ↔ fops 綁在一起</text>
+  <text class="s-sm" x="340" y="128" text-anchor="middle">從這刻起可被 open</text>
+
+  <rect x="465" y="45" width="190" height="110" rx="10" class="s-box" style="stroke:var(--c-drv)"/>
+  <text class="s-key" x="560" y="75" text-anchor="middle">class_create</text>
+  <text class="s-sm" x="560" y="103" text-anchor="middle">建立裝置分類</text>
+  <text class="s-sm" x="560" y="128" text-anchor="middle">→ /sys/class/edge_test</text>
+
+  <rect x="685" y="45" width="190" height="110" rx="10" class="s-box" style="stroke:var(--c-kern)"/>
+  <text class="s-key" x="780" y="75" text-anchor="middle">device_create</text>
+  <text class="s-sm" x="780" y="103" text-anchor="middle">devtmpfs 長出節點</text>
+  <text class="s-sm" x="780" y="128" text-anchor="middle">→ /dev/edge_test</text>
+
+  <line x1="217" y1="90" x2="241" y2="90" class="s-arrow" marker-end="url(#ar2c)"/>
+  <line x1="437" y1="90" x2="461" y2="90" class="s-arrow" marker-end="url(#ar2c)"/>
+  <line x1="657" y1="90" x2="681" y2="90" class="s-arrow" marker-end="url(#ar2c)"/>
+  <line x1="860" y1="185" x2="40" y2="185" class="s-back" marker-end="url(#ar2d)"/>
+  <text class="s-sm" x="450" y="212" text-anchor="middle">rmmod（module_exit）與 init 中途失敗的 goto 路徑：從右往左，反向拆除</text>
+</svg>
+<figcaption>圖 2.2 — 四步各自留下一個看得到的痕跡（<code>/proc/devices</code>、<code>/sys/class</code>、<code>/dev</code>），驗收腳本就是逐一檢查這些痕跡在 load 後出現、unload 後消失。</figcaption>
+</figure>
+
+<p>先看 module 怎麼編出來。kernel module 不是用一般的 <code>gcc</code> 指令編，而是交給 kernel 自己的建置系統（kbuild）：</p>
+<figure class="listing"><figcaption>kernel/edge_test/Makefile:1–14 — 借用 headers 裡的 kbuild 編譯</figcaption>
+<pre data-hot="4,6,9"># Out-of-tree build against the running kernel's headers.
+#   make            build edge_test.ko
+#   make clean      remove build products
+obj-m := edge_test.o
+
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
+all:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
+
+.PHONY: all clean</pre></figure>
+<p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」。第 9 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是「編譯 / 連結一個 module 檔」。<code>load.sh</code> 與 <code>unload.sh</code> 各只有一行實際動作：<code>insmod</code> 這個目錄下的 <code>edge_test.ko</code>、<code>rmmod edge_test</code>。</p>
+<p>kernel 怎麼知道載入時要呼叫哪個函式？靠檔尾這兩行：</p>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:160–170 — 卸載函式與進入點登記</figcaption>
+<pre data-hot="169-170">static void __exit edge_test_exit(void)
+{
+	device_destroy(edge_test_class, edge_test_devt);
+	class_destroy(edge_test_class);
+	cdev_del(&amp;edge_test_cdev);
+	unregister_chrdev_region(edge_test_devt, 1);
+	pr_info("edge_test: unregistered\n");
+}
+
+module_init(edge_test_init);
+module_exit(edge_test_exit);</pre></figure>
+<p><code>module_init()</code> / <code>module_exit()</code> 把函式登記成 <code>insmod</code> / <code>rmmod</code> 時的進入點。<code>__init</code> 標記的函式只在載入時用一次，之後那段記憶體可以回收；<code>__exit</code> 同理是卸載專用。初始化函式回傳 0 代表成功，回傳負的錯誤碼則 <code>insmod</code> 失敗、module 不會留下來。</p>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:119–158 — module_init 與錯誤時的反向拆除</figcaption>
+<pre data-hot="123,129,133,138,140,151-156">static int __init edge_test_init(void)
+{
+	int ret;
+
+	ret = alloc_chrdev_region(&amp;edge_test_devt, 0, 1, EDGE_TEST_NAME);
+	if (ret)
+		return ret;
+
+	cdev_init(&amp;edge_test_cdev, &amp;edge_test_fops);
+	edge_test_cdev.owner = THIS_MODULE;
+	ret = cdev_add(&amp;edge_test_cdev, edge_test_devt, 1);
+	if (ret)
+		goto err_region;
+
+	edge_test_class = class_create(THIS_MODULE, EDGE_TEST_NAME);
+	if (IS_ERR(edge_test_class)) {
+		ret = PTR_ERR(edge_test_class);
+		goto err_cdev;
+	}
+	edge_test_class-&gt;devnode = edge_test_devnode;
+
+	edge_test_device = device_create(edge_test_class, NULL, edge_test_devt,
+					 NULL, EDGE_TEST_NAME);
+	if (IS_ERR(edge_test_device)) {
+		ret = PTR_ERR(edge_test_device);
+		goto err_class;
+	}
+
+	pr_info("edge_test: registered /dev/%s (major %d, minor %d)\n",
+		EDGE_TEST_NAME, MAJOR(edge_test_devt), MINOR(edge_test_devt));
+	return 0;
+
+err_class:
+	class_destroy(edge_test_class);
+err_cdev:
+	cdev_del(&amp;edge_test_cdev);
+err_region:
+	unregister_chrdev_region(edge_test_devt, 1);
+	return ret;
+}</pre></figure>
+<p>kernel 慣例裡，函式失敗時回傳<b>負的 errno</b>（例如 <code>-ENOMEM</code>），成功回 0。回傳 pointer 的函式則把錯誤碼塞進 pointer 本身：<code>IS_ERR(p)</code> 判斷它是不是錯誤，<code>PTR_ERR(p)</code> 取出錯誤碼。所以這裡不是檢查 NULL。</p>
+<ul>
+  <li><b>動態號碼</b>：<code>alloc_chrdev_region()</code> 讓 kernel 挑一個沒人用的 major，不用自己猜一個號碼去撞別人。代價是號碼每台機器、每次開機可能不同，所以驗收腳本不寫死 major，而是比對 <code>/proc/devices</code> 和節點兩邊是否一致。</li>
+  <li><b>節點不用自己 <code>mknod</code></b>：<code>device_create()</code> 會送出 uevent，devtmpfs 立刻建出 <code>/dev/edge_test</code>。很多舊教學要你手動 <code>mknod</code>，那是因為它們沒建 class/device。</li>
+  <li><b class="hl-key">goto 反向拆除</b>：每一步失敗都跳到「拆掉前面已建好的東西」的標籤，順序剛好和建立相反。<code>edge_test_exit()</code> 也是同一個順序。少拆一步的後果是殘留：下次 <code>insmod</code> 可能因為名字已存在而失敗（這一點是推論，本 step 沒有刻意製造 init 失敗去驗證）。</li>
+</ul>
+
+<h2 id="write">2.4　<code>write()</code>：截斷、<code>ENOSPC</code>，以及 <code>copy_from_user()</code> 的陷阱</h2>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:70–101 — 寫入路徑</figcaption>
+<pre data-hot="80-82,84,90,94">static ssize_t edge_test_write(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos)
+{
+	char tmp[EDGE_TEST_BUF_SIZE];
+	ssize_t ret;
+
+	if (count == 0)
+		return 0;
+
+	mutex_lock(&amp;edge_test_lock);
+	if (*ppos &gt;= EDGE_TEST_BUF_SIZE) {
+		ret = -ENOSPC;
+		goto out;
+	}
+	count = min_t(size_t, count, EDGE_TEST_BUF_SIZE - *ppos);
+	/*
+	 * copy_from_user() zero-fills the destination bytes it could not
+	 * copy, so copy into tmp first; a faulting write must not clobber
+	 * what is already stored.
+	 */
+	if (copy_from_user(tmp, ubuf, count)) {
+		ret = -EFAULT;
+		goto out;
+	}
+	memcpy(edge_test_buf + *ppos, tmp, count);
+	*ppos += count;
+	edge_test_data_len = max_t(size_t, edge_test_data_len, *ppos);
+	ret = count;
+out:
+	mutex_unlock(&amp;edge_test_lock);
+	return ret;
+}</pre></figure>
+<p><code>ubuf</code> 帶著 <code>__user</code> 標記：它是 <b>userspace 的位址</b>，kernel 不能直接 dereference——那個位址可能根本沒對應到記憶體，也可能是惡意指向 kernel 的位址。<code>copy_from_user()</code> 會檢查位址範圍，碰到 page fault 也能安全收場，回傳「沒複製成功的 byte 數」（0 代表全部成功）。</p>
+<p>回傳值的規則：成功回寫入的 byte 數，失敗回負的 errno。syscall 那一層會把負值轉成 userspace 熟悉的形式：<code>write()</code> 回 -1，<code>errno</code> 設成對應的正值（<code>ENOSPC</code>、<code>EFAULT</code>）。容量處理沿用一般檔案的語意：</p>
+<ul>
+  <li>寫 300 bytes 到空的 buffer：第 84 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>，呼叫端要自己處理「只寫了一部分」。</li>
+  <li>像 <code>head</code> 這種會把資料寫完的程式，收到 short write 後會把剩下的 44 bytes 再送一次。這時 <code>*ppos</code> 已經是 256，第 80–82 行回 <code>-ENOSPC</code>，<code>head</code> 就印出 <code>head: write error: No space left on device</code>（2.7 節有實測）。</li>
+</ul>
+
+<h3>真的踩到的坑：失敗的寫入把資料清成 0</h3>
+<p>第一版第 90 行是 <code>copy_from_user(edge_test_buf + *ppos, ubuf, count)</code>，直接以 kernel buffer 當目的地。測試 <code>test_bad_user_pointer_returns_efault_and_keeps_buffer</code> 先寫入 <code>safe</code>，再透過 Python 的 <code>ctypes</code> 直接呼叫 libc 的 <code>write()</code>，傳入位址 <code>1</code> 這個無效 pointer，預期回 <code>EFAULT</code>、內容不變。實機跑出來是這樣：</p>
+<pre class="shell">FAIL: test_bad_user_pointer_returns_efault_and_keeps_buffer (test_edge_test_device.EdgeTestDeviceTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nvidia/GitHubLL/embedded-linux-platform/tests/test_edge_test_device.py", line 127, in test_bad_user_pointer_returns_efault_and_keeps_buffer
+    self.assertEqual(read_all(), b"safe")
+AssertionError: b'\x00\x00\x00\x00' != b'safe'</pre>
+<p><code>EFAULT</code> 有正確回傳，但 <code>safe</code> 變成了四個 <code>\0</code>。原因在 kernel headers 裡：</p>
+<figure class="listing"><figcaption>/lib/modules/5.15.148-tegra/build/include/linux/uaccess.h:153–164 — _copy_from_user</figcaption>
+<pre data-hot="161-162">_copy_from_user(void *to, const void __user *from, unsigned long n)
+{
+	unsigned long res = n;
+	might_fault();
+	if (!should_fail_usercopy() &amp;&amp; likely(access_ok(from, n))) {
+		instrument_copy_from_user(to, from, n);
+		res = raw_copy_from_user(to, from, n);
+	}
+	if (unlikely(res))
+		memset(to + (n - res), 0, res);
+	return res;
+}</pre></figure>
+<p><b class="hl-bad">複製失敗時，沒複製到的那段目的端會被清成 0</b>。這是刻意的安全設計：避免呼叫端拿到一段半初始化、含有舊 kernel 資料的 buffer。但它代表「目的端」不能是你還想保留的狀態。修法是第 73、90、94 行：先複製到 stack 上的 <code>tmp</code>，成功才 <code>memcpy</code> 進 <code>edge_test_buf</code>。修完後同一支測試<b class="hl-ok">通過</b>。</p>
+<p class="note">為什麼要在意 256 bytes？kernel 裡每個執行緒的 stack 是固定大小、不會自動長大，和 userspace 動輒 8 MB 的 stack 不同，用太多會直接把 kernel 弄壞。這顆 kernel 是 16 KiB（<code>arch/arm64/include/asm/memory.h</code> 的 <code>MIN_THREAD_SHIFT</code> = 14）；kbuild 對單一函式超過 <code>CONFIG_FRAME_WARN</code> = 2048 bytes 的 stack 用量會發出警告，這次編譯沒有。兩個值都可以在 headers 裡查：<code>grep CONFIG_FRAME_WARN /lib/modules/$(uname -r)/build/.config</code>。之後若 buffer 變成數 KB，就要改用 <code>kmalloc</code>（kernel 版的 malloc）配一塊暫存區。</p>
+
+<h2 id="read">2.5　<code>read()</code> 與 <code>open()</code>：讓它像一個小檔案</h2>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:48–68 — 讀取路徑</figcaption>
+<pre data-hot="54-55,58,63">static ssize_t edge_test_read(struct file *file, char __user *ubuf,
+			      size_t count, loff_t *ppos)
+{
+	ssize_t ret;
+
+	mutex_lock(&amp;edge_test_lock);
+	if (*ppos &gt;= edge_test_data_len) {
+		ret = 0;	/* EOF */
+		goto out;
+	}
+	count = min_t(size_t, count, edge_test_data_len - *ppos);
+	if (copy_to_user(ubuf, edge_test_buf + *ppos, count)) {
+		ret = -EFAULT;
+		goto out;
+	}
+	*ppos += count;
+	ret = count;
+out:
+	mutex_unlock(&amp;edge_test_lock);
+	return ret;
+}</pre></figure>
+<p><b class="hl-key"><code>*ppos</code> 是這個 open 的讀寫位置</b>，每個 <code>open()</code> 各有一份（存在 <code>struct file</code> 的 <code>f_pos</code>），VFS 把它的位址傳進來，driver 只要更新 <code>*ppos</code>。<code>cat</code> 會一直 <code>read()</code> 到回傳 0 為止，所以第 54–55 行的 EOF 一定要有；如果每次都從頭回傳內容，<code>cat</code> 就會無限迴圈印出 <code>hello</code>。</p>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:31–40 — open 時處理 O_TRUNC</figcaption>
+<pre data-hot="33-35">static int edge_test_open(struct inode *inode, struct file *file)
+{
+	if ((file-&gt;f_mode &amp; FMODE_WRITE) &amp;&amp; (file-&gt;f_flags &amp; O_TRUNC)) {
+		mutex_lock(&amp;edge_test_lock);
+		edge_test_data_len = 0;
+		mutex_unlock(&amp;edge_test_lock);
+	}
+	pr_debug("edge_test: open (flags 0x%x)\n", file-&gt;f_flags);
+	return 0;
+}</pre></figure>
+<p><code>inode</code> 代表檔案本身（這裡就是 <code>/dev/edge_test</code> 節點），<code>file</code> 代表「這一次 open」。這個 driver 只有一個裝置，用不到 inode。<code>f_mode</code> 是 kernel 整理過的讀寫權限（<code>FMODE_WRITE</code>），<code>f_flags</code> 是 userspace 傳給 <code>open()</code> 的原始旗標（<code>O_TRUNC</code> 只在這裡看得到）。<code>pr_debug()</code> 在這顆 kernel 不會印出任何東西：它沒開 <code>CONFIG_DYNAMIC_DEBUG</code>，pr_debug 只有在編譯時定義 <code>DEBUG</code> 才會生效。</p>
+<p>shell 的 <code>&gt;</code> 是用 <code>O_WRONLY | O_CREAT | O_TRUNC</code> 開檔。對一般檔案，<code>O_TRUNC</code> 由檔案系統處理；對 character device，VFS 不會幫你清，<code>O_TRUNC</code> 只是一個旗標，driver 要自己決定它的意義。這裡選擇「清空」，所以先 <code>echo hello world</code> 再 <code>echo hi</code>，讀到的是 <code>hi</code>。如果不處理，舊內容不會被清掉，讀到的會是 <code>hi\nlo world\n</code>：新寫的 3 bytes 蓋在前面，後面還接著舊資料。</p>
+<p>所有存取 <code>edge_test_buf</code> 和 <code>edge_test_data_len</code> 的地方都在 <code>edge_test_lock</code> 這個 mutex 底下。兩個程式同時寫入時，不會讀到「長度更新了、內容還沒寫完」的狀態。kernel 有兩種常見的鎖：mutex 拿不到時讓執行緒去睡、讓出 CPU，跟 pthread mutex 類似；spinlock 拿不到時原地空轉，持有期間不准睡。<code>copy_from_user()</code> 碰到還沒載入記憶體的 user page 時會觸發 page fault，等 kernel 把資料讀進來，這段等待就是「睡眠」。所以持鎖期間會呼叫它的地方只能用 mutex。</p>
+
+<h2 id="perm">2.6　權限：為什麼一般使用者也能 <code>echo</code></h2>
+<figure class="listing"><figcaption>kernel/edge_test/edge_test.c:111–117 — devtmpfs 節點權限</figcaption>
+<pre data-hot="115">/* Make the devtmpfs node 0666 so the acceptance commands work without sudo. */
+static char *edge_test_devnode(struct device *dev, umode_t *mode)
+{
+	if (mode)
+		*mode = 0666;
+	return NULL;
+}</pre></figure>
+<p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>，一般使用者 <code>echo</code> 會得到 <code>Permission denied</code>。第 138 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>。回傳 <code>NULL</code> 表示節點名稱不改，沿用 <code>device_create()</code> 給的 <code>edge_test</code>。這在學習用的 buffer 裝置上是方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，那種情況應該用 udev rule 指定 group。</p>
+
+<h2 id="try">2.7　自己跑一次</h2>
+<p><b>起點狀態</b>：已完成 Step 1（<code>bash scripts/check_host_env.sh</code> 全部 PASS，特別是 <code>kernel headers</code>），站在 repo 根目錄。build 不需要 root；只有 <code>insmod</code> / <code>rmmod</code> 需要 <code>sudo</code>。</p>
+<pre class="shell cmd">make -C kernel/edge_test 2&gt;&amp;1 | tail -n 1
+sudo bash kernel/edge_test/load.sh
+grep edge_test /proc/devices
+ls -l /dev/edge_test
+echo hello &gt; /dev/edge_test
+cat /dev/edge_test
+head -c 300 /dev/zero &gt; /dev/edge_test
+wc -c &lt; /dev/edge_test
+sudo bash kernel/edge_test/unload.sh
+ls /dev/edge_test
+sudo dmesg | grep edge_test | tail -n 2</pre>
+<p>實測輸出（同一台 Jetson；<code>[sudo] password</code> 那行只在 sudo 第一次要密碼時出現）：</p>
+<pre class="shell">$ make -C kernel/edge_test 2&gt;&amp;1 | tail -n 1
+make: Leaving directory '/home/nvidia/GitHubLL/embedded-linux-platform/kernel/edge_test' «1»
+$ sudo bash kernel/edge_test/load.sh
+[sudo] password for nvidia:
+$ grep edge_test /proc/devices
+489 edge_test «2»
+$ ls -l /dev/edge_test
+crw-rw-rw- 1 root root 489, 0 Oct  5 17:49 /dev/edge_test «3»
+$ echo hello &gt; /dev/edge_test
+$ cat /dev/edge_test
+hello «4»
+$ head -c 300 /dev/zero &gt; /dev/edge_test
+head: write error: No space left on device «5»
+$ wc -c &lt; /dev/edge_test
+256
+$ sudo bash kernel/edge_test/unload.sh
+$ ls /dev/edge_test
+ls: cannot access '/dev/edge_test': No such file or directory «6»
+$ sudo dmesg | grep edge_test | tail -n 2
+[ 1740.078513] edge_test: registered /dev/edge_test (major 489, minor 0) «7»
+[ 1815.213807] edge_test: unregistered</pre>
+<ol class="notes">
+  <li><span class="mk">1</span>只看最後一行，因為 build 的完整輸出很長。這次 <code>.ko</code> 已經是最新的，所以只剩離開目錄這行。不論是不是第一次 build，<code>tail -n 1</code> 都只留下這一行，路徑會換成你 clone 的位置。想看完整過程就拿掉 <code>| tail -n 1</code>：第一次 build 會多出 <code>CC [M]</code>、<code>LD [M]</code> 等行，以及 2.8 節 «1» 那條無害的 compiler 版本警告。</li>
+  <li><span class="mk">2</span><code>alloc_chrdev_region()</code> 的結果：kernel 配給 <code>edge_test</code> 的 major。你的號碼可能不同。</li>
+  <li><span class="mk">3</span>開頭的 <code>c</code> 代表 character device；<code>489, 0</code> 是 major, minor（一般檔案這個位置是大小）；<code>rw-rw-rw-</code> 就是 2.6 節的 0666。</li>
+  <li><span class="mk">4</span>沒有 sudo 也能寫、能讀；<code>cat</code> 印完一行就結束，代表 EOF 有回 0。</li>
+  <li><span class="mk">5</span>第一次 <code>write()</code> 只收下 256 bytes，<code>head</code> 補寫剩下的部分時拿到 <code>ENOSPC</code>。下一行的 <code>256</code> 證明前 256 bytes 有留下來。</li>
+  <li><span class="mk">6</span>unload 後節點跟著消失，不用手動刪。</li>
+  <li><span class="mk">7</span>module 的 <code>pr_info()</code> 訊息。<code>dmesg</code> 在這台需要 sudo；兩行之間的時間差就是你手動操作的時間。</li>
+</ol>
+
+<h2 id="verify">2.8　驗收：load → 測試 → unload，重複三次</h2>
+<p>上一節是手動看一次；正式驗收用腳本重複整個循環，確認<b class="hl-key">反覆 <code>insmod</code> / <code>rmmod</code> 不留殘留</b>。在 repo 根目錄執行（整支要 root，sudo 會問密碼）：</p>
+<pre class="shell cmd">sudo bash scripts/verify_edge_test.sh 3</pre>
+<p>實測輸出（2026-10-05，Jetson Orin Nano，kernel <code>5.15.148-tegra</code>）：</p>
+<pre class="shell">warning: the compiler differs from the one used to build the kernel «1»
+  The kernel was built by: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+  You are using:           gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+PASS build edge_test.ko
+PASS vermagic matches running kernel (5.15.148-tegra) «2»
+--- cycle 1/3
+PASS cycle 1: /proc/devices major 489 «3»
+PASS cycle 1: /dev/edge_test is char device with major 489
+PASS cycle 1: device unittest (root) «4»
+PASS cycle 1: echo/cat as nvidia «5»
+PASS cycle 1: clean after rmmod «6»
+--- cycle 2/3
+  …（cycle 2、3 與 cycle 1 相同，略）
+PASS dmesg free of Oops/BUG/WARNING «7»
+PASS dmesg shows 3 load / 3 unload messages
+[ 1432.885212] edge_test: registered /dev/edge_test (major 489, minor 0)
+[ 1433.068700] edge_test: unregistered
+[ 1433.129109] edge_test: registered /dev/edge_test (major 489, minor 0)
+[ 1433.308373] edge_test: unregistered
+=== 0 failure(s)</pre>
+<ol class="notes">
+  <li><span class="mk">1</span>不是錯誤。kernel 用 <code>~22.04</code> 版的 gcc 套件編譯，這台機器裝的是 <code>~22.04.3</code>，只差在 Ubuntu 的套件修訂號，編譯器本身都是 11.4.0。</li>
+  <li><span class="mk">2</span>module 內嵌的 vermagic 和 <code>uname -r</code> 一致——Step 1 的 headers 確實對得上這顆 kernel。不一致時 <code>insmod</code> 會被拒絕（<code>Invalid module format</code>；這是 kernel 的既有行為，本 step 沒有刻意做出不一致的 module 去實測）。</li>
+  <li><span class="mk">3</span>動態配到 major 489。<b>你的號碼可能不同</b>，這很正常；腳本只檢查 <code>/proc/devices</code> 和節點的 major 一致。</li>
+  <li><span class="mk">4</span><code>tests/test_edge_test_device.py</code> 的 <span data-tests="tests/test_edge_test_device.py">12</span> 個案例在 root 下全過：round trip、EOF、分段讀、<code>O_TRUNC</code>、只讀開啟不清空、同一次 open 連續寫、剛好 256 bytes、超過容量時先 short write 再 <code>ENOSPC</code>、<code>EFAULT</code> 且內容不變、shell <code>echo</code>/<code>cat</code>、shell 寫入超量會報錯、節點權限 0666。</li>
+  <li><span class="mk">5</span>以呼叫 <code>sudo</code> 的那個一般使用者身分（這裡是 <code>nvidia</code>）跑 <code>echo</code>/<code>cat</code>，證明 2.6 節的 0666 生效。</li>
+  <li><span class="mk">6</span><code>rmmod</code> 後 module、<code>/dev/edge_test</code>、<code>/proc/devices</code> 那一行、<code>/sys/class/edge_test</code> 四者都消失。</li>
+  <li><span class="mk">7</span>只檢查這次執行開始之後的 dmesg（腳本先往 <code>/dev/kmsg</code> 寫一行標記。<code>/dev/kmsg</code> 是 kernel log 的入口，寫進去的字會出現在 dmesg）；load / unload 訊息各剛好 3 筆。只印出最後 4 行，所以你只看到兩組。</li>
+</ol>
+
+<p>腳本做了一些你不必自己做的事：</p>
+<div class="tablewrap"><table class="twocol">
+  <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+  <tbody>
+    <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:37</code>），而且以你的身分 build，不會在 tree 裡留下 root 所有的檔案。</td></tr>
+    <tr><td>先 <code>mknod /dev/edge_test</code></td><td>不用；<code>device_create()</code> 讓 devtmpfs 自動建立節點（2.3 節）。</td></tr>
+    <tr><td>測試失敗後要記得手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 24–29 行）在任何結束路徑都會卸載。</td></tr>
+    <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 51–52、96 行），並自動比對 load/unload 次數。</td></tr>
+  </tbody>
+</table></div>
+<p>不需要 root 的部分可以單獨跑。module 沒載入時，device 測試會顯示 <code>skipped</code>，這不是失敗：</p>
+<pre class="shell cmd">python3 -m unittest discover -s tests -v</pre>
+<p>沒載入時最後一行是 <code>OK (skipped=12)</code>；其餘案例是 Step 1 的環境檢查測試和教材檢查器的測試，不需要 module。</p>
+
+<h2 id="pitfalls">2.9　常見錯誤</h2>
+<div class="pitfalls">
+  <div class="pit"><h4>以為 copy_from_user 失敗不動目的端</h4><dl><dt>症狀</dt><dd><code>write()</code> 回 <code>EFAULT</code>，但原本存的資料變成 <code>\0</code>。</dd><dt>後果</dt><dd>一次錯誤的呼叫就毀掉裝置狀態；之後的 driver 若直接 copy 進共用結構，同樣會中。</dd><dt>正解</dt><dd class="fix">先 copy 到暫存區，成功才寫入真正的狀態（2.4 節）。</dd></dl></div>
+  <div class="pit"><h4>read 不回 EOF</h4><dl><dt>症狀</dt><dd><code>cat /dev/edge_test</code> 一直印、不會結束。</dd><dt>後果</dt><dd>所有「讀到結尾」的工具都卡住。</dd><dt>正解</dt><dd class="fix">依 <code>*ppos</code> 判斷已讀完就回 0，並更新 <code>*ppos</code>（2.5 節）。這條是推論，本 step 沒有實際做出這個錯誤版本。</dd></dl></div>
+  <div class="pit"><h4>用 sudo make</h4><dl><dt>症狀</dt><dd>之後一般使用者 <code>make</code> / <code>make clean</code> 出現 <code>Permission denied</code>。</dd><dt>後果</dt><dd>tree 裡留下 root 所有的 <code>.o</code>、<code>.cmd</code>。</dd><dt>正解</dt><dd class="fix">只有 <code>insmod</code>/<code>rmmod</code> 用 sudo；腳本用 <code>sudo -u "$SUDO_USER" make</code>。</dd></dl></div>
+  <div class="pit"><h4>以為 headers 版本隨便都行</h4><dl><dt>症狀</dt><dd><code>insmod: ERROR: could not insert module: Invalid module format</code>。</dd><dt>後果</dt><dd>module 是對著別的 kernel 編的，根本載不進去。</dd><dt>正解</dt><dd class="fix">對 <code>/lib/modules/$(uname -r)/build</code> 編譯。在 repo 根目錄跑 <code>modinfo -F vermagic kernel/edge_test/edge_test.ko</code>，第一個欄位要和 <code>uname -r</code> 一樣（這台是 <code>5.15.148-tegra</code>）。</dd></dl></div>
+  <div class="pit"><h4>照抄新版 kernel 的範例</h4><dl><dt>症狀</dt><dd><code>class_create</code> 參數個數不符，編譯失敗。</dd><dt>後果</dt><dd>網路上 6.4 以後的範例寫 <code>class_create(name)</code>；這台的 5.15 要 <code>class_create(THIS_MODULE, name)</code>。</dd><dt>正解</dt><dd class="fix">以本機 headers 的宣告為準：<code>/lib/modules/$(uname -r)/build/include/linux/device/class.h</code>。</dd></dl></div>
+</div>
+
+<h2 id="recap">2.10　小結與下一步</h2>
+<div class="recap">
+  <h4>這一章做到了</h4>
+  <ul>
+    <li><code>/dev/edge_test</code> 可以被 <code>echo</code> 寫、被 <code>cat</code> 讀，一般使用者也能用。</li>
+    <li>反覆 <code>insmod</code>/<code>rmmod</code> 三次都乾淨，dmesg 沒有警告。</li>
+    <li>超量寫入會先 short write、再 <code>ENOSPC</code>；無效 pointer 回 <code>EFAULT</code> 且不破壞內容。</li>
+  </ul>
+  <h4>目前限制（下一章的預告）</h4>
+  <ul>
+    <li>只能整塊讀寫，沒有「控制」通道：想清空 buffer、查目前長度，都只能靠 <code>O_TRUNC</code> 或讀到底。Step 3 會加 <code>unlocked_ioctl()</code> 和一個 C++ userspace client。</li>
+    <li>還沒有任何硬體。Step 4 開始，同一套 character device 骨架會接上 GPIO 和 LED。</li>
+  </ul>
+</div>
+<details class="quiz"><summary>1. <code>/dev/edge_test</code> 節點本身存了什麼，讓 kernel 找得到 <code>edge_test_write()</code>？</summary><p>只存 major/minor 號碼（以及權限）。open 時 kernel 用號碼查到 <code>cdev_add()</code> 登記的 cdev，從中拿到 <code>file_operations</code>。</p></details>
+<details class="quiz"><summary>2. 寫 300 bytes 進空的 buffer，<code>write()</code> 第一次回傳多少？<code>head -c 300 /dev/zero &gt; /dev/edge_test</code> 為什麼會報錯？</summary><p>第一次回 256（short write）。寫入的程式（例如 <code>head</code>）再送剩下的 44 bytes，這時位置已是 256，driver 回 <code>-ENOSPC</code>，程式印出 <code>No space left on device</code>。</p></details>
+<details class="quiz"><summary>3. 為什麼不能直接 <code>copy_from_user(edge_test_buf + *ppos, …)</code>？</summary><p>複製失敗時，<code>_copy_from_user</code> 會把沒複製到的目的端清成 0，原有內容就被破壞了。先複製到暫存區，成功才寫入。</p></details>
+<details class="quiz"><summary>4. 這裡為什麼用 mutex 而不是 spinlock？</summary><p>持鎖期間會呼叫 <code>copy_from_user()</code>/<code>copy_to_user()</code>，它們可能因 page fault 而睡眠；spinlock 底下不能睡眠。</p></details>
+
+</main>
+<nav class="chapnav bottom"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+<script id="inline-js">
+/* repo → HTML 教材 — 頁面強化腳本
+   （Python/C/GAS/shell 語法上色、data-hot 行強調、«N» 標注、本章目錄） */
+(function () {
+  'use strict';
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /* ---------- C 語法上色 ---------- */
+  var KW = new Set(('if else for while do return switch case default break continue goto sizeof ' +
+    'typedef struct union enum static const extern inline register volatile ' +
+    'unsigned signed NULL true false').split(' '));
+  var TYPE = new Set(('void int char long short float double bool ' +
+    'uint8_t uint16_t uint32_t uint64_t int8_t int16_t int32_t int64_t ' +
+    'size_t ssize_t loff_t sector_t dev_t mode_t umode_t pgoff_t gfp_t ' +
+    'u8 u16 u32 u64 s8 s16 s32 s64 journal_t handle_t tid_t').split(' '));
+
+  var C_RE = new RegExp(
+    '(\\/\\*[\\s\\S]*?\\*\\/|\\/\\/[^\\n]*)' +            // 1 comment
+    '|("(?:[^"\\\\\\n]|\\\\.)*"|\'(?:[^\'\\\\\\n]|\\\\.)*\')' + // 2 string/char
+    '|(^[ \\t]*#[ \\t]*\\w+(?:[ \\t]+[<"][^>"\\n]*[>"])?)' +   // 3 preprocessor
+    '|\\b([A-Za-z_]\\w*)(?=\\s*\\()' +                     // 4 function call
+    '|\\b(0[xX][0-9a-fA-F]+[uUlL]*|\\d+[uUlL]*)\\b' +      // 5 number
+    '|\\b([A-Za-z_]\\w*)\\b',                              // 6 identifier
+    'gm');
+
+  function highlightC(text) {
+    var out = '', last = 0, m;
+    C_RE.lastIndex = 0;
+    while ((m = C_RE.exec(text)) !== null) {
+      out += esc(text.slice(last, m.index));
+      last = C_RE.lastIndex;
+      if (m[1]) out += '<span class="tok-cmt">' + esc(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="tok-str">' + esc(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="tok-pre">' + esc(m[3]) + '</span>';
+      else if (m[4]) {
+        if (KW.has(m[4])) out += '<span class="tok-kw">' + esc(m[4]) + '</span>';
+        else if (TYPE.has(m[4])) out += '<span class="tok-type">' + esc(m[4]) + '</span>';
+        else out += '<span class="tok-fn">' + esc(m[4]) + '</span>';
+      } else if (m[5]) out += '<span class="tok-num">' + esc(m[5]) + '</span>';
+      else if (m[6]) {
+        if (KW.has(m[6])) out += '<span class="tok-kw">' + esc(m[6]) + '</span>';
+        else if (TYPE.has(m[6])) out += '<span class="tok-type">' + esc(m[6]) + '</span>';
+        else out += esc(m[6]);
+      }
+    }
+    out += esc(text.slice(last));
+    return out;
+  }
+
+  /* ---------- GAS 組語上色（pre.asm；AT&T 語法，.S/.s 檔案用） ---------- */
+  var ASM_RE = new RegExp(
+    '(\\/\\*[\\s\\S]*?\\*\\/)' +                       // 1 區塊註解（可跨行）
+    '|(^[ \\t]*#[ \\t]*\\w+[^\\n]*)' +                 // 2 cpp 行（#include 等）
+    '|(^[ \\t]*\\.[a-z_]\\w*)' +                       // 3 指示詞（.macro/.global…）
+    '|(^[ \\t]*[A-Za-z_.\\\\][\\w\\\\]*:)' +           // 4 標籤（含巨集的 \\label:）
+    '|(%[a-z][a-z0-9]{1,4}\\b)' +                      // 5 暫存器
+    '|(\\$?0[xX][0-9a-fA-F]+\\b|\\$\\d+\\b|\\b\\d+\\b)', // 6 立即數/數字
+    'gm');
+
+  function highlightAsm(text) {
+    var out = '', last = 0, m;
+    ASM_RE.lastIndex = 0;
+    while ((m = ASM_RE.exec(text)) !== null) {
+      out += esc(text.slice(last, m.index));
+      last = ASM_RE.lastIndex;
+      if (m[1]) out += '<span class="tok-cmt">' + esc(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="tok-pre">' + esc(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="tok-kw">' + esc(m[3]) + '</span>';
+      else if (m[4]) out += '<span class="tok-fn">' + esc(m[4]) + '</span>';
+      else if (m[5]) out += '<span class="tok-type">' + esc(m[5]) + '</span>';
+      else if (m[6]) out += '<span class="tok-num">' + esc(m[6]) + '</span>';
+    }
+    out += esc(text.slice(last));
+    return out;
+  }
+
+  /* ---------- Python 上色（pre.py） ---------- */
+  var PY_KW = new Set(('False None True and as assert break class continue def del elif else ' +
+    'except finally for from global if import in is lambda nonlocal not or pass raise ' +
+    'return try while with yield self super').split(' '));
+  var PY_BUILTIN = new Set(('print len range list sum enumerate open int float str dict ' +
+    'set tuple isinstance zip map').split(' '));
+
+  var PY_RE = new RegExp(
+    '(#[^\\n]*)' +                                                     // 1 comment
+    '|((?:[rRbBfF]{1,2})?(?:"""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'' +
+      '|"(?:[^"\\\\\\n]|\\\\.)*"|\'(?:[^\'\\\\\\n]|\\\\.)*\'))' +      // 2 string
+    '|(@[A-Za-z_][\\w.]*)' +                                           // 3 decorator
+    '|\\b([A-Za-z_]\\w*)(?=\\s*\\()' +                                 // 4 call
+    '|\\b(\\d+\\.?\\d*(?:[eE][-+]?\\d+)?)\\b' +                        // 5 number
+    '|\\b([A-Za-z_]\\w*)\\b',                                          // 6 identifier
+    'g');
+
+  function highlightPy(text) {
+    var out = '', last = 0, m;
+    PY_RE.lastIndex = 0;
+    while ((m = PY_RE.exec(text)) !== null) {
+      out += esc(text.slice(last, m.index));
+      last = PY_RE.lastIndex;
+      if (m[1]) out += '<span class="tok-cmt">' + esc(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="tok-str">' + esc(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="tok-pre">' + esc(m[3]) + '</span>';
+      else if (m[4]) {
+        if (PY_KW.has(m[4])) out += '<span class="tok-kw">' + esc(m[4]) + '</span>';
+        else if (PY_BUILTIN.has(m[4])) out += '<span class="tok-type">' + esc(m[4]) + '</span>';
+        else out += '<span class="tok-fn">' + esc(m[4]) + '</span>';
+      } else if (m[5]) out += '<span class="tok-num">' + esc(m[5]) + '</span>';
+      else if (m[6]) {
+        if (PY_KW.has(m[6])) out += '<span class="tok-kw">' + esc(m[6]) + '</span>';
+        else out += esc(m[6]);
+      }
+    }
+    out += esc(text.slice(last));
+    return out;
+  }
+
+  /* ---------- shell 上色 ---------- */
+  function highlightShell(text) {
+    return text.split('\n').map(function (line) {
+      var m = line.match(/^(\s*)(\$|#)\s(.*)$/);
+      if (m && m[2] === '$') {
+        return esc(m[1]) + '<span class="sh-prompt">$</span> <span class="sh-cmd">' + esc(m[3]) + '</span>';
+      }
+      if (/^\s*#/.test(line)) {
+        return '<span class="sh-cmt">' + esc(line) + '</span>';
+      }
+      return esc(line);
+    }).join('\n');
+  }
+
+  /* ---------- data-hot 行強調 ---------- */
+  function parseHotSpec(spec) {
+    var set = new Set();
+    spec.split(',').forEach(function (part) {
+      var m = part.trim().match(/^(\d+)(?:-(\d+))?$/);
+      if (!m) return;
+      for (var i = +m[1]; i <= +(m[2] || m[1]); i++) set.add(i);
+    });
+    return set;
+  }
+
+  /* 把 data-hot 指定的行包進 .hot-line。行號 = offset + 區塊內第幾行（1 起算）；
+     figure.listing 的 offset 取自 figcaption 的起始行號，所以 data-hot 寫原始碼行號。
+     跨行的 span（多行註解）先在行尾補收、下一行重開，維持合法巢狀。 */
+  function wrapHotLines(html, spec, offset) {
+    var hot = parseHotSpec(spec);
+    var carry = null;
+    return html.split('\n').map(function (line, i) {
+      var s = (carry || '') + line;
+      var opens = s.match(/<span[^>]*>/g) || [];
+      var closes = s.match(/<\/span>/g) || [];
+      if (opens.length > closes.length) {
+        carry = opens[opens.length - 1];
+        s += '</span>';
+      } else {
+        carry = null;
+      }
+      return hot.has(i + 1 + offset) ? '<span class="hot-line">' + s + '</span>' : s;
+    }).join('\n');
+  }
+
+  document.querySelectorAll('pre').forEach(function (pre) {
+    /* pre.manual：作者手工上色/標注的頁面，enhance 完全不碰 */
+    if (pre.classList.contains('diagram') || pre.classList.contains('manual')) return;
+    var code = pre.querySelector('code');
+    var target = code || pre;
+    var text = target.textContent;
+    if (pre.classList.contains('shell')) {
+      target.innerHTML = highlightShell(text);
+    } else if (pre.classList.contains('py')) {
+      target.innerHTML = highlightPy(text);
+    } else if (pre.classList.contains('asm')) {
+      target.innerHTML = highlightAsm(text);
+    } else if (/[;{}()#]|->|\breturn\b|\bstruct\b/.test(text)) {
+      /* 只對看起來像 C 的內容上色（含常見符號），避免誤傷純文字 */
+      target.innerHTML = highlightC(text);
+    }
+    /* «N» → 圓形標記：寫在 pre 的純文字裡（如實測輸出的逐行標注），
+       不破壞「原始碼保持純文字」的逐字 diff 原則 */
+    if (/«\d+»/.test(target.innerHTML)) {
+      target.innerHTML = target.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+    }
+    if (pre.dataset.hot) {
+      var offset = 0;
+      var fig = pre.closest('figure.listing');
+      var cap = fig && fig.querySelector('figcaption');
+      var m = cap && cap.textContent.match(/:(\d+)/);
+      if (m) offset = parseInt(m[1], 10) - 1;
+      target.innerHTML = wrapHotLines(target.innerHTML, pre.dataset.hot, offset);
+    }
+  });
+
+  /* ---------- 本章目錄（自動生成） ---------- */
+  var main = document.querySelector('main');
+  var header = document.querySelector('header.chap-header');
+  if (main && header) {
+    var hs = main.querySelectorAll('h2');
+    if (hs.length >= 3) {
+      var box = document.createElement('div');
+      box.className = 'toc-box';
+      var html = '<p class="toc-box-title">本章目錄</p><ol>';
+      hs.forEach(function (h, i) {
+        if (!h.id) h.id = 'sec-' + (i + 1);
+        html += '<li><a href="#' + h.id + '">' + h.textContent + '</a></li>';
+      });
+      html += '</ol>';
+      box.innerHTML = html;
+      header.insertAdjacentElement('afterend', box);
+    }
+  }
+})();
+
+</script>
+</body>
+</html>

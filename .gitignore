@@ -1,2 +1,11 @@
 __pycache__/
 *.pyc
+
+# out-of-tree kernel module build products
+kernel/**/*.o
+kernel/**/*.ko
+kernel/**/*.mod
+kernel/**/*.mod.c
+kernel/**/.*.cmd
+kernel/**/modules.order
+kernel/**/Module.symvers
