@@ -24,20 +24,20 @@ Build / test 指令會隨各 Step 落地而出現；新增時請回來更新本�
 2. **Step 大小上限約 800 行新增 code。** 若預估遠超過（例如 ~1200 行），必須在**實作前**拆成 `Step N-a`、`Step N-b`、`Step N-c`…（ROADMAP 已有 `10-a`、`17-a`、`29-a` 等前例），並同步更新 `ROADMAP.md` 的索引表與對應 `phaseNN.md`。不要先做完大改動再事後切 commit。
 3. 每個 Step 的描述要交代：誰和誰互動、controller/master 與 target/slave、資料流、新增哪些元件、用到哪些 Linux/MCU API、驗收方法、明確不做什麼。
 
-## 搭配的 skills：每個 Step 同時交付 code 與一章教材
+## 搭配的 skill：每個 Step 同時交付 code 與一章教材
 
-本專案每個 Step 都照下面兩個 skill 進行，同一個 PR 裡同時交付 code 和教學章：
+本專案每個 Step 都照 **`/step-execution`** 進行，同一個 PR 裡同時交付 code 和教學章：
 
-1. **`/step-execution`** 負責主流程：讀基準 → 開分支 → 先寫測試 → 實作 → 對照基線驗證 → 同步文件 → 冷讀章節 → 開 PR。
-2. **`/incremental-html-textbook`** 負責寫教學章。要等 code 驗證通過後才動筆，而且要由寫 code 的同一個 session 來寫。
-3. 章節寫完、開 PR 前，把**該章那一頁**交給 `cold-read` 掃一遍。回報內容要逐條回頭核對過才動手。
+1. 主流程：讀基準 → 開分支 → 先寫測試 → 實作 → 對照基線驗證 → 同步文件 → 寫教學頁 → 開 PR。
+2. 寫教學頁時載入 **`/incremental-html-textbook`**，照它用 artifact 的做法寫，但**不發佈到 claude.ai**，寫成完整的單檔 HTML 存成 `docs/stepNN.html`。要等 code 驗證通過後才動筆，而且要由寫 code 的同一個 session 來寫。
+3. **不跑 `cold-read`**。Step 1、2 的章是用舊做法（共用 `style.css` + 冷讀）寫的，保留原樣。
 4. PR 開出後，使用者會在另一個乾淨的 session 跑 `/code-review`。不要在同一個 session 自己再審一輪 code。
 
-這兩個 skill 會參照 repo 慣例，本 repo 的慣例如下：
+本 repo 的慣例如下：
 
 | 項目 | 本 repo 的規定 |
 |---|---|
-| 教學章 | `docs/stepNN.html`，編號補零成兩位數（`step01.html`、`step23.html`），拆分的 Step 加上字尾（`step10a.html`）。單檔自足、深色主題，新章複製「最近一章」再修改 |
+| 教學章 | `docs/stepNN.html`，編號補零成兩位數（`step01.html`、`step23.html`），拆分的 Step 加上字尾（`step10a.html`）。artifact 風格的完整單檔 HTML：CSS/JS inline、只做暗色主題，以桌面瀏覽器閱讀為準（不要求手機寬度），頁面寬度統一 1080px（最外層 `max-width: 67.5rem`，和 Step 1、2 的章一致），外部資源只用 Google Fonts。頂部和底部各放一組導覽（↑ 目錄、← 前章、後章 →），`check_book.py` 靠它驗章節鏈 |
 | 教材目錄 | `docs/index.html`，卡片順序要和章節順序一致 |
 | 新章上線 | 在前一章頂部和底部的 pagenav 都補上 next 連結，並在 `index.html` 加卡片，再跑 `python3 scripts/check_book.py docs`（這份是從 skill 複製進 repo 的；skill 版本更新時要同步過來） |
 | 基線與踩坑紀錄 | `docs/baseline.md`：每個 Step 追加驗收數字、對照方法與容差，以及踩到的坑（坑要寫出「原本以為」什麼）。下一個 Step 開工前要先讀它 |
