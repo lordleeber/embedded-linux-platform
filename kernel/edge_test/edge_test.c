@@ -7,6 +7,10 @@
  * so `echo hello > /dev/edge_test` followed by `cat /dev/edge_test`
  * behaves like a tiny file. Writes past the end are cut short; once the
  * buffer is full, further writes fail with -ENOSPC.
+ *
+ * Control path (Step 3): ioctl EDGE_TEST_GET_VALUE / EDGE_TEST_SET_VALUE
+ * reads or replaces one 32-bit value kept by the module, separate from the
+ * data buffer. The value starts at 0 on every load.
  */
 #include <linux/cdev.h>
 #include <linux/device.h>
@@ -15,6 +19,8 @@
 #include <linux/mutex.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
+
+#include "edge_test_ioctl.h"
 
 #define EDGE_TEST_NAME		"edge_test"
 #define EDGE_TEST_BUF_SIZE	256
@@ -27,6 +33,7 @@ static struct device *edge_test_device;
 static DEFINE_MUTEX(edge_test_lock);	/* protects buf and data_len */
 static char edge_test_buf[EDGE_TEST_BUF_SIZE];
 static size_t edge_test_data_len;
+static u32 edge_test_value;		/* ioctl state, also under edge_test_lock */
 
 static int edge_test_open(struct inode *inode, struct file *file)
 {
@@ -100,12 +107,39 @@ out:
 	return ret;
 }
 
+static long edge_test_ioctl(struct file *file, unsigned int cmd,
+			    unsigned long arg)
+{
+	u32 __user *uptr = (u32 __user *)arg;
+	u32 val;
+
+	switch (cmd) {
+	case EDGE_TEST_GET_VALUE:
+		mutex_lock(&edge_test_lock);
+		val = edge_test_value;
+		mutex_unlock(&edge_test_lock);
+		return put_user(val, uptr);
+	case EDGE_TEST_SET_VALUE:
+		/* Fetch into a local first: a faulting read must not change state. */
+		if (get_user(val, uptr))
+			return -EFAULT;
+		mutex_lock(&edge_test_lock);
+		edge_test_value = val;
+		mutex_unlock(&edge_test_lock);
+		return 0;
+	default:
+		return -ENOTTY;
+	}
+}
+
 static const struct file_operations edge_test_fops = {
 	.owner		= THIS_MODULE,
 	.open		= edge_test_open,
 	.release	= edge_test_release,
 	.read		= edge_test_read,
 	.write		= edge_test_write,
+	.unlocked_ioctl	= edge_test_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 };
 
 /* Make the devtmpfs node 0666 so the acceptance commands work without sudo. */

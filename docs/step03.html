@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 3　ioctl 控制通道 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step02). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 46rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-up { stroke: var(--muted); stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.steps { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.6rem; counter-reset: s; }
+.steps li { counter-increment: s; max-width: none; display: grid; grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 12rem); grid-template-areas: "n api trace" "n what trace"; gap: 0.2rem 1.2rem; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 1rem; }
+.steps li::before { grid-area: n; content: counter(s); font-family: var(--font-mono); font-weight: 600; color: var(--accent); font-size: 1.1rem; line-height: 1.5; }
+.steps .api { grid-area: api; font-family: var(--font-mono); font-weight: 600; font-size: 0.92rem; }
+.steps .what { grid-area: what; color: var(--muted); font-size: 0.92rem; }
+.steps .trace { grid-area: trace; align-self: center; border-left: 1px solid var(--line); padding-left: 1rem; font-family: var(--font-mono); font-size: 0.82rem; color: var(--kern); }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-bottom: 0.35rem; }
+.tag.bad { color: var(--bad); } .tag.ok { color: var(--ok); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+.calc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem; display: grid; gap: 0.9rem; margin-bottom: 1.2rem; }
+.calc-fields { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center; }
+.calc label { font-size: 0.85rem; color: var(--muted); font-family: var(--font-mono); }
+.calc select, .calc input { font-family: var(--font-mono); font-size: 0.9rem; padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.calc input[type="number"] { width: 6rem; }
+.calc input[type="text"] { width: 3.5rem; text-transform: uppercase; }
+.calc button { font-family: var(--font-mono); font-size: 0.8rem; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 0.4rem 0.65rem; }
+.calc button:hover { border-color: var(--accent); color: var(--accent); }
+.calc button:focus-visible, .calc input:focus-visible, .calc select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calc-out { display: grid; gap: 0.3rem; font-size: 0.92rem; }
+.calc-out .k { display: inline-block; width: 10rem; color: var(--muted); font-family: var(--font-mono); font-size: 0.82rem; }
+.calc-out b { font-family: var(--font-mono); font-size: 1.15rem; color: var(--accent); }
+.calc-out .ok { color: var(--ok); } .calc-out .bad { color: var(--bad); }
+.calc .meta { margin: 0; }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><span class="disabled">Step 4 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 3 · Linux kernel module</div>
+    <h1>ioctl：給 edge_test 一條控制通道</h1>
+    <p class="lede"><code>read()</code>/<code>write()</code> 搬的是資料；要「設定一個值」或「問現在的狀態」，該走的是 <code>ioctl()</code>。這一步在 <code>edge_test</code> 裡加一個 32-bit 的 value，用兩個 ioctl 命令讀寫它，並寫第一支 C++ userspace 程式來控制它。重點是那個 32-bit 的命令號碼：它是 kernel 和 userspace 之間的 ABI，一旦發佈就不能改。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">include/edge_test_ioctl.h</span>、<span class="new">apps/edge_test_cli.cpp</span>、<span class="new">CMakeLists.txt</span>、<span class="new">tests/test_edge_device.cpp</span>、<span class="new">tests/test_edge_test_cli.py</span>、<span class="new">scripts/check_listings.py</span>；修改 kernel/edge_test/{edge_test.c, Makefile}、scripts/verify_edge_test.sh</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（syscall、VFS）</span>
+      <span style="--c: var(--drv)">我們寫的 driver</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">3.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>資料通道和控制通道要分開</h2>
+      <p>Step 2 的 <code>/dev/edge_test</code> 只有一條路：寫進去的 bytes 就是資料。如果想「把某個設定改成 123」，最直覺的做法是寫一串文字 <code>SET 123</code> 進去，但這樣 driver 就得自己解析文字，資料和命令也混在同一條流裡——寫入的內容剛好長得像命令時，就分不清了。</p>
+      <p><code>ioctl()</code> 是 Linux 給「控制」用的專用入口：每個命令有一個號碼，參數是一個固定格式的結構，不必解析文字。之後接上 GPIO、INA219、STM32 時，「設定取樣頻率」「讀狀態暫存器」這類操作，都會走這條路。</p>
+      <p><b>互動雙方</b>：C++ 程式 <code>edge_test_cli</code> 呼叫 <code>ioctl()</code>，經過 system call 和 VFS，進到 <code>edge_test.ko</code> 的 <code>edge_test_ioctl()</code>；仍然沒有外接硬體，也沒有 bus 上的 controller / target。<b>這一步不做</b>：GPIO / I2C、複雜的 binary protocol。</p>
+      <dl class="terms">
+        <dt>ioctl</dt><dd>「input/output control」。對一個已開啟的檔案送一個命令號碼加一個參數，<code>ioctl(fd, cmd, arg)</code>；參數通常是一個指向 struct 或整數的指標。</dd>
+        <dt>ABI</dt><dd>Application Binary Interface：編譯好的程式和 kernel 之間，在「位元層級」上的約定，例如命令號碼的數值、參數的大小與排列。改了 ABI，已經編好的舊程式就會出錯，即使原始碼看起來一樣。</dd>
+        <dt>CMake</dt><dd>產生建置檔的工具。<code>cmake -S . -B build</code> 讀 <code>CMakeLists.txt</code> 在 <code>build/</code> 產生 Makefile，<code>cmake --build build</code> 再實際編譯。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">3.2</span><b>路徑</b>user → kernel</div>
+    <div class="content">
+      <h2>一次 <code>edge_test_cli set 123</code> 往下走了幾層</h2>
+      <p>和 Step 2 的 <code>write()</code> 是同一條路，只是最後 VFS 呼叫的是表裡的 <code>.unlocked_ioctl</code>，而不是 <code>.write</code>。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 640 420" role="img" aria-label="ioctl 從 C++ 程式經 system call、VFS 進到 edge_test_ioctl，再用 get_user 把 4 bytes 存進 edge_test_value；GET 的結果沿虛線回到 userspace">
+          <defs>
+            <marker id="m3Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+            <marker id="m3Up" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--muted)"/></marker>
+          </defs>
+          <text class="s-mono" x="20" y="54">USERSPACE</text>
+          <rect class="s-box" x="150" y="20" width="340" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="320" y="45" text-anchor="middle">ioctl(fd, EDGE_TEST_SET_VALUE, &amp;v)</text>
+          <text class="s-sm" x="320" y="66" text-anchor="middle">C++：apps/edge_test_cli.cpp</text>
+          <line class="sv-edge" x1="10" y1="88" x2="630" y2="88"/>
+          <text class="s-sm edge-lbl" x="630" y="104" text-anchor="end">user ↕ kernel 邊界</text>
+          <text class="s-mono" x="20" y="132">SYSCALL</text>
+          <rect class="s-box" x="150" y="98" width="340" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="320" y="123" text-anchor="middle">ioctl(fd, 0x4004EB02, arg)</text>
+          <text class="s-sm" x="320" y="144" text-anchor="middle">命令只是一個 32-bit 數字</text>
+          <text class="s-mono" x="20" y="210">VFS</text>
+          <rect class="s-box" x="150" y="176" width="340" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="320" y="201" text-anchor="middle">f_op-&gt;unlocked_ioctl(...)</text>
+          <text class="s-sm" x="320" y="222" text-anchor="middle">沒填這個欄位就回 ENOTTY</text>
+          <text class="s-mono" x="20" y="288">DRIVER</text>
+          <rect class="s-box" x="150" y="254" width="340" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="320" y="279" text-anchor="middle">edge_test_ioctl(): switch (cmd)</text>
+          <text class="s-sm" x="320" y="300" text-anchor="middle">get_user / put_user 搬 4 bytes</text>
+          <text class="s-mono" x="20" y="366">MEMORY</text>
+          <rect class="s-box" x="150" y="332" width="340" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="320" y="357" text-anchor="middle">u32 edge_test_value</text>
+          <text class="s-sm" x="320" y="378" text-anchor="middle">mutex 保護；每次載入從 0 開始</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="94" marker-end="url(#m3Down)"/>
+          <line class="sv-down" x1="200" y1="157" x2="200" y2="172" marker-end="url(#m3Down)"/>
+          <line class="sv-down" x1="200" y1="235" x2="200" y2="250" marker-end="url(#m3Down)"/>
+          <line class="sv-down" x1="200" y1="313" x2="200" y2="328" marker-end="url(#m3Down)"/>
+          <line class="sv-up" x1="440" y1="331" x2="440" y2="316" marker-end="url(#m3Up)"/>
+          <line class="sv-up" x1="440" y1="253" x2="440" y2="238" marker-end="url(#m3Up)"/>
+          <line class="sv-up" x1="440" y1="175" x2="440" y2="160" marker-end="url(#m3Up)"/>
+          <line class="sv-up" x1="440" y1="97" x2="440" y2="82" marker-end="url(#m3Up)"/>
+          <text class="s-sm" x="505" y="190">實線：命令往下</text>
+          <text class="s-sm" x="505" y="210">虛線：GET 的結果</text>
+          <text class="s-sm" x="505" y="228">往上（put_user）</text>
+          <text class="s-sm" x="505" y="290">32-bit 程式改走</text>
+          <text class="s-sm" x="505" y="308">compat_ptr_ioctl，</text>
+          <text class="s-sm" x="505" y="326">再進同一個 handler</text>
+        </svg>
+        <figcaption>圖 3.1 — 對 kernel 來說，命令就是 <code>ioctl()</code> 第二個參數那個 32-bit 數字；VFS 不看它的意思，只負責把它和指標原封不動交給 driver 的 <code>edge_test_ioctl()</code>。</figcaption>
+      </figure>
+      <p>命令號碼定義在一份 kernel 和 userspace 共用的 header 裡。共用很重要：兩邊只要對號碼的理解差一個 bit，命令就會落進 <code>default</code>。</p>
+      <figure class="listing"><figcaption>include/edge_test_ioctl.h:17–25 — 兩個命令的定義</figcaption>
+<pre data-start="17" data-hot="20,23,25">#include &lt;linux/ioctl.h&gt;
+#include &lt;linux/types.h&gt;
+
+#define EDGE_TEST_IOC_MAGIC	0xEB
+
+/* Read the module's 32-bit value into *arg. */
+#define EDGE_TEST_GET_VALUE	_IOR(EDGE_TEST_IOC_MAGIC, 0x01, __u32)
+/* Replace the module's 32-bit value with *arg. */
+#define EDGE_TEST_SET_VALUE	_IOW(EDGE_TEST_IOC_MAGIC, 0x02, __u32)</pre></figure>
+      <p>header 只 include <code>&lt;linux/ioctl.h&gt;</code> 與 <code>&lt;linux/types.h&gt;</code>，這兩份在 kernel 內和 userspace 都存在，所以同一個檔案兩邊都能用；參數型別用 <code>__u32</code>（userspace 也看得到的固定 32-bit 型別），不用 <code>unsigned long</code> 這種在 32-bit 和 64-bit 程式裡大小不同的型別。測試裡有一條專門檢查這件事。</p>
+    </div>
+  </section>
+
+  <section id="number">
+    <div class="rail"><span class="no">3.3</span><b>號碼</b><span class="dot" style="background: var(--accent)"></span>_IOR · _IOW</div>
+    <div class="content">
+      <h2>一個 ioctl 號碼裡裝了什麼</h2>
+      <p><code>_IOR</code>、<code>_IOW</code> 不是函式，是把四個欄位拼成一個 32-bit 數字的巨集。這台（arm64，用 <code>asm-generic</code> 的定義）的配置是：方向 2 bits、參數大小 14 bits、magic（type）8 bits、序號（nr）8 bits。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 900 230" role="img" aria-label="EDGE_TEST_GET_VALUE 的 32 個 bit：dir 10、size 4、type 0xEB、nr 0x01，合起來是 0x8004EB01">
+          <text class="s-sm" x="66" y="42" text-anchor="middle">dir · 31–30</text>
+          <text class="s-sm" x="270" y="42" text-anchor="middle">size · 29–16</text>
+          <text class="s-sm" x="552" y="42" text-anchor="middle">type · 15–8</text>
+          <text class="s-sm" x="757" y="42" text-anchor="middle">nr · 7–0</text>
+          <rect class="s-box" x="40" y="55" width="51" height="44" rx="4" style="stroke: var(--kern)"/>
+          <text class="s-key" x="66" y="82" text-anchor="middle">10</text>
+          <rect class="s-box" x="91" y="55" width="359" height="44" rx="4" style="stroke: var(--accent)"/>
+          <text class="s-key" x="270" y="82" text-anchor="middle">00 0000 0000 0100</text>
+          <rect class="s-box" x="450" y="55" width="205" height="44" rx="4" style="stroke: var(--drv)"/>
+          <text class="s-key" x="552" y="82" text-anchor="middle">1110 1011</text>
+          <rect class="s-box" x="655" y="55" width="205" height="44" rx="4" style="stroke: var(--user)"/>
+          <text class="s-key" x="757" y="82" text-anchor="middle">0000 0001</text>
+          <text class="s-sm" x="66" y="122" text-anchor="middle">READ</text>
+          <text class="s-sm" x="270" y="122" text-anchor="middle">4 = sizeof(__u32)</text>
+          <text class="s-sm" x="552" y="122" text-anchor="middle">magic 0xEB</text>
+          <text class="s-sm" x="757" y="122" text-anchor="middle">nr 0x01</text>
+          <text class="s-key" x="450" y="170" text-anchor="middle">= 0x8004EB01 = EDGE_TEST_GET_VALUE</text>
+          <text class="s-sm" x="450" y="202" text-anchor="middle">SET_VALUE 只差在 dir（01 = WRITE）和 nr（0x02）：0x4004EB02</text>
+        </svg>
+        <figcaption>圖 3.2 — 「方向」是從 userspace 看的：<code>_IOR</code> 表示 userspace 要讀回資料（kernel 寫到使用者記憶體），所以 GET 用 <code>_IOR</code>、SET 用 <code>_IOW</code>。參數的大小也被編進號碼裡。</figcaption>
+      </figure>
+      <h3>自己算算看</h3>
+      <p>下面依同一個公式即時計算號碼，並照 <code>edge_test_ioctl()</code> 的 <code>switch</code> 推算 driver 會怎麼回應。按「參數換成 __u64」：只是大小從 4 變 8，號碼就變了，driver 認不得——這正是 C++ 測試裡「wrong argument size returns ENOTTY」那一項。</p>
+      <div class="calc">
+        <div class="calc-fields">
+          <label for="cDir">dir</label>
+          <select id="cDir"><option value="0">0 NONE（_IO）</option><option value="1">1 WRITE（_IOW）</option><option value="2" selected>2 READ（_IOR）</option><option value="3">3 READ|WRITE（_IOWR）</option></select>
+          <label for="cSize">size</label>
+          <input id="cSize" type="number" min="0" max="16383" value="4">
+          <label for="cType">type (hex)</label>
+          <input id="cType" type="text" value="EB" maxlength="2" spellcheck="false">
+          <label for="cNr">nr (hex)</label>
+          <input id="cNr" type="text" value="01" maxlength="2" spellcheck="false">
+        </div>
+        <div class="actions">
+          <button type="button" data-preset="2,4,EB,01">EDGE_TEST_GET_VALUE</button>
+          <button type="button" data-preset="1,4,EB,02">EDGE_TEST_SET_VALUE</button>
+          <button type="button" data-preset="2,8,EB,01">參數換成 __u64</button>
+          <button type="button" data-preset="2,4,45,01">magic 換成 'E'（0x45）</button>
+          <button type="button" data-preset="0,0,EB,7F">_IO(0xEB, 0x7f)</button>
+        </div>
+        <div class="calc-out" aria-live="polite">
+          <div><span class="k">號碼</span><b id="cHex">—</b></div>
+          <div><span class="k">二進位</span><code id="cBin">—</code></div>
+          <div><span class="k">edge_test_ioctl()</span><span id="cVerdict">—</span></div>
+        </div>
+        <p class="meta">依 <code>asm-generic/ioctl.h</code> 的公式計算；最後一欄是照 <code>edge_test_ioctl()</code> 的 <code>switch</code> 推算，不是對裝置實際呼叫。</p>
+      </div>
+      <h3>magic 為什麼不能隨便挑</h3>
+      <p>如果兩個 driver 用了同一個 magic 和 nr，對錯的裝置送命令時，對方可能把它當成自己的命令執行，而不是回 <code>ENOTTY</code>。所以 kernel 文件 <code>Documentation/userspace-api/ioctl/ioctl-number.rst</code> 維護一份已佔用 magic 的登記表。這次的選號過程：</p>
+      <ul>
+        <li>第一個想到的 <code>'E'</code>（edge）在這台的 uapi headers 裡已經被 evdev 等用了 36 次，直接排除。</li>
+        <li>L4T 的 kernel headers 套件沒附那份登記表，所以先搜尋本機所有 uapi header 裡的 <code>_IO*</code> 定義與 magic 常數，<code>0xEB</code> 一次都沒出現；再對照上游 v5.15 的登記表，也沒有 <code>0xEB</code>。</li>
+      </ul>
+      <p>號碼一旦發佈就是 ABI：之後新增命令只能往後加 nr，不能改既有命令的號碼或參數大小。測試裡用 <code>static_assert</code> 把兩個數值釘死，數字是照位元格式手算的，不是從實作抄的：</p>
+      <figure class="listing"><figcaption>tests/test_edge_device.cpp:18–23 — 把 ABI 釘死的 static_assert</figcaption>
+<pre data-start="18" data-hot="22-23">// ABI contract: fixed-size argument, and numbers that must never change.
+// _IOR/_IOW = dir(2 bits) &lt;&lt; 30 | size(14) &lt;&lt; 16 | type(8) &lt;&lt; 8 | nr(8).
+static_assert(sizeof(__u32) == 4, "ioctl argument must be a fixed 32-bit type");
+static_assert(EDGE_TEST_IOC_MAGIC == 0xEB, "magic changed");
+static_assert(EDGE_TEST_GET_VALUE == 0x8004EB01u, "GET_VALUE number changed");
+static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</pre></figure>
+    </div>
+  </section>
+
+  <section id="kernel">
+    <div class="rail"><span class="no">3.4</span><b>driver</b><span class="dot" style="background: var(--drv)"></span>unlocked_ioctl</div>
+    <div class="content">
+      <h2>kernel 端：一個 switch</h2>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:110–133 — edge_test_ioctl()</figcaption>
+<pre data-start="110" data-hot="116,121,124-125,130-131">static long edge_test_ioctl(struct file *file, unsigned int cmd,
+			    unsigned long arg)
+{
+	u32 __user *uptr = (u32 __user *)arg;
+	u32 val;
+
+	switch (cmd) {
+	case EDGE_TEST_GET_VALUE:
+		mutex_lock(&amp;edge_test_lock);
+		val = edge_test_value;
+		mutex_unlock(&amp;edge_test_lock);
+		return put_user(val, uptr);
+	case EDGE_TEST_SET_VALUE:
+		/* Fetch into a local first: a faulting read must not change state. */
+		if (get_user(val, uptr))
+			return -EFAULT;
+		mutex_lock(&amp;edge_test_lock);
+		edge_test_value = val;
+		mutex_unlock(&amp;edge_test_lock);
+		return 0;
+	default:
+		return -ENOTTY;
+	}
+}</pre></figure>
+      <ul>
+        <li><b>不認得的命令一律回 <code>-ENOTTY</code></b>（第 130–131 行）。這是 ioctl 的慣例錯誤碼，意思是「這個檔案不支援這個命令」；不要回 <code>-EINVAL</code>，那留給「命令認得、但參數值不對」。</li>
+        <li><code>get_user()</code> / <code>put_user()</code> 是搬單一個整數用的 <code>copy_from_user()</code> / <code>copy_to_user()</code>，同樣會檢查位址、碰到壞指標回 <code>-EFAULT</code>。NULL 也算壞指標。</li>
+        <li><b class="hl-key">先讀進區域變數，成功才改狀態</b>（第 124–125 行）：Step 2 的 <code>copy_from_user()</code> 坑換了個樣子出現，SET 給了壞指標時 value 必須不變——測試「failed SET leaves the value unchanged」守著這件事。</li>
+        <li>讀寫 <code>edge_test_value</code> 都在 Step 2 那把 <code>edge_test_lock</code> 底下；但 <code>put_user()</code> 在鎖外，因為它可能因 page fault 睡眠，沒必要讓別人等。</li>
+      </ul>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:135–143 — file_operations 表多了兩行</figcaption>
+<pre data-start="135" data-hot="141-142">static const struct file_operations edge_test_fops = {
+	.owner		= THIS_MODULE,
+	.open		= edge_test_open,
+	.release	= edge_test_release,
+	.read		= edge_test_read,
+	.write		= edge_test_write,
+	.unlocked_ioctl	= edge_test_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
+};</pre></figure>
+      <p>第 141 行把 handler 掛上去。第 142 行的 <code>compat_ioctl</code> 給 32-bit 程式用：64-bit kernel 上跑的 32-bit 程式，指標只有 32 位元，<code>compat_ptr_ioctl</code> 把它轉成 kernel 的指標後，呼叫同一個 <code>edge_test_ioctl()</code>。能這樣共用，前提就是參數只用固定大小的 <code>__u32</code>，兩種程式看到的號碼和排列完全一樣。這台的 kernel 有開 <code>CONFIG_COMPAT=y</code>，但沒有 32-bit 的編譯器，<b>這條路徑沒有實測</b>。</p>
+      <figure class="listing"><figcaption>kernel/edge_test/Makefile:4–5 — 讓 module 找得到共用 header</figcaption>
+<pre data-start="4" data-hot="5">obj-m := edge_test.o
+ccflags-y := -I$(src)/../../include</pre></figure>
+      <p>kernel module 不會自動去 repo 的 <code>include/</code> 找 header，第 5 行用 <code>ccflags-y</code> 把它加進搜尋路徑；<code>$(src)</code> 是 kbuild 提供的「這個 module 的原始碼目錄」。</p>
+    </div>
+  </section>
+
+  <section id="cli">
+    <div class="rail"><span class="no">3.5</span><b>userspace</b><span class="dot" style="background: var(--user)"></span>C++</div>
+    <div class="content">
+      <h2>C++ 端：<code>edge_test_cli</code></h2>
+      <p>CLI 只做兩件事：檢查參數，然後呼叫一次 <code>ioctl()</code>。檢查很嚴格，因為 <code>std::stoul</code> 之類的標準函式太寬鬆：在這台實測，<code>-1</code> 會變成 18446744073709551615、<code>12x</code> 變成 12、<code>0x10</code> 變成 0（只讀到 <code>x</code> 前面），而且都不報錯。使用者會以為設成了某個值，實際上是另一個：</p>
+      <figure class="listing"><figcaption>apps/edge_test_cli.cpp:32–46 — 嚴格的十進位解析</figcaption>
+<pre data-start="32" data-hot="35,39,43">// Strict decimal parse: digits only, no sign, no hex, must fit in 32 bits.
+std::optional&lt;__u32&gt; parse_u32(const std::string &amp;s)
+{
+    if (s.empty() || s.size() &gt; 10)
+        return std::nullopt;
+    uint64_t v = 0;
+    for (char c : s) {
+        if (c &lt; '0' || c &gt; '9')
+            return std::nullopt;
+        v = v * 10 + static_cast&lt;uint64_t&gt;(c - '0');
+    }
+    if (v &gt; UINT32_MAX)
+        return std::nullopt;
+    return static_cast&lt;__u32&gt;(v);
+}</pre></figure>
+      <figure class="listing"><figcaption>apps/edge_test_cli.cpp:86–99 — 真正呼叫 ioctl 的地方</figcaption>
+<pre data-start="86" data-hot="89,95">    int rc = 0;
+    if (cmd == "get") {
+        __u32 v = 0;
+        if (ioctl(fd, EDGE_TEST_GET_VALUE, &amp;v) == 0)
+            std::cout &lt;&lt; v &lt;&lt; "\n";
+        else
+            rc = fail("EDGE_TEST_GET_VALUE failed on", device);
+    } else {
+        __u32 v = *value;
+        if (ioctl(fd, EDGE_TEST_SET_VALUE, &amp;v) != 0)
+            rc = fail("EDGE_TEST_SET_VALUE failed on", device);
+    }
+    close(fd);
+    return rc;</pre></figure>
+      <p>結束碼有固定的意思：<b>0</b> 成功、<b>1</b> 裝置打不開或 ioctl 失敗（錯誤訊息帶裝置路徑和 <code>strerror</code>）、<b>2</b> 用法錯誤（同時印 usage）。腳本可以靠結束碼分辨「我打錯指令」和「裝置有問題」。這套慣例和 Step 1 的 <code>check_host_env.sh</code> 一致。</p>
+      <figure class="listing"><figcaption>CMakeLists.txt:1–16 — userspace 的建置</figcaption>
+<pre data-start="1" data-hot="12,15">cmake_minimum_required(VERSION 3.16)
+project(embedded_linux_platform CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+add_compile_options(-Wall -Wextra -Werror)
+
+# Step 3: userspace side of the edge_test ioctl interface.
+add_executable(edge_test_cli apps/edge_test_cli.cpp)
+target_include_directories(edge_test_cli PRIVATE include)
+
+add_executable(test_edge_device tests/test_edge_device.cpp)
+target_include_directories(test_edge_device PRIVATE include)</pre></figure>
+      <p><code>-Wall -Wextra -Werror</code> 讓警告直接變成編譯錯誤。兩個執行檔都把 repo 的 <code>include/</code> 加進搜尋路徑，所以和 kernel module 讀的是同一份 header。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">3.6</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="content">
+      <h2>先寫測試，再寫 driver</h2>
+      <p>C++ 測試 <code>tests/test_edge_device.cpp</code> 直接對真的裝置呼叫 ioctl，共 13 項：正常 set/get（含 0 和 4294967295）、多個 fd 看到同一個 value、未知 nr／外來 magic／參數大小不對都回 <code>ENOTTY</code>、NULL 與壞指標回 <code>EFAULT</code>、失敗的 SET 不改 value、ioctl 不動資料 buffer。沒有裝置時結束碼是 77（skip）。</p>
+      <p>寫好之後、kernel 還沒加 ioctl 之前，先對 Step 2 版的 module 跑一次，確認它會紅：</p>
+<pre class="out">FAIL set/get round trip 123
+FAIL set/get round trip 0
+FAIL set/get round trip 4294967295
+FAIL value is shared across open file descriptors
+PASS unknown nr returns ENOTTY
+PASS foreign magic returns ENOTTY
+PASS wrong argument size returns ENOTTY
+FAIL GET with NULL returns EFAULT
+FAIL GET with bad pointer returns EFAULT
+FAIL SET with NULL returns EFAULT
+FAIL SET with bad pointer returns EFAULT
+FAIL failed SET leaves the value unchanged
+PASS ioctl does not touch the data buffer
+=== 9 failure(s)</pre>
+      <p>9 項紅了。但注意那 4 個 <b class="hl-bad">PASS</b>：Step 2 的 module 沒有 <code>unlocked_ioctl</code>，VFS 對<b>任何</b>命令都回 <code>ENOTTY</code>，所以「應該回 ENOTTY」的三項和「不動 buffer」那項，在舊 module 上本來就會過。它們這次<b>沒有真正紅過</b>，只能當成防止日後退化的守門測試；要證明它們守得住，得另外做變異測試（例如故意讓 default 回 0），本 step 沒有做。</p>
+      <p>CLI 這邊是 <code>tests/test_edge_test_cli.py</code>：header 在 C 與 C++ 都能編譯、header 不用 <code>unsigned long</code> 之類的型別、各種錯誤參數都回 2、找不到裝置回 1。為了讓用法測試各自紅一次，先放了一個什麼都不做、直接回 0 的 CLI 殼子，看著它們一個個失敗，才寫真正的 CLI。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">3.7</span><b>實機</b><span class="dot" style="background: var(--user)"></span>Jetson</div>
+    <div class="content">
+      <h2>手動跑一次</h2>
+      <p><b>起點狀態</b>：已完成 Step 2（<code>kernel/edge_test</code> 能 build、能載入），站在 repo 根目錄。先建 module 和 userspace（都不需要 root）：</p>
+<pre class="cmd">make -C kernel/edge_test
+cmake -S . -B build &amp;&amp; cmake --build build</pre>
+      <p>然後載入、操作、卸載（只有載入和卸載需要 sudo）：</p>
+<pre class="cmd">sudo bash kernel/edge_test/load.sh
+./build/edge_test_cli get
+./build/edge_test_cli set 123
+./build/edge_test_cli get
+./build/edge_test_cli set 4294967296; echo "exit=$?"
+./build/test_edge_device; echo "exit=$?"
+sudo bash kernel/edge_test/unload.sh
+./build/edge_test_cli get; echo "exit=$?"</pre>
+      <p>2026-10-07 的實測輸出（<code>[sudo] password</code> 提示不在這段裡，因為 sudo 還在快取時間內）：</p>
+<pre class="out" data-marks><span class="prompt">$</span> sudo bash kernel/edge_test/load.sh
+<span class="prompt">$</span> ./build/edge_test_cli get
+0 «1»
+<span class="prompt">$</span> ./build/edge_test_cli set 123
+<span class="prompt">$</span> ./build/edge_test_cli get
+123 «2»
+<span class="prompt">$</span> ./build/edge_test_cli set 4294967296; echo "exit=$?"
+edge_test_cli: invalid VALUE '4294967296'
+usage: edge_test_cli [--device PATH] get
+       edge_test_cli [--device PATH] set VALUE   (decimal 0..4294967295)
+exit=2 «3»
+<span class="prompt">$</span> ./build/test_edge_device; echo "exit=$?"
+PASS set/get round trip 123
+PASS set/get round trip 0
+PASS set/get round trip 4294967295
+PASS value is shared across open file descriptors
+PASS unknown nr returns ENOTTY
+PASS foreign magic returns ENOTTY
+PASS wrong argument size returns ENOTTY
+PASS GET with NULL returns EFAULT
+PASS GET with bad pointer returns EFAULT
+PASS SET with NULL returns EFAULT
+PASS SET with bad pointer returns EFAULT
+PASS failed SET leaves the value unchanged
+PASS ioctl does not touch the data buffer
+=== 0 failure(s)
+exit=0 «4»
+<span class="prompt">$</span> sudo bash kernel/edge_test/unload.sh
+<span class="prompt">$</span> ./build/edge_test_cli get; echo "exit=$?"
+edge_test_cli: cannot open /dev/edge_test: No such file or directory
+exit=1 «5»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>剛載入時 value 是 0：<code>edge_test_value</code> 是 static 變數，module 載入時歸零。</span></li>
+        <li><span class="mk">2</span><span>一般使用者就能控制 driver（節點是 Step 2 設的 0666）。<code>set</code> 成功時不印任何東西，只靠結束碼 0 表示成功。</span></li>
+        <li><span class="mk">3</span><span>2³² 超出 32 位元，CLI 在呼叫 ioctl 之前就拒絕，回 2（用法錯誤）。</span></li>
+        <li><span class="mk">4</span><span>13 項全過；和上一節紅燈那次對照，就是這一步的行為改變。</span></li>
+        <li><span class="mk">5</span><span>卸載後節點消失，CLI 回 1（裝置錯誤）並帶出路徑和原因，和 3 的用法錯誤分得開。</span></li>
+      </ol>
+      <p>如果你在 <code>set 123</code> 之後先跑了 <code>test_edge_device</code> 再 <code>get</code>，會讀到 42 而不是 123——測試最後一項把 value 設成了 42。value 是整個 module 共用一份，不分 fd。</p>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">3.8</span><b>驗收</b>× 3 cycles</div>
+    <div class="content">
+      <h2>同一支驗收腳本，多驗三件事</h2>
+      <p>Step 2 的 <code>scripts/verify_edge_test.sh</code> 照舊重複 load → 測試 → unload，<b>只加不換</b>：迴圈前多一步 CMake build；每一輪多跑 C++ ioctl 測試（root）與 CLI 測試（一般使用者）；從第 2 輪起，多檢查 reload 後 value 是否歸零：</p>
+      <figure class="listing"><figcaption>scripts/verify_edge_test.sh:81–85 — reload 後 value 必須歸零</figcaption>
+<pre data-start="81" data-hot="82-84">    # Step 3: the ioctl value lives in the module, so a reload starts from 0.
+    if ((i &gt; 1)); then
+        got="$(timeout 10 "$CLI" get 2&gt;&amp;1)"
+        if [[ $got == 0 ]]; then pass "cycle $i: ioctl value reset to 0 after reload"; else fail "cycle $i: value after reload is '$got', expected 0"; fi
+    fi</pre></figure>
+      <p>每一輪卸載前，腳本先 <code>set 4242</code>；下一輪載入後讀回來必須是 0，證明 value 存在 module 裡，reload 就重新開始。在 repo 根目錄執行（整支要 root）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_test.sh 3</pre>
+<pre class="out" data-marks>PASS build edge_test.ko
+PASS vermagic matches running kernel (5.15.148-tegra)
+PASS build edge_test_cli and test_edge_device (CMake) «1»
+--- cycle 1/3
+PASS cycle 1: /proc/devices major 489
+PASS cycle 1: /dev/edge_test is char device with major 489
+PASS cycle 1: device unittest (root) «2»
+PASS cycle 1: echo/cat as nvidia
+PASS cycle 1: C++ ioctl test (root) «3»
+PASS cycle 1: CLI tests as nvidia «4»
+PASS cycle 1: clean after rmmod
+--- cycle 2/3
+PASS cycle 2: /proc/devices major 489
+PASS cycle 2: /dev/edge_test is char device with major 489
+PASS cycle 2: ioctl value reset to 0 after reload «5»
+PASS cycle 2: device unittest (root)
+PASS cycle 2: echo/cat as nvidia
+PASS cycle 2: C++ ioctl test (root)
+PASS cycle 2: CLI tests as nvidia
+PASS cycle 2: clean after rmmod
+--- cycle 3/3
+  …（cycle 3 與 cycle 2 相同，略）
+PASS dmesg free of Oops/BUG/WARNING
+PASS dmesg shows 3 load / 3 unload messages
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>以呼叫 sudo 的那個使用者身分 build，<code>build/</code> 不會出現 root 所有的檔案。輸出開頭那條 compiler 版本警告和 Step 2 一樣無害，這裡省略。</span></li>
+        <li><span class="mk">2</span><span>Step 2 的 12 個行為測試照樣全過：加了 ioctl，資料通道沒有退化。</span></li>
+        <li><span class="mk">3</span><span>上一節那 13 項，以 root 執行。</span></li>
+        <li><span class="mk">4</span><span><code>tests/test_edge_test_cli.py</code> 的 <span data-tests="tests/test_edge_test_cli.py">10</span> 個案例，含 set/get 0、123、4294967295 三個值。</span></li>
+        <li><span class="mk">5</span><span>上一輪卸載前設的 4242 沒有留下來。</span></li>
+      </ol>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:54</code>），而且以你的身分執行。</td></tr>
+          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 114 行），下一輪自動檢查（第 81–85 行）。</td></tr>
+          <tr><td>用 sudo 跑 CLI 的 Python 測試</td><td>不要：那支測試第一次會跑 CMake，用 root 會在 <code>build/</code> 留下 root 所有的檔案。腳本用 <code>sudo -u "$SUDO_USER"</code> 執行它。</td></tr>
+        </tbody>
+      </table>
+      <p>不需要 root 的部分（header、CLI 用法、教材檢查）隨時可以跑，同樣在 repo 根目錄：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -v
+python3 scripts/check_listings.py docs</pre>
+      <p>module 沒載入時最後一行是 <code>OK (skipped=13)</code>；第二行的 <code>check_listings.py</code> 是這一步新增的，下一節會說為什麼。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">3.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過或差點踩的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>magic 挑「看起來沒人用」的</h4><dl><dt>症狀</dt><dd>選了 <code>'E'</code>，本機 headers 裡早已出現 36 次。</dd><dt>後果</dt><dd>命令送錯裝置時，對方可能照自己的意思執行。</dd><dt>正解</dt><dd class="fix">搜尋本機 uapi headers，再對照上游的 <code>ioctl-number.rst</code>（3.3 節）。</dd></dl></div>
+        <div class="pit"><h4>以為號碼只看 magic 和 nr</h4><dl><dt>症狀</dt><dd><code>_IOR(0xEB, 1, __u64)</code> 回 <code>ENOTTY</code>。</dd><dt>後果</dt><dd>參數型別一改，舊程式全部失效。</dd><dt>正解</dt><dd class="fix">參數大小也在號碼裡；只用 <code>__u32</code> 這類固定大小型別，號碼用 <code>static_assert</code> 釘死。</dd></dl></div>
+        <div class="pit"><h4>SET 直接寫進狀態</h4><dl><dt>症狀</dt><dd>壞指標的 SET 也改到了 value。</dd><dt>後果</dt><dd>錯誤的呼叫破壞 driver 狀態（Step 2 坑的變體）。</dd><dt>正解</dt><dd class="fix">先 <code>get_user()</code> 到區域變數，成功才寫入（3.4 節）。</dd></dl></div>
+        <div class="pit"><h4>不認得的命令回 EINVAL</h4><dl><dt>症狀</dt><dd>呼叫端分不出「命令不支援」和「參數錯」。</dd><dt>後果</dt><dd>userspace 的錯誤處理只能猜。</dd><dt>正解</dt><dd class="fix"><code>default</code> 一律回 <code>-ENOTTY</code>。這一格是慣例，不是這次踩到的。</dd></dl></div>
+        <div class="pit"><h4>root 跑會觸發 build 的測試</h4><dl><dt>症狀</dt><dd><code>build/</code> 裡出現 root 所有的檔案，之後 <code>cmake --build</code> 失敗。</dd><dt>後果</dt><dd>Step 2「不要 sudo make」的坑換個地方重演。</dd><dt>正解</dt><dd class="fix">CLI 測試用 <code>sudo -u "$SUDO_USER"</code> 執行。</dd></dl></div>
+        <div class="pit"><h4>改了 driver，舊章的節錄過期</h4><dl><dt>症狀</dt><dd>加了 ioctl 後 <code>edge_test.c</code> 行號下移，Step 2 章 9 段節錄有 8 段對不上。</dd><dt>後果</dt><dd>讀者照行號找程式碼會找錯，而 <code>check_book.py</code> 不檢查這件事。</dd><dt>正解</dt><dd class="fix">新增 <code>scripts/check_listings.py</code>，逐字比對所有節錄；拿舊版 Step 2 章確認它抓得到那 8 段。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">3.10</span><b>收尾</b>step 3 → 4</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">C++ 程式能透過 <code>ioctl()</code> 讀寫 driver 的狀態，一般使用者也能用。</li>
+        <li class="y">未知命令回 <code>ENOTTY</code>、NULL / 壞指標回 <code>EFAULT</code> 且不改狀態、reload 後 value 歸零，三輪驗收都<b class="hl-ok">通過</b>。</li>
+        <li class="y">命令號碼用固定大小型別，並以 <code>static_assert</code> 釘住 ABI。</li>
+        <li class="y">Step 2 的資料通道沒有退化。</li>
+        <li class="n">沒有實測：32-bit 程式走 <code>compat_ptr_ioctl</code> 的路徑；4 個 <code>ENOTTY</code>／不動 buffer 的守門測試沒有紅過。</li>
+      </ul>
+      <p>到這裡，<code>edge_test</code> 還是一個純軟體的裝置。Step 4 開始接上真正的硬體：GPIO 與 LED，同樣用 character device 當入口，並換成 platform driver 加 Device Tree 的寫法。</p>
+      <details class="quiz"><summary>1. 為什麼「設定一個值」該用 ioctl，而不是往 <code>/dev/edge_test</code> 寫一串 <code>SET 123</code>？</summary><p>寫入的是資料通道，driver 得自己解析文字，資料和命令也會混在一起；ioctl 用號碼區分命令、參數格式固定，不需要解析。</p></details>
+      <details class="quiz"><summary>2. <code>EDGE_TEST_GET_VALUE</code> 為什麼是 <code>_IOR</code> 而不是 <code>_IOW</code>？</summary><p>方向是從 userspace 的角度看：GET 要把 kernel 的值讀回 userspace，所以是 READ。</p></details>
+      <details class="quiz"><summary>3. 把參數型別從 <code>__u32</code> 改成 <code>__u64</code>，舊程式會發生什麼事？</summary><p>參數大小被編在號碼裡，新號碼和舊程式送來的號碼不同，舊程式的呼叫會落進 <code>default</code> 拿到 <code>ENOTTY</code>。這就是 ABI 被打破。</p></details>
+      <details class="quiz"><summary>4. 為什麼那 4 個「預期 ENOTTY／不動 buffer」的測試，對 Step 2 的 module 也會 PASS？</summary><p>Step 2 的 module 沒有 <code>unlocked_ioctl</code>，VFS 對任何 ioctl 都回 <code>ENOTTY</code>，也不會動到 buffer。所以它們沒有真正紅過，只能算守門測試。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><span class="disabled">Step 4 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+<script>
+/* 3.3 ioctl number calculator: same layout as asm-generic/ioctl.h (dir 2, size 14, type 8, nr 8). */
+(function () {
+  var GET = 0x8004EB01, SET = 0x4004EB02;
+  var dir = document.getElementById('cDir'), size = document.getElementById('cSize');
+  var type = document.getElementById('cType'), nr = document.getElementById('cNr');
+  var outHex = document.getElementById('cHex'), outBin = document.getElementById('cBin'), outV = document.getElementById('cVerdict');
+  function hexByte(el) {
+    var v = parseInt(el.value, 16);
+    return /^[0-9a-fA-F]{1,2}$/.test(el.value) ? v : NaN;
+  }
+  function pad(n, w) { var s = n.toString(2); while (s.length < w) s = '0' + s; return s; }
+  function update() {
+    var d = parseInt(dir.value, 10), s = parseInt(size.value, 10), t = hexByte(type), n = hexByte(nr);
+    if (isNaN(s) || s < 0 || s > 16383 || isNaN(t) || isNaN(n)) {
+      outHex.textContent = '欄位超出範圍'; outBin.textContent = '—'; outV.textContent = '—';
+      return;
+    }
+    var cmd = ((d << 30) | (s << 16) | (t << 8) | n) >>> 0;
+    outHex.textContent = '0x' + cmd.toString(16).toUpperCase().padStart(8, '0');
+    outBin.textContent = pad(d, 2) + ' | ' + pad(s, 14) + ' | ' + pad(t, 8) + ' | ' + pad(n, 8);
+    if (cmd === GET) { outV.textContent = 'case EDGE_TEST_GET_VALUE：put_user 寫回 value'; outV.className = 'ok'; }
+    else if (cmd === SET) { outV.textContent = 'case EDGE_TEST_SET_VALUE：get_user 讀入新 value'; outV.className = 'ok'; }
+    else { outV.textContent = 'default：回 -ENOTTY'; outV.className = 'bad'; }
+  }
+  [dir, size, type, nr].forEach(function (el) { el.addEventListener('input', update); });
+  document.querySelectorAll('[data-preset]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var p = b.dataset.preset.split(',');
+      dir.value = p[0]; size.value = p[1]; type.value = p[2]; nr.value = p[3];
+      update();
+    });
+  });
+  update();
+})();
+</script>
+</body>
+</html>
