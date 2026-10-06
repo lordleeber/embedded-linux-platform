@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 2　edge_test 字元裝置 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --cell-on: #173a33;
+  --cell-new: #4d3d12;
+  --cell-zap: #4f211a;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 46rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-up { stroke: var(--muted); stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.steps { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.6rem; counter-reset: s; }
+.steps li { counter-increment: s; max-width: none; display: grid; grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 12rem); grid-template-areas: "n api trace" "n what trace"; gap: 0.2rem 1.2rem; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 1rem; }
+.steps li::before { grid-area: n; content: counter(s); font-family: var(--font-mono); font-weight: 600; color: var(--accent); font-size: 1.1rem; line-height: 1.5; }
+.steps .api { grid-area: api; font-family: var(--font-mono); font-weight: 600; font-size: 0.92rem; }
+.steps .what { grid-area: what; color: var(--muted); font-size: 0.92rem; }
+.steps .trace { grid-area: trace; align-self: center; border-left: 1px solid var(--line); padding-left: 1rem; font-family: var(--font-mono); font-size: 0.82rem; color: var(--kern); }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-bottom: 0.35rem; }
+.tag.bad { color: var(--bad); } .tag.ok { color: var(--ok); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem; display: grid; gap: 1rem; margin-bottom: 0.8rem; }
+.sim-top { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; }
+.sim label { font-size: 0.9rem; color: var(--muted); }
+.sim input[type="text"] { font-family: var(--font-mono); font-size: 0.95rem; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); width: 14rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.sim button { font-family: var(--font-mono); font-size: 0.82rem; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 0.45rem 0.7rem; line-height: 1.3; }
+.sim button:hover { border-color: var(--accent); color: var(--accent); }
+.sim button:focus-visible, .sim input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sim button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.sim button.danger:hover { border-color: var(--bad); color: var(--bad); }
+.mode { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.sim .mode button { border: 0; border-radius: 0; font-family: var(--font-body); padding: 0.35rem 0.8rem; }
+.sim .mode button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.sim-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.stats { display: flex; gap: 1.2rem; font-family: var(--font-mono); font-size: 0.85rem; margin-bottom: 0.5rem; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 2px; font-family: var(--font-mono); font-size: 0.7rem; }
+.cell { aspect-ratio: 1; display: grid; place-items: center; border-radius: 3px; background: color-mix(in srgb, var(--line) 45%, transparent); color: var(--muted); overflow: hidden; }
+.cell.on { background: var(--cell-on); color: var(--ink); }
+.cell.new { background: var(--cell-new); color: var(--ink); }
+.cell.zap { background: var(--cell-zap); color: var(--bad); font-weight: 600; }
+.grid-key { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem; }
+.grid-key span::before { content: ""; display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: -0.1rem; background: var(--c); }
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.8rem 0.9rem; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.6; height: 19rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.term .cmd { color: #ffffff; }
+.term .cmd::before { content: "$ "; color: var(--ok); }
+.term .sys { color: var(--term-dim); }
+.term .err { color: var(--bad); }
+.term .note { color: var(--drv); }
+.term-title { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.35rem; }
+.term-title .sim-tag { color: var(--drv); font-weight: 700; }
+@media (prefers-reduced-motion: no-preference) { .cell { transition: background-color 0.25s ease; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 2 · Linux kernel module</div>
+    <h1>edge_test 字元裝置</h1>
+    <p class="lede">第一個 kernel module 只做一件事：在 <code>/dev/edge_test</code> 放一塊 256 bytes 的記憶體。<code>echo</code> 寫進去，<code>cat</code> 讀出來。功能很小，但走過的路，就是之後每一個硬體 driver 和 userspace 溝通的同一條路。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_test/{edge_test.c, Makefile, load.sh, unload.sh, README.md}</span>、<span class="new">scripts/verify_edge_test.sh</span>、<span class="new">tests/test_edge_test_device.py</span></p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（syscall、VFS、devtmpfs）</span>
+      <span style="--c: var(--drv)">我們寫的 driver</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">2.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>先寫一個不碰硬體的 driver</h2>
+      <p>後面每一個 driver——GPIO、INA219、OLED、STM32 的 SPI 通道——最後都要給 userspace 一個入口，最直接的入口就是 <code>/dev</code> 底下的 character device。先用一個<b>完全不碰硬體</b>的 driver 把路走通，之後換成真的硬體時，出問題才分得清是「入口沒接好」還是「硬體沒回應」。這一步也收掉 Step 1 留下的未驗證項目：用 <code>/lib/modules/$(uname -r)/build</code> 真的編出 module 並載入成功。</p>
+      <p><b>互動雙方</b>：userspace 程式（<code>echo</code>、<code>cat</code>、Python 測試）呼叫 <code>edge_test.ko</code>，中間經過 system call 和 VFS；沒有外接硬體，也沒有 bus 上的 controller / target。<b>這一步不做</b>：ioctl（Step 3）、interrupt、真實硬體控制。</p>
+      <dl class="terms">
+        <dt>.ko / insmod / rmmod</dt><dd><code>.ko</code>（kernel object）是編好的 kernel module，可以在系統執行中插進 kernel。<code>insmod</code> 載入、<code>rmmod</code> 卸載，都要 root。</dd>
+        <dt>VFS</dt><dd>Virtual File System：kernel 裡處理所有「檔案」操作的那一層，<code>read()</code>/<code>write()</code> 都先到這裡，再轉給真正負責的程式碼。</dd>
+        <dt>dmesg / Oops</dt><dd><code>dmesg</code> 印出 kernel 的 log，module 的 <code>pr_info()</code> 寫到這裡；Oops / BUG / WARNING 是 kernel 偵測到自己出錯時印的訊息。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">2.2</span><b>路徑</b>user → kernel</div>
+    <div class="content">
+      <h2>一次 <code>echo hello</code> 往下走了幾層</h2>
+      <p>對 <code>echo</code> 來說，<code>/dev/edge_test</code> 就是一個檔案。它呼叫 <code>write()</code>，VFS 看到這個節點記錄的裝置號碼（<b class="hl-key">major / minor</b>，這台是 489 / 0），找到我們在 <code>insmod</code> 時登記的 <code>file_operations</code> 表，再呼叫表裡的 <code>.write</code>，也就是 <code>edge_test_write()</code>。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 640 420" role="img" aria-label="write 從 userspace 經 system call、VFS、edge_test_write 存進 edge_test_buf；read 沿虛線反向回到 userspace">
+          <defs>
+            <marker id="mDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+            <marker id="mUp" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--muted)"/></marker>
+          </defs>
+          <text class="s-mono" x="20" y="54">USERSPACE</text>
+          <rect class="s-box" x="150" y="20" width="340" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="320" y="45" text-anchor="middle">echo hello &gt; /dev/edge_test</text>
+          <text class="s-sm" x="320" y="66" text-anchor="middle">讀的時候是 cat /dev/edge_test</text>
+          <line class="sv-edge" x1="10" y1="88" x2="630" y2="88"/>
+          <text class="s-sm edge-lbl" x="630" y="104" text-anchor="end">user ↕ kernel 邊界</text>
+          <text class="s-mono" x="20" y="132">SYSCALL</text>
+          <rect class="s-box" x="150" y="98" width="340" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="320" y="123" text-anchor="middle">write(fd, "hello\n", 6)</text>
+          <text class="s-sm" x="320" y="144" text-anchor="middle">負的錯誤碼在這層轉成 -1 + errno</text>
+          <text class="s-mono" x="20" y="210">VFS</text>
+          <rect class="s-box" x="150" y="176" width="340" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="320" y="201" text-anchor="middle">file-&gt;f_op-&gt;write(...)</text>
+          <text class="s-sm" x="320" y="222" text-anchor="middle">major/minor → cdev → file_operations</text>
+          <text class="s-mono" x="20" y="288">DRIVER</text>
+          <rect class="s-box" x="150" y="254" width="340" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="320" y="279" text-anchor="middle">edge_test_write()</text>
+          <text class="s-sm" x="320" y="300" text-anchor="middle">copy_from_user → tmp → memcpy</text>
+          <text class="s-mono" x="20" y="366">MEMORY</text>
+          <rect class="s-box" x="150" y="332" width="340" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="320" y="357" text-anchor="middle">edge_test_buf[256]</text>
+          <text class="s-sm" x="320" y="378" text-anchor="middle">data_len 記錄存了多少；mutex 保護</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="94" marker-end="url(#mDown)"/>
+          <line class="sv-down" x1="200" y1="157" x2="200" y2="172" marker-end="url(#mDown)"/>
+          <line class="sv-down" x1="200" y1="235" x2="200" y2="250" marker-end="url(#mDown)"/>
+          <line class="sv-down" x1="200" y1="313" x2="200" y2="328" marker-end="url(#mDown)"/>
+          <line class="sv-up" x1="440" y1="331" x2="440" y2="316" marker-end="url(#mUp)"/>
+          <line class="sv-up" x1="440" y1="253" x2="440" y2="238" marker-end="url(#mUp)"/>
+          <line class="sv-up" x1="440" y1="175" x2="440" y2="160" marker-end="url(#mUp)"/>
+          <line class="sv-up" x1="440" y1="97" x2="440" y2="82" marker-end="url(#mUp)"/>
+          <text class="s-sm" x="510" y="225">實線：write 往下</text>
+          <text class="s-sm" x="510" y="245">虛線：read 往上</text>
+          <text class="s-sm" x="510" y="265">（copy_to_user）</text>
+        </svg>
+        <figcaption>圖 2.1 — 真正跨過紅色邊界、碰到 userspace 記憶體的，只有 driver 裡的 <code>copy_from_user()</code> 和 <code>copy_to_user()</code>。其餘每一層都只是在找「這次該呼叫誰」。</figcaption>
+      </figure>
+      <p><code>file_operations</code> 是一個裝滿函式指標的 struct，driver 填好一張交給 kernel：</p>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:103–109 — file_operations 表</figcaption>
+<pre data-start="103" data-hot="107-108">static const struct file_operations edge_test_fops = {
+	.owner		= THIS_MODULE,
+	.open		= edge_test_open,
+	.release	= edge_test_release,
+	.read		= edge_test_read,
+	.write		= edge_test_write,
+};</pre></figure>
+      <p>沒填的欄位（例如 <code>ioctl</code>）是 NULL，VFS 會替你回錯誤。<code>release</code> 在最後一個使用者 <code>close()</code> 時呼叫。<code>THIS_MODULE</code> 指向這個 module 自己：只要還有人開著 <code>/dev/edge_test</code>，kernel 就不讓 <code>rmmod</code> 卸掉它。</p>
+    </div>
+  </section>
+
+  <section id="insmod">
+    <div class="rail"><span class="no">2.3</span><b>載入</b><span class="dot" style="background: var(--drv)"></span>insmod</div>
+    <div class="content">
+      <h2><code>insmod</code> 時依序建立的四樣東西</h2>
+      <p>上面那條路要能通，前提是 <code>insmod</code> 時 driver 已經把自己登記好。module 先由 kernel 的建置系統 kbuild 編出來：</p>
+      <figure class="listing"><figcaption>kernel/edge_test/Makefile:1–14 — 借用 headers 裡的 kbuild 編譯</figcaption>
+<pre data-start="1" data-hot="4,6,9"># Out-of-tree build against the running kernel's headers.
+#   make            build edge_test.ko
+#   make clean      remove build products
+obj-m := edge_test.o
+
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
+all:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
+
+.PHONY: all clean</pre></figure>
+      <p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」；第 9 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是編譯 / 連結一個 module 檔。載入時 kernel 靠檔尾兩行找到進入點：</p>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:160–170 — 卸載函式與進入點登記</figcaption>
+<pre data-start="160" data-hot="169-170">static void __exit edge_test_exit(void)
+{
+	device_destroy(edge_test_class, edge_test_devt);
+	class_destroy(edge_test_class);
+	cdev_del(&amp;edge_test_cdev);
+	unregister_chrdev_region(edge_test_devt, 1);
+	pr_info("edge_test: unregistered\n");
+}
+
+module_init(edge_test_init);
+module_exit(edge_test_exit);</pre></figure>
+      <p><code>module_init()</code> / <code>module_exit()</code> 把函式登記成 <code>insmod</code> / <code>rmmod</code> 時的進入點；<code>__init</code> 的函式只在載入時用一次。<code>edge_test_init()</code> 依序呼叫四個 API，每一步都留下看得到的痕跡，驗收腳本就是逐一檢查這些痕跡：load 之後出現，unload 之後消失。</p>
+      <ol class="steps">
+        <li><span class="api">alloc_chrdev_region()</span><span class="what">向 kernel 要一組沒人用的裝置號碼。這台配到 major 489，換一台可能不同。</span><span class="trace">/proc/devices<br>489 edge_test</span></li>
+        <li><span class="api">cdev_init() + cdev_add()</span><span class="what">把號碼和 <code>edge_test_fops</code> 綁在一起。從這一刻起，用這組號碼開檔就會走到我們的函式。</span><span class="trace">（open 時才看得出來）</span></li>
+        <li><span class="api">class_create()</span><span class="what">建立裝置分類（class，例如 <code>tty</code>、<code>input</code> 那種分類），並掛上 devnode callback，把節點權限設成 0666。</span><span class="trace">/sys/class/edge_test/</span></li>
+        <li><span class="api">device_create()</span><span class="what">登記裝置本身並送出 uevent（「有新裝置」的通知）。掛在 <code>/dev</code> 的記憶體檔案系統 devtmpfs 立刻建出節點，不用手動 <code>mknod</code>。</span><span class="trace">crw-rw-rw- 489, 0<br>/dev/edge_test</span></li>
+      </ol>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:119–158 — module_init 與錯誤時的反向拆除</figcaption>
+<pre data-start="119" data-hot="123,129,133,138,140,151-156">static int __init edge_test_init(void)
+{
+	int ret;
+
+	ret = alloc_chrdev_region(&amp;edge_test_devt, 0, 1, EDGE_TEST_NAME);
+	if (ret)
+		return ret;
+
+	cdev_init(&amp;edge_test_cdev, &amp;edge_test_fops);
+	edge_test_cdev.owner = THIS_MODULE;
+	ret = cdev_add(&amp;edge_test_cdev, edge_test_devt, 1);
+	if (ret)
+		goto err_region;
+
+	edge_test_class = class_create(THIS_MODULE, EDGE_TEST_NAME);
+	if (IS_ERR(edge_test_class)) {
+		ret = PTR_ERR(edge_test_class);
+		goto err_cdev;
+	}
+	edge_test_class-&gt;devnode = edge_test_devnode;
+
+	edge_test_device = device_create(edge_test_class, NULL, edge_test_devt,
+					 NULL, EDGE_TEST_NAME);
+	if (IS_ERR(edge_test_device)) {
+		ret = PTR_ERR(edge_test_device);
+		goto err_class;
+	}
+
+	pr_info("edge_test: registered /dev/%s (major %d, minor %d)\n",
+		EDGE_TEST_NAME, MAJOR(edge_test_devt), MINOR(edge_test_devt));
+	return 0;
+
+err_class:
+	class_destroy(edge_test_class);
+err_cdev:
+	cdev_del(&amp;edge_test_cdev);
+err_region:
+	unregister_chrdev_region(edge_test_devt, 1);
+	return ret;
+}</pre></figure>
+      <p>kernel 函式失敗時回傳<b>負的 errno</b>，成功回 0；回傳 pointer 的函式把錯誤碼塞進 pointer 本身，用 <code>IS_ERR(p)</code> 判斷、<code>PTR_ERR(p)</code> 取出，所以這裡不是檢查 NULL。任何一步失敗，就用 <code>goto</code> <b class="hl-key">把前面已經建好的東西反向拆掉</b>；<code>rmmod</code> 時的 <code>edge_test_exit()</code> 也是 4 → 1 的順序。少拆一步，下次 <code>insmod</code> 就可能卡在殘留上（推論，本 step 沒有刻意製造 init 失敗去驗證）。</p>
+    </div>
+  </section>
+
+  <section id="write">
+    <div class="rail"><span class="no">2.4</span><b>寫入</b><span class="dot" style="background: var(--drv)"></span>write()</div>
+    <div class="content">
+      <h2>截斷、<code>ENOSPC</code> 與一把 mutex</h2>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:70–101 — 寫入路徑</figcaption>
+<pre data-start="70" data-hot="80-82,84,90,94">static ssize_t edge_test_write(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos)
+{
+	char tmp[EDGE_TEST_BUF_SIZE];
+	ssize_t ret;
+
+	if (count == 0)
+		return 0;
+
+	mutex_lock(&amp;edge_test_lock);
+	if (*ppos &gt;= EDGE_TEST_BUF_SIZE) {
+		ret = -ENOSPC;
+		goto out;
+	}
+	count = min_t(size_t, count, EDGE_TEST_BUF_SIZE - *ppos);
+	/*
+	 * copy_from_user() zero-fills the destination bytes it could not
+	 * copy, so copy into tmp first; a faulting write must not clobber
+	 * what is already stored.
+	 */
+	if (copy_from_user(tmp, ubuf, count)) {
+		ret = -EFAULT;
+		goto out;
+	}
+	memcpy(edge_test_buf + *ppos, tmp, count);
+	*ppos += count;
+	edge_test_data_len = max_t(size_t, edge_test_data_len, *ppos);
+	ret = count;
+out:
+	mutex_unlock(&amp;edge_test_lock);
+	return ret;
+}</pre></figure>
+      <p><code>ubuf</code> 帶著 <code>__user</code> 標記：它是 <b>userspace 的位址</b>，kernel 不能直接 dereference。<code>copy_from_user()</code> 會檢查位址範圍、碰到 page fault 也能安全收場，回傳沒複製成功的 byte 數。driver 成功回寫入的 byte 數、失敗回負的 errno；syscall 那層再轉成 <code>write()</code> 回 -1、<code>errno</code> 設成 <code>ENOSPC</code> 或 <code>EFAULT</code>。</p>
+      <ul>
+        <li>寫 300 bytes 到空的 buffer：第 84 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>。</li>
+        <li>像 <code>head</code> 這種會把資料寫完的程式會再送剩下的 44 bytes；這時 <code>*ppos</code> 已經是 256，第 80–82 行回 <code>-ENOSPC</code>，<code>head</code> 印出 <code>No space left on device</code>（2.9 節實測）。</li>
+      </ul>
+      <p>所有存取 buffer 的地方都在 <code>edge_test_lock</code> 底下。kernel 的 mutex 拿不到時讓執行緒去睡，跟 pthread mutex 類似；spinlock 拿不到時原地空轉、持有期間不准睡。<code>copy_from_user()</code> 碰到還沒載入記憶體的 user page 會觸發 page fault 並等待（也就是「睡眠」），所以這裡只能用 mutex。</p>
+    </div>
+  </section>
+
+  <section id="read">
+    <div class="rail"><span class="no">2.5</span><b>讀取</b><span class="dot" style="background: var(--drv)"></span>read() · open()</div>
+    <div class="content">
+      <h2>讓它像一個小檔案</h2>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:48–68 — 讀取路徑</figcaption>
+<pre data-start="48" data-hot="54-55,58,63">static ssize_t edge_test_read(struct file *file, char __user *ubuf,
+			      size_t count, loff_t *ppos)
+{
+	ssize_t ret;
+
+	mutex_lock(&amp;edge_test_lock);
+	if (*ppos &gt;= edge_test_data_len) {
+		ret = 0;	/* EOF */
+		goto out;
+	}
+	count = min_t(size_t, count, edge_test_data_len - *ppos);
+	if (copy_to_user(ubuf, edge_test_buf + *ppos, count)) {
+		ret = -EFAULT;
+		goto out;
+	}
+	*ppos += count;
+	ret = count;
+out:
+	mutex_unlock(&amp;edge_test_lock);
+	return ret;
+}</pre></figure>
+      <p><b class="hl-key"><code>*ppos</code> 是這一次 open 的讀寫位置</b>，存在 <code>struct file</code> 的 <code>f_pos</code>，每個 <code>open()</code> 各有一份。<code>cat</code> 會一直 <code>read()</code> 到回傳 0，所以第 54–55 行的 EOF 一定要有，否則 <code>cat</code> 會無限迴圈。</p>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:31–40 — open 時處理 O_TRUNC</figcaption>
+<pre data-start="31" data-hot="33-35">static int edge_test_open(struct inode *inode, struct file *file)
+{
+	if ((file-&gt;f_mode &amp; FMODE_WRITE) &amp;&amp; (file-&gt;f_flags &amp; O_TRUNC)) {
+		mutex_lock(&amp;edge_test_lock);
+		edge_test_data_len = 0;
+		mutex_unlock(&amp;edge_test_lock);
+	}
+	pr_debug("edge_test: open (flags 0x%x)\n", file-&gt;f_flags);
+	return 0;
+}</pre></figure>
+      <p>shell 的 <code>&gt;</code> 用 <code>O_WRONLY | O_CREAT | O_TRUNC</code> 開檔。對 character device，VFS 不會替你清空，<code>O_TRUNC</code> 的意義由 driver 決定；這裡選擇清空，所以先 <code>echo hello world</code> 再 <code>echo hi</code> 讀到的是 <code>hi</code>，不處理的話會是 <code>hi\nlo world\n</code>。<code>inode</code> 代表檔案本身、<code>file</code> 代表這一次 open；<code>f_mode</code> 是整理過的讀寫權限，<code>f_flags</code> 是原始旗標。<code>pr_debug()</code> 在這顆 kernel 不會印東西（沒開 <code>CONFIG_DYNAMIC_DEBUG</code>）。</p>
+    </div>
+  </section>
+
+  <section id="perm">
+    <div class="rail"><span class="no">2.6</span><b>權限</b>devnode</div>
+    <div class="content">
+      <h2>為什麼一般使用者也能 <code>echo</code></h2>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:111–117 — devtmpfs 節點權限</figcaption>
+<pre data-start="111" data-hot="115">/* Make the devtmpfs node 0666 so the acceptance commands work without sudo. */
+static char *edge_test_devnode(struct device *dev, umode_t *mode)
+{
+	if (mode)
+		*mode = 0666;
+	return NULL;
+}</pre></figure>
+      <p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>。第 138 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>；回傳 <code>NULL</code> 表示節點名稱不改。學習用的 buffer 裝置這樣方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，應該用 udev（收到 uevent 後依規則調整節點的 userspace 程式）的 rule 指定 group。</p>
+    </div>
+  </section>
+
+  <section id="sim">
+    <div class="rail"><span class="no">2.7</span><b>試試看</b><span class="dot" style="background: var(--accent)"></span>256 bytes</div>
+    <div class="content">
+      <h2>自己操作那 256 bytes</h2>
+      <p>下面依照 <code>edge_test.c</code> 的邏輯<b>模擬</b>整個裝置：每按一次，右邊列出 syscall 和 driver 的回傳值，左邊是 buffer 的 256 格。試試看寫超過 256 bytes，或用壞掉的指標寫入，再切到「第一版」比較 2.8 節那個 bug 修正前後的差別。</p>
+      <div class="sim">
+        <div class="sim-top">
+          <label for="txt">要寫入的文字</label>
+          <input id="txt" type="text" value="hello" autocomplete="off" spellcheck="false">
+          <div class="mode" role="group" aria-label="driver 版本">
+            <button type="button" id="modeFixed" aria-pressed="true">修正版</button>
+            <button type="button" id="modeBug" aria-pressed="false">第一版（有 bug）</button>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="aEcho">echo 文字 &gt; /dev/edge_test</button>
+          <button type="button" id="aCat">cat /dev/edge_test</button>
+          <button type="button" id="aHead">head -c 300 /dev/zero &gt; /dev/edge_test</button>
+          <button type="button" class="danger" id="aBad">用壞指標 write 4 bytes</button>
+          <button type="button" id="aReload">rmmod + insmod</button>
+        </div>
+        <div class="sim-body">
+          <div>
+            <div class="stats" aria-live="polite"><span>data_len = <b id="sLen">0</b></span><span>最後回傳 <b id="sRet">—</b></span></div>
+            <div class="grid" id="grid" aria-label="edge_test_buf 的 256 個 byte"></div>
+            <div class="grid-key">
+              <span style="--c: var(--cell-on)">已存的資料</span>
+              <span style="--c: var(--cell-new)">剛寫入</span>
+              <span style="--c: var(--cell-zap)">失敗的寫入清成 0</span>
+              <span>↵ 換行　· 是 \0</span>
+            </div>
+          </div>
+          <div>
+            <div class="term-title"><span>syscall 紀錄</span><span class="sim-tag">模擬，不是實機輸出</span></div>
+            <div class="term" id="term" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+      <p class="meta">模擬規則：<code>O_TRUNC</code> 開檔會清空；超過容量先 short write、下一次 <code>ENOSPC</code>；讀到 data_len 回 0。<code>head</code> 的錯誤訊息和實機一致；<code>bash: echo</code> 與壞指標那行的格式是示意。</p>
+    </div>
+  </section>
+
+  <section id="bug">
+    <div class="rail"><span class="no">2.8</span><b>踩坑</b><span class="dot" style="background: var(--bad)"></span>EFAULT</div>
+    <div class="content">
+      <h2>失敗的寫入，把原本的資料清成了 0</h2>
+      <p>測試 <code>test_bad_user_pointer_returns_efault_and_keeps_buffer</code> 先寫入 <code>safe</code>，再透過 Python 的 <code>ctypes</code> 直接呼叫 libc 的 <code>write()</code>，傳入位址 <code>1</code> 這個無效指標，預期回 <code>EFAULT</code>、內容不變。第一次在 Jetson 上跑，<code>EFAULT</code> 有正確回傳，內容卻變了：</p>
+<pre class="out">FAIL: test_bad_user_pointer_returns_efault_and_keeps_buffer (test_edge_test_device.EdgeTestDeviceTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nvidia/GitHubLL/embedded-linux-platform/tests/test_edge_test_device.py", line 127, in test_bad_user_pointer_returns_efault_and_keeps_buffer
+    self.assertEqual(read_all(), b"safe")
+AssertionError: b'\x00\x00\x00\x00' != b'safe'</pre>
+      <p>原因在 kernel headers 的 <code>_copy_from_user()</code>：複製失敗時，它會把<b class="hl-bad">沒複製到的那段目的地清成 0</b>，避免呼叫端拿到半初始化的資料。</p>
+      <figure class="listing"><figcaption>/lib/modules/5.15.148-tegra/build/include/linux/uaccess.h:153–164 — _copy_from_user</figcaption>
+<pre data-start="153" data-hot="161-162">_copy_from_user(void *to, const void __user *from, unsigned long n)
+{
+	unsigned long res = n;
+	might_fault();
+	if (!should_fail_usercopy() &amp;&amp; likely(access_ok(from, n))) {
+		instrument_copy_from_user(to, from, n);
+		res = raw_copy_from_user(to, from, n);
+	}
+	if (unlikely(res))
+		memset(to + (n - res), 0, res);
+	return res;
+}</pre></figure>
+      <div class="pair">
+        <div>
+          <div class="tag bad">第一版（已不存在於 repo）</div>
+<pre>if (copy_from_user(edge_test_buf + *ppos, ubuf, count)) {
+	ret = -EFAULT;
+	goto out;
+}</pre>
+        </div>
+        <div>
+          <div class="tag ok">修正版 · 見 2.4 節第 90–94 行</div>
+<pre>if (copy_from_user(tmp, ubuf, count)) {
+	ret = -EFAULT;
+	goto out;
+}
+memcpy(edge_test_buf + *ppos, tmp, count);</pre>
+        </div>
+      </div>
+      <div class="callout"><p>規則：<b>不要把還想保留的狀態當成 <code>copy_from_user()</code> 的目的地。</b>先複製到暫存區，成功了才寫進去；修完後同一支測試<b class="hl-ok">通過</b>。<code>tmp</code> 只有 256 bytes，放得進這顆 kernel 16 KiB 的 kernel stack（<code>arch/arm64/include/asm/memory.h</code> 的 <code>MIN_THREAD_SHIFT</code> = 14；kbuild 的 <code>CONFIG_FRAME_WARN=2048</code> 也沒有警告，可用 <code>grep CONFIG_FRAME_WARN /lib/modules/$(uname -r)/build/.config</code> 自己查）。kernel stack 固定大小、不會自動長大；之後 buffer 若變大，就改用 <code>kmalloc</code>。</p></div>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">2.9</span><b>實機</b><span class="dot" style="background: var(--user)"></span>Jetson</div>
+    <div class="content">
+      <h2>在 Jetson 上手動跑一次</h2>
+      <p><b>起點狀態</b>：已完成 Step 1（<code>bash scripts/check_host_env.sh</code> 全部 PASS），站在 repo 根目錄。build 不需要 root；只有 <code>insmod</code> 和 <code>rmmod</code> 要用 <code>sudo</code>。</p>
+<pre class="cmd">make -C kernel/edge_test 2&gt;&amp;1 | tail -n 1
+sudo bash kernel/edge_test/load.sh
+grep edge_test /proc/devices
+ls -l /dev/edge_test
+echo hello &gt; /dev/edge_test
+cat /dev/edge_test
+head -c 300 /dev/zero &gt; /dev/edge_test
+wc -c &lt; /dev/edge_test
+sudo bash kernel/edge_test/unload.sh
+ls /dev/edge_test
+sudo dmesg | grep edge_test | tail -n 2</pre>
+      <p>2026-10-05 的實測輸出（<code>[sudo] password</code> 那行只在 sudo 第一次要密碼時出現）：</p>
+<pre class="out" data-marks><span class="prompt">$</span> make -C kernel/edge_test 2&gt;&amp;1 | tail -n 1
+make: Leaving directory '/home/nvidia/GitHubLL/embedded-linux-platform/kernel/edge_test' «1»
+<span class="prompt">$</span> sudo bash kernel/edge_test/load.sh
+[sudo] password for nvidia:
+<span class="prompt">$</span> grep edge_test /proc/devices
+489 edge_test «2»
+<span class="prompt">$</span> ls -l /dev/edge_test
+crw-rw-rw- 1 root root 489, 0 Oct  5 17:49 /dev/edge_test «3»
+<span class="prompt">$</span> echo hello &gt; /dev/edge_test
+<span class="prompt">$</span> cat /dev/edge_test
+hello «4»
+<span class="prompt">$</span> head -c 300 /dev/zero &gt; /dev/edge_test
+head: write error: No space left on device «5»
+<span class="prompt">$</span> wc -c &lt; /dev/edge_test
+256
+<span class="prompt">$</span> sudo bash kernel/edge_test/unload.sh
+<span class="prompt">$</span> ls /dev/edge_test
+ls: cannot access '/dev/edge_test': No such file or directory «6»
+<span class="prompt">$</span> sudo dmesg | grep edge_test | tail -n 2
+[ 1740.078513] edge_test: registered /dev/edge_test (major 489, minor 0) «7»
+[ 1815.213807] edge_test: unregistered</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>tail -n 1</code> 只留這一行，路徑會換成你 clone 的位置；拿掉 <code>| tail -n 1</code> 才看得到 <code>CC [M]</code>、<code>LD [M]</code> 和 2.10 節 «1» 那條無害的警告。</span></li>
+        <li><span class="mk">2</span><span>2.3 節第 1 步的痕跡。你的 major 可能不同。</span></li>
+        <li><span class="mk">3</span><span>第 4 步的痕跡：<code>c</code> 代表 character device，<code>489, 0</code> 是 major, minor，<code>rw-rw-rw-</code> 是 2.6 節的 0666。</span></li>
+        <li><span class="mk">4</span><span>不用 sudo 也能寫、能讀；<code>cat</code> 印完一行就結束，代表 EOF 有回 0。</span></li>
+        <li><span class="mk">5</span><span>第一次 <code>write()</code> 只收下 256 bytes，<code>head</code> 補寫剩下的部分時拿到 <code>ENOSPC</code>；下一行的 <code>256</code> 證明前 256 bytes 都留著。</span></li>
+        <li><span class="mk">6</span><span>unload 後節點跟著消失。</span></li>
+        <li><span class="mk">7</span><span>module 的 <code>pr_info()</code> 訊息（<code>dmesg</code> 在這台需要 sudo）。</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">2.10</span><b>驗收</b>× 3 cycles</div>
+    <div class="content">
+      <h2>load → 測試 → unload，重複三次</h2>
+      <p>正式驗收用腳本重複整個循環，確認<b class="hl-key">反覆 <code>insmod</code> / <code>rmmod</code> 不留殘留</b>。整支要 root：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_test.sh 3</pre>
+<pre class="out" data-marks>warning: the compiler differs from the one used to build the kernel «1»
+  The kernel was built by: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+  You are using:           gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+PASS build edge_test.ko
+PASS vermagic matches running kernel (5.15.148-tegra) «2»
+--- cycle 1/3
+PASS cycle 1: /proc/devices major 489 «3»
+PASS cycle 1: /dev/edge_test is char device with major 489
+PASS cycle 1: device unittest (root) «4»
+PASS cycle 1: echo/cat as nvidia «5»
+PASS cycle 1: clean after rmmod «6»
+--- cycle 2/3
+  …（cycle 2、3 與 cycle 1 相同，略）
+PASS dmesg free of Oops/BUG/WARNING «7»
+PASS dmesg shows 3 load / 3 unload messages
+[ 1432.885212] edge_test: registered /dev/edge_test (major 489, minor 0)
+[ 1433.068700] edge_test: unregistered
+[ 1433.129109] edge_test: registered /dev/edge_test (major 489, minor 0)
+[ 1433.308373] edge_test: unregistered
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>不是錯誤：kernel 用 <code>~22.04</code> 版的 gcc 套件編譯，這台裝的是 <code>~22.04.3</code>，編譯器本身都是 11.4.0。</span></li>
+        <li><span class="mk">2</span><span>module 內嵌的 vermagic 和 <code>uname -r</code> 一致；不一致時 <code>insmod</code> 會回 <code>Invalid module format</code>（kernel 的既有行為，本 step 沒有實測）。</span></li>
+        <li><span class="mk">3</span><span>動態配到 major 489；<b>你的號碼可能不同</b>，腳本只檢查兩邊一致。</span></li>
+        <li><span class="mk">4</span><span><code>tests/test_edge_test_device.py</code> 的 <span data-tests="tests/test_edge_test_device.py">12</span> 個案例在 root 下全過：round trip、EOF、分段讀、<code>O_TRUNC</code>、只讀開啟不清空、同一次 open 連續寫、剛好 256 bytes、short write 後 <code>ENOSPC</code>、<code>EFAULT</code> 且內容不變、shell <code>echo</code>/<code>cat</code>、shell 寫入超量會報錯、節點權限 0666。</span></li>
+        <li><span class="mk">5</span><span>以呼叫 sudo 的一般使用者（<code>nvidia</code>）跑 <code>echo</code>/<code>cat</code>，證明 0666 生效。</span></li>
+        <li><span class="mk">6</span><span>module、<code>/dev/edge_test</code>、<code>/proc/devices</code> 那一行、<code>/sys/class/edge_test</code> 四者都消失。</span></li>
+        <li><span class="mk">7</span><span>只看這次執行之後的 dmesg（腳本先往 <code>/dev/kmsg</code>，也就是 kernel log 的入口，寫一行標記）。只印最後 4 行，所以你只看到兩組。</span></li>
+      </ol>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:37</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
+          <tr><td>先 <code>mknod /dev/edge_test</code></td><td>不用；<code>device_create()</code> 讓 devtmpfs 自動建立節點。</td></tr>
+          <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 24–29 行）在任何結束路徑都會卸載。</td></tr>
+          <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 51–52、96 行），並自動比對 load/unload 次數。</td></tr>
+        </tbody>
+      </table>
+      <p>不需要 root 的部分可以單獨跑：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -v</pre>
+      <p>module 沒載入時 device 測試顯示 <code>skipped</code>，最後一行是 <code>OK (skipped=12)</code>，這不是失敗。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">2.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過或差點踩的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 copy_from_user 失敗不動目的端</h4><dl><dt>症狀</dt><dd><code>write()</code> 回 <code>EFAULT</code>，但原本存的資料變成 <code>\0</code>。</dd><dt>後果</dt><dd>一次錯誤的呼叫就毀掉裝置狀態。</dd><dt>正解</dt><dd class="fix">先 copy 到暫存區，成功才寫入（2.8 節）。</dd></dl></div>
+        <div class="pit"><h4>read 不回 EOF</h4><dl><dt>症狀</dt><dd><code>cat</code> 一直印、不會結束。</dd><dt>後果</dt><dd>「讀到結尾」的工具都卡住。</dd><dt>正解</dt><dd class="fix">依 <code>*ppos</code> 判斷讀完就回 0（2.5 節）。推論，沒有實際做出錯誤版本。</dd></dl></div>
+        <div class="pit"><h4>用 sudo make</h4><dl><dt>症狀</dt><dd>之後一般使用者 <code>make clean</code> 出現 <code>Permission denied</code>。</dd><dt>後果</dt><dd>tree 裡留下 root 所有的 <code>.o</code>、<code>.cmd</code>。</dd><dt>正解</dt><dd class="fix">只有 <code>insmod</code>/<code>rmmod</code> 用 sudo；腳本用 <code>sudo -u "$SUDO_USER" make</code>。</dd></dl></div>
+        <div class="pit"><h4>以為 headers 版本隨便都行</h4><dl><dt>症狀</dt><dd><code>insmod: ERROR: could not insert module: Invalid module format</code>。</dd><dt>後果</dt><dd>module 對著別的 kernel 編，載不進去。</dd><dt>正解</dt><dd class="fix">在 repo 根目錄跑 <code>modinfo -F vermagic kernel/edge_test/edge_test.ko</code>，第一欄要等於 <code>uname -r</code>。</dd></dl></div>
+        <div class="pit"><h4>照抄新版 kernel 的範例</h4><dl><dt>症狀</dt><dd><code>class_create</code> 參數個數不符。</dd><dt>後果</dt><dd>6.4 以後寫 <code>class_create(name)</code>；這台 5.15 要 <code>class_create(THIS_MODULE, name)</code>。</dd><dt>正解</dt><dd class="fix">以 <code>/lib/modules/$(uname -r)/build/include/linux/device/class.h</code> 為準。</dd></dl></div>
+        <div class="pit"><h4>測試從 tests 套件匯入</h4><dl><dt>症狀</dt><dd><code>python3 -m unittest tests.test_edge_test_device</code> 報 <code>No module named</code>。</dd><dt>後果</dt><dd>測試根本沒跑。</dd><dt>正解</dt><dd class="fix"><code>tests/</code> 沒有 <code>__init__.py</code>，改用 <code>discover -s tests -p test_edge_test_device.py</code>。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">2.12</span><b>收尾</b>step 2 → 3</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">一般使用者也能對 <code>/dev/edge_test</code> 執行 <code>echo</code> 和 <code>cat</code>。</li>
+        <li class="y">反覆 <code>insmod</code> / <code>rmmod</code> 三次都<b class="hl-ok">乾淨</b>，dmesg 沒有警告。</li>
+        <li class="y">超量寫入先 short write、再回 <code>ENOSPC</code>；壞指標回 <code>EFAULT</code>，而且不破壞內容。</li>
+        <li class="y">Step 1 記下的 kernel headers 確實能編出、並載入相符的 module。</li>
+        <li class="n">沒有實測：init 中途失敗的拆除路徑、vermagic 不符時的錯誤訊息。</li>
+      </ul>
+      <p>目前只能整塊讀寫，沒有「控制」用的通道，例如清空 buffer 或查詢長度。Step 3 會加上 <code>ioctl</code> 和一個 C++ userspace client；Step 4 起，同一套骨架會接上真正的 GPIO 與 LED。</p>
+      <details class="quiz"><summary>1. <code>/dev/edge_test</code> 節點本身存了什麼，讓 kernel 找得到 <code>edge_test_write()</code>？</summary><p>只存 major/minor 號碼（以及權限）。open 時 kernel 用號碼查到 <code>cdev_add()</code> 登記的 cdev，從中拿到 <code>file_operations</code>。</p></details>
+      <details class="quiz"><summary>2. 寫 300 bytes 進空的 buffer，第一次 <code>write()</code> 回傳多少？<code>head</code> 為什麼會報錯？</summary><p>第一次回 256（short write）。<code>head</code> 再送剩下的 44 bytes，這時位置已是 256，driver 回 <code>-ENOSPC</code>。</p></details>
+      <details class="quiz"><summary>3. 為什麼不能直接 <code>copy_from_user(edge_test_buf + *ppos, …)</code>？</summary><p>複製失敗時，<code>_copy_from_user</code> 會把沒複製到的目的端清成 0，原有內容就被破壞了。</p></details>
+      <details class="quiz"><summary>4. 這裡為什麼用 mutex 而不是 spinlock？</summary><p>持鎖期間會呼叫 <code>copy_from_user()</code>/<code>copy_to_user()</code>，它們可能因 page fault 而睡眠；spinlock 底下不能睡。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+<script>
+(function () {
+  var SIZE = 256;
+  var buf = new Uint8Array(SIZE);
+  var dataLen = 0;
+  var nextFd = 3;
+  var bug = false;
+  var marks = new Array(SIZE).fill('');
+  var grid = document.getElementById('grid');
+  var term = document.getElementById('term');
+  var sLen = document.getElementById('sLen');
+  var sRet = document.getElementById('sRet');
+  var cells = [];
+  for (var i = 0; i < SIZE; i++) {
+    var c = document.createElement('div');
+    c.className = 'cell';
+    grid.appendChild(c);
+    cells.push(c);
+  }
+  function glyph(b) {
+    if (b === 0) return '·';
+    if (b === 10) return '↵';
+    if (b === 32) return '␣';
+    if (b > 32 && b < 127) return String.fromCharCode(b);
+    return '¤';
+  }
+  function render() {
+    for (var i = 0; i < SIZE; i++) {
+      var cls = 'cell';
+      if (marks[i]) cls += ' ' + marks[i];
+      else if (i < dataLen) cls += ' on';
+      cells[i].className = cls;
+      cells[i].textContent = i < dataLen || marks[i] ? glyph(buf[i]) : '';
+      cells[i].title = 'byte ' + i + ' = 0x' + buf[i].toString(16).padStart(2, '0');
+    }
+    sLen.textContent = dataLen;
+  }
+  function line(text, cls) {
+    var d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = text;
+    term.appendChild(d);
+    term.scrollTop = term.scrollHeight;
+  }
+  function repr(bytes) {
+    var s = '';
+    var n = Math.min(bytes.length, 16);
+    for (var i = 0; i < n; i++) {
+      var b = bytes[i];
+      if (b === 10) s += '\\n';
+      else if (b === 0) s += '\\0';
+      else if (b >= 32 && b < 127) s += String.fromCharCode(b);
+      else s += '\\x' + b.toString(16).padStart(2, '0');
+    }
+    return '"' + s + '"' + (bytes.length > n ? '...' : '');
+  }
+  function setRet(v) { sRet.textContent = v; }
+  function clearMarks() { marks.fill(''); }
+  function sysOpen(flagsText, trunc) {
+    if (trunc) dataLen = 0;
+    var fd = nextFd++;
+    line('open("/dev/edge_test", ' + flagsText + ') = ' + fd, 'sys');
+    return { fd: fd, pos: 0 };
+  }
+  function sysClose(f) { line('close(' + f.fd + ') = 0', 'sys'); nextFd = 3; }
+  function sysWrite(f, bytes) {
+    var count = bytes.length;
+    var head = 'write(' + f.fd + ', ' + repr(bytes) + ', ' + count + ')';
+    if (count === 0) { line(head + ' = 0', 'sys'); setRet('0'); return 0; }
+    if (f.pos >= SIZE) {
+      line(head + ' = -1 ENOSPC (No space left on device)', 'err');
+      setRet('-1 ENOSPC');
+      return -1;
+    }
+    var n = Math.min(count, SIZE - f.pos);
+    for (var i = 0; i < n; i++) { buf[f.pos + i] = bytes[i]; marks[f.pos + i] = 'new'; }
+    f.pos += n;
+    dataLen = Math.max(dataLen, f.pos);
+    line(head + ' = ' + n + (n < count ? '   ← short write' : ''), n < count ? 'note' : 'sys');
+    setRet(String(n));
+    return n;
+  }
+  function writeAll(f, bytes, prog) {
+    var off = 0;
+    while (off < bytes.length) {
+      var r = sysWrite(f, bytes.subarray(off));
+      if (r < 0) { line(prog + ': write error: No space left on device', 'err'); return; }
+      off += r;
+    }
+  }
+  function doEcho() {
+    clearMarks();
+    var txt = document.getElementById('txt').value;
+    var bytes = new TextEncoder().encode(txt + '\n');
+    line('echo ' + txt + ' > /dev/edge_test', 'cmd');
+    var f = sysOpen('O_WRONLY|O_CREAT|O_TRUNC', true);
+    writeAll(f, bytes, 'bash: echo');
+    sysClose(f);
+    render();
+  }
+  function doHead() {
+    clearMarks();
+    line('head -c 300 /dev/zero > /dev/edge_test', 'cmd');
+    var f = sysOpen('O_WRONLY|O_CREAT|O_TRUNC', true);
+    writeAll(f, new Uint8Array(300), 'head');
+    sysClose(f);
+    render();
+  }
+  function doCat() {
+    clearMarks();
+    line('cat /dev/edge_test', 'cmd');
+    var f = sysOpen('O_RDONLY', false);
+    var out = [];
+    for (;;) {
+      if (f.pos >= dataLen) { line('read(' + f.fd + ', ..., 4096) = 0   ← EOF', 'sys'); setRet('0'); break; }
+      var chunk = buf.slice(f.pos, dataLen);
+      line('read(' + f.fd + ', ' + repr(chunk) + ', 4096) = ' + chunk.length, 'sys');
+      for (var i = 0; i < chunk.length; i++) out.push(chunk[i]);
+      f.pos = dataLen;
+    }
+    sysClose(f);
+    var shown = out.map(function (b) { return b === 0 ? '' : String.fromCharCode(b); }).join('').replace(/\n$/, '');
+    if (out.length && shown.length === 0) line('（' + out.length + ' 個 \\0，終端機上看不見）');
+    else if (shown.length) line(shown);
+    render();
+  }
+  function doBad() {
+    clearMarks();
+    line('python3: libc write via ctypes, buf = (void *)1, count = 4', 'cmd');
+    var f = sysOpen('O_WRONLY', false);
+    var head = 'write(' + f.fd + ', 0x1, 4)';
+    var n = Math.min(4, SIZE - f.pos);
+    if (bug) {
+      for (var i = 0; i < n; i++) { buf[f.pos + i] = 0; marks[f.pos + i] = 'zap'; }
+      line(head + ' = -1 EFAULT (Bad address)', 'err');
+      line('第一版：copy_from_user 把 edge_test_buf[0..' + (n - 1) + '] 清成 0，原有資料被破壞', 'note');
+    } else {
+      line(head + ' = -1 EFAULT (Bad address)', 'err');
+      line('修正版：清成 0 的是暫存區 tmp，edge_test_buf 沒有被動到', 'note');
+    }
+    setRet('-1 EFAULT');
+    sysClose(f);
+    render();
+  }
+  function doReload() {
+    clearMarks();
+    buf.fill(0);
+    dataLen = 0;
+    line('sudo bash kernel/edge_test/unload.sh && sudo bash kernel/edge_test/load.sh', 'cmd');
+    line('edge_test: unregistered', 'sys');
+    line('edge_test: registered /dev/edge_test (major 489, minor 0)', 'sys');
+    setRet('—');
+    render();
+  }
+  function setMode(isBug) {
+    bug = isBug;
+    document.getElementById('modeFixed').setAttribute('aria-pressed', String(!isBug));
+    document.getElementById('modeBug').setAttribute('aria-pressed', String(isBug));
+    line(isBug ? '# 切換到第一版 driver（直接 copy 進 edge_test_buf）' : '# 切換到修正版 driver（先 copy 到 tmp）', 'note');
+  }
+  document.getElementById('aEcho').addEventListener('click', doEcho);
+  document.getElementById('aCat').addEventListener('click', doCat);
+  document.getElementById('aHead').addEventListener('click', doHead);
+  document.getElementById('aBad').addEventListener('click', doBad);
+  document.getElementById('aReload').addEventListener('click', doReload);
+  document.getElementById('modeFixed').addEventListener('click', function () { setMode(false); });
+  document.getElementById('modeBug').addEventListener('click', function () { setMode(true); });
+  document.getElementById('txt').addEventListener('keydown', function (e) { if (e.key === 'Enter') doEcho(); });
+  line('# 模擬已載入 edge_test.ko，先寫入一次 hello', 'note');
+  doEcho();
+  doCat();
+})();
+</script>
+</body>
+</html>

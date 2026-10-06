@@ -8,7 +8,7 @@
 檢查項目：
   1. 所有指向本地 *.html 的 href 都存在
   2. 依 index.html 的順序，相鄰兩章互相連結，且每個方向至少出現 2 次
-     （頁面頂部與底部各有一組 pagenav——只改一處是最常見的漏）
+     （頁面頂部與底部各有一組導覽列——只改一處是最常見的漏）
   3. 每章連回 index.html 至少 2 次；每檔以 </html> 結尾
   4. 手繪 inline SVG 圖的契約：viewBox / role / aria-label 齊全、XML 合法、
      圖內不引用外部資源、**不含 HTML-only 標籤**（<b> 之類會把 svg 打斷，
@@ -80,7 +80,7 @@ for a, b in zip(chapters, chapters[1:]):
         n = hrefs(texts[src]).count(dst)
         if n < 2:
             failed = True
-            print(f'{src}: {direction} 連到 {dst} 只有 {n} 處（頂部與底部 pagenav 應各一）')
+            print(f'{src}: {direction} 連到 {dst} 只有 {n} 處（頂部與底部導覽列應各一）')
         else:
             print(f'{src}: {direction} -> {dst} OK ({n} 處)')
 
