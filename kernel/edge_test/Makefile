@@ -2,6 +2,7 @@
 #   make            build edge_test.ko
 #   make clean      remove build products
 obj-m := edge_test.o
+ccflags-y := -I$(src)/../../include
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

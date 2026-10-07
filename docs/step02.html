@@ -174,7 +174,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><a href="step03.html">Step 3 →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 2 · Linux kernel module</div>
     <h1>edge_test 字元裝置</h1>
@@ -250,15 +250,17 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <figcaption>圖 2.1 — 真正跨過紅色邊界、碰到 userspace 記憶體的，只有 driver 裡的 <code>copy_from_user()</code> 和 <code>copy_to_user()</code>。其餘每一層都只是在找「這次該呼叫誰」。</figcaption>
       </figure>
       <p><code>file_operations</code> 是一個裝滿函式指標的 struct，driver 填好一張交給 kernel：</p>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:103–109 — file_operations 表</figcaption>
-<pre data-start="103" data-hot="107-108">static const struct file_operations edge_test_fops = {
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:135–143 — file_operations 表</figcaption>
+<pre data-start="135" data-hot="139-142">static const struct file_operations edge_test_fops = {
 	.owner		= THIS_MODULE,
 	.open		= edge_test_open,
 	.release	= edge_test_release,
 	.read		= edge_test_read,
 	.write		= edge_test_write,
+	.unlocked_ioctl	= edge_test_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 };</pre></figure>
-      <p>沒填的欄位（例如 <code>ioctl</code>）是 NULL，VFS 會替你回錯誤。<code>release</code> 在最後一個使用者 <code>close()</code> 時呼叫。<code>THIS_MODULE</code> 指向這個 module 自己：只要還有人開著 <code>/dev/edge_test</code>，kernel 就不讓 <code>rmmod</code> 卸掉它。</p>
+      <p>最後兩行 <code>.unlocked_ioctl</code> / <code>.compat_ioctl</code> 是 Step 3 加的控制通道，下一章再講。沒填的欄位是 NULL，VFS 會替你回錯誤。<code>release</code> 在最後一個使用者 <code>close()</code> 時呼叫。<code>THIS_MODULE</code> 指向這個 module 自己：只要還有人開著 <code>/dev/edge_test</code>，kernel 就不讓 <code>rmmod</code> 卸掉它。</p>
     </div>
   </section>
 
@@ -267,11 +269,12 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2><code>insmod</code> 時依序建立的四樣東西</h2>
       <p>上面那條路要能通，前提是 <code>insmod</code> 時 driver 已經把自己登記好。module 先由 kernel 的建置系統 kbuild 編出來：</p>
-      <figure class="listing"><figcaption>kernel/edge_test/Makefile:1–14 — 借用 headers 裡的 kbuild 編譯</figcaption>
-<pre data-start="1" data-hot="4,6,9"># Out-of-tree build against the running kernel's headers.
+      <figure class="listing"><figcaption>kernel/edge_test/Makefile:1–15 — 借用 headers 裡的 kbuild 編譯</figcaption>
+<pre data-start="1" data-hot="4,5,7,10"># Out-of-tree build against the running kernel's headers.
 #   make            build edge_test.ko
 #   make clean      remove build products
 obj-m := edge_test.o
+ccflags-y := -I$(src)/../../include
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
@@ -282,9 +285,9 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
 
 .PHONY: all clean</pre></figure>
-      <p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」；第 9 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是編譯 / 連結一個 module 檔。載入時 kernel 靠檔尾兩行找到進入點：</p>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:160–170 — 卸載函式與進入點登記</figcaption>
-<pre data-start="160" data-hot="169-170">static void __exit edge_test_exit(void)
+      <p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」；第 5 行把共用 header 的目錄 <code>include/</code> 加進搜尋路徑（Step 3 加的），第 10 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是編譯 / 連結一個 module 檔。載入時 kernel 靠檔尾兩行找到進入點：</p>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:194–204 — 卸載函式與進入點登記</figcaption>
+<pre data-start="194" data-hot="203-204">static void __exit edge_test_exit(void)
 {
 	device_destroy(edge_test_class, edge_test_devt);
 	class_destroy(edge_test_class);
@@ -302,8 +305,8 @@ module_exit(edge_test_exit);</pre></figure>
         <li><span class="api">class_create()</span><span class="what">建立裝置分類（class，例如 <code>tty</code>、<code>input</code> 那種分類），並掛上 devnode callback，把節點權限設成 0666。</span><span class="trace">/sys/class/edge_test/</span></li>
         <li><span class="api">device_create()</span><span class="what">登記裝置本身並送出 uevent（「有新裝置」的通知）。掛在 <code>/dev</code> 的記憶體檔案系統 devtmpfs 立刻建出節點，不用手動 <code>mknod</code>。</span><span class="trace">crw-rw-rw- 489, 0<br>/dev/edge_test</span></li>
       </ol>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:119–158 — module_init 與錯誤時的反向拆除</figcaption>
-<pre data-start="119" data-hot="123,129,133,138,140,151-156">static int __init edge_test_init(void)
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:153–192 — module_init 與錯誤時的反向拆除</figcaption>
+<pre data-start="153" data-hot="157,163,167,172,174,185-190">static int __init edge_test_init(void)
 {
 	int ret;
 
@@ -351,8 +354,8 @@ err_region:
     <div class="rail"><span class="no">2.4</span><b>寫入</b><span class="dot" style="background: var(--drv)"></span>write()</div>
     <div class="content">
       <h2>截斷、<code>ENOSPC</code> 與一把 mutex</h2>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:70–101 — 寫入路徑</figcaption>
-<pre data-start="70" data-hot="80-82,84,90,94">static ssize_t edge_test_write(struct file *file, const char __user *ubuf,
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:77–108 — 寫入路徑</figcaption>
+<pre data-start="77" data-hot="87-89,91,97,101">static ssize_t edge_test_write(struct file *file, const char __user *ubuf,
 			       size_t count, loff_t *ppos)
 {
 	char tmp[EDGE_TEST_BUF_SIZE];
@@ -386,8 +389,8 @@ out:
 }</pre></figure>
       <p><code>ubuf</code> 帶著 <code>__user</code> 標記：它是 <b>userspace 的位址</b>，kernel 不能直接 dereference。<code>copy_from_user()</code> 會檢查位址範圍、碰到 page fault 也能安全收場，回傳沒複製成功的 byte 數。driver 成功回寫入的 byte 數、失敗回負的 errno；syscall 那層再轉成 <code>write()</code> 回 -1、<code>errno</code> 設成 <code>ENOSPC</code> 或 <code>EFAULT</code>。</p>
       <ul>
-        <li>寫 300 bytes 到空的 buffer：第 84 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>。</li>
-        <li>像 <code>head</code> 這種會把資料寫完的程式會再送剩下的 44 bytes；這時 <code>*ppos</code> 已經是 256，第 80–82 行回 <code>-ENOSPC</code>，<code>head</code> 印出 <code>No space left on device</code>（2.9 節實測）。</li>
+        <li>寫 300 bytes 到空的 buffer：第 91 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>。</li>
+        <li>像 <code>head</code> 這種會把資料寫完的程式會再送剩下的 44 bytes；這時 <code>*ppos</code> 已經是 256，第 87–89 行回 <code>-ENOSPC</code>，<code>head</code> 印出 <code>No space left on device</code>（2.9 節實測）。</li>
       </ul>
       <p>所有存取 buffer 的地方都在 <code>edge_test_lock</code> 底下。kernel 的 mutex 拿不到時讓執行緒去睡，跟 pthread mutex 類似；spinlock 拿不到時原地空轉、持有期間不准睡。<code>copy_from_user()</code> 碰到還沒載入記憶體的 user page 會觸發 page fault 並等待（也就是「睡眠」），所以這裡只能用 mutex。</p>
     </div>
@@ -397,8 +400,8 @@ out:
     <div class="rail"><span class="no">2.5</span><b>讀取</b><span class="dot" style="background: var(--drv)"></span>read() · open()</div>
     <div class="content">
       <h2>讓它像一個小檔案</h2>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:48–68 — 讀取路徑</figcaption>
-<pre data-start="48" data-hot="54-55,58,63">static ssize_t edge_test_read(struct file *file, char __user *ubuf,
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:55–75 — 讀取路徑</figcaption>
+<pre data-start="55" data-hot="61-62,65,70">static ssize_t edge_test_read(struct file *file, char __user *ubuf,
 			      size_t count, loff_t *ppos)
 {
 	ssize_t ret;
@@ -419,9 +422,9 @@ out:
 	mutex_unlock(&amp;edge_test_lock);
 	return ret;
 }</pre></figure>
-      <p><b class="hl-key"><code>*ppos</code> 是這一次 open 的讀寫位置</b>，存在 <code>struct file</code> 的 <code>f_pos</code>，每個 <code>open()</code> 各有一份。<code>cat</code> 會一直 <code>read()</code> 到回傳 0，所以第 54–55 行的 EOF 一定要有，否則 <code>cat</code> 會無限迴圈。</p>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:31–40 — open 時處理 O_TRUNC</figcaption>
-<pre data-start="31" data-hot="33-35">static int edge_test_open(struct inode *inode, struct file *file)
+      <p><b class="hl-key"><code>*ppos</code> 是這一次 open 的讀寫位置</b>，存在 <code>struct file</code> 的 <code>f_pos</code>，每個 <code>open()</code> 各有一份。<code>cat</code> 會一直 <code>read()</code> 到回傳 0，所以第 61–62 行的 EOF 一定要有，否則 <code>cat</code> 會無限迴圈。</p>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:38–47 — open 時處理 O_TRUNC</figcaption>
+<pre data-start="38" data-hot="40-42">static int edge_test_open(struct inode *inode, struct file *file)
 {
 	if ((file-&gt;f_mode &amp; FMODE_WRITE) &amp;&amp; (file-&gt;f_flags &amp; O_TRUNC)) {
 		mutex_lock(&amp;edge_test_lock);
@@ -439,15 +442,15 @@ out:
     <div class="rail"><span class="no">2.6</span><b>權限</b>devnode</div>
     <div class="content">
       <h2>為什麼一般使用者也能 <code>echo</code></h2>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:111–117 — devtmpfs 節點權限</figcaption>
-<pre data-start="111" data-hot="115">/* Make the devtmpfs node 0666 so the acceptance commands work without sudo. */
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:145–151 — devtmpfs 節點權限</figcaption>
+<pre data-start="145" data-hot="149">/* Make the devtmpfs node 0666 so the acceptance commands work without sudo. */
 static char *edge_test_devnode(struct device *dev, umode_t *mode)
 {
 	if (mode)
 		*mode = 0666;
 	return NULL;
 }</pre></figure>
-      <p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>。第 138 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>；回傳 <code>NULL</code> 表示節點名稱不改。學習用的 buffer 裝置這樣方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，應該用 udev（收到 uevent 後依規則調整節點的 userspace 程式）的 rule 指定 group。</p>
+      <p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>。第 172 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>；回傳 <code>NULL</code> 表示節點名稱不改。學習用的 buffer 裝置這樣方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，應該用 udev（收到 uevent 後依規則調整節點的 userspace 程式）的 rule 指定 group。</p>
     </div>
   </section>
 
@@ -527,7 +530,7 @@ AssertionError: b'\x00\x00\x00\x00' != b'safe'</pre>
 }</pre>
         </div>
         <div>
-          <div class="tag ok">修正版 · 見 2.4 節第 90–94 行</div>
+          <div class="tag ok">修正版 · 見 2.4 節第 97–101 行</div>
 <pre>if (copy_from_user(tmp, ubuf, count)) {
 	ret = -EFAULT;
 	goto out;
@@ -627,10 +630,10 @@ PASS dmesg shows 3 load / 3 unload messages
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:37</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
+          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:39</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
           <tr><td>先 <code>mknod /dev/edge_test</code></td><td>不用；<code>device_create()</code> 讓 devtmpfs 自動建立節點。</td></tr>
-          <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 24–29 行）在任何結束路徑都會卸載。</td></tr>
-          <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 51–52、96 行），並自動比對 load/unload 次數。</td></tr>
+          <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 26–31 行）在任何結束路徑都會卸載。</td></tr>
+          <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 61–62、129 行），並自動比對 load/unload 次數。</td></tr>
         </tbody>
       </table>
       <p>不需要 root 的部分可以單獨跑：</p>
@@ -673,7 +676,7 @@ PASS dmesg shows 3 load / 3 unload messages
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><span class="disabled">Step 3 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step01.html">← Step 1</a><a href="step03.html">Step 3 →</a></nav>
 </main>
 
 <script>

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案現況
 
-這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本、測試、實機版本快照與第一章教材；Step 2 已新增 `kernel/edge_test` character device、驗收腳本 `scripts/verify_edge_test.sh` 與第二章教材：
+這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本與版本快照；Step 2 新增 `kernel/edge_test` character device 與驗收腳本 `scripts/verify_edge_test.sh`；Step 3 新增 ioctl 控制通道、共用 header `include/edge_test_ioctl.h` 與 C++ CLI（`apps/`，CMake 建置）。每個 Step 都有一章教材 `docs/stepNN.html`：
 
 - `ROADMAP.md` — 總覽、Phase 索引、共通 Step 規則（先讀這份）
 - `phase00.md` … `phase12.md` — 每個 Phase 的目的與 Step 詳細規劃
@@ -79,7 +79,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 
 ## 指令
 
-目前已實作 Step 1–2 的指令，其餘功能尚未建立：
+目前已實作 Step 1–3 的指令，其餘功能尚未建立：
 
 - Jetson target 環境檢查：`bash scripts/check_host_env.sh`（Step 1）；更新快照用 `bash scripts/check_host_env.sh --record docs/jetson-version.txt`
 - 全部 userspace 測試：`python3 -m unittest discover -s tests -v`
@@ -87,5 +87,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 - 教材共用樣式：改 `docs/style.css` / `docs/enhance.js`（來自 skill 的 assets）後跑 `python3 ~/.claude/skills/completed-repo-to-html-textbook/scripts/inline_assets.py docs` 重新內嵌
 - Kernel module：在 `kernel/<name>/` 下 `make`，以 `insmod` / `rmmod` 載入卸載，觀察 `dmesg`
 - Step 2 `edge_test` 驗收（需 root，sudo 要密碼，請使用者執行）：`sudo bash scripts/verify_edge_test.sh 3`；device 測試單獨跑：`python3 -m unittest discover -s tests -p test_edge_test_device.py -v`（module 未載入時 skip）
-- C++ userspace：CMake
+- C++ userspace：在 repo 根目錄 `cmake -S . -B build && cmake --build build`（產出 `build/edge_test_cli`、`build/test_edge_device`；`build/` 不入庫）。`test_edge_device` 結束碼 0/1/77（77 = 裝置不存在而 skip）
+- Step 3 ioctl 驗收併在同一支 `sudo bash scripts/verify_edge_test.sh 3` 裡（每輪多跑 C++ ioctl 測試、CLI 測試、reload 後 value 歸零）
+- 教材程式碼節錄比對：`python3 scripts/check_listings.py docs`（0/1/2）。改到教材有引用的原始檔後一定要跑
 - Yocto：kas + BitBake（Phase 10）
