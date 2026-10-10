@@ -174,3 +174,37 @@
   - review 修正後重跑（2026-10-10，同一次開機、沒有載入 driver）：`=== 0 failure(s)`；按一下 `seq=1` / `seq=2`、長按 2.10 s、快速連按 44 筆、無 `lost`。pinconf 的 `gpio-mode` 這次是 1（第一次是 0）：這次開機 line 43 已被 userspace 請求、釋放過很多次，和 4-b「釋放後變 1」相同。腳本原本說「this is the boot-default pad」太絕對，改成只有 pull / tristate / enable-input 是開機預設值。
   - 延後：signal 旗標與 `read()` 之間的競態（兩支程式都有）排進 Phase 8 Step 19，用 `ppoll()` 根治；兩支程式和驗收腳本的重複程式碼排進 Phase 9 Step 21。hardware-wiring.md 不再以 `gpioget` 讀值當接線證據。
 
+
+## Step 6-a：讀懂廠商範例 `ina219.py`（Waveshare UPS Power Module (C)）
+
+- 驗收主機與接線：UPS Power Module (C) 依官方說明接上並供電給 Jetson；INA219 在 `i2c-7`（`c250000.i2c`，header pin 3 / 5）位址 `0x41`。使用者在 `i2c` 群組，不需要 root。
+- 對照方法：`bash scripts/verify_ina219_sample.sh --no-unplug`。實測（2026-10-11，遠端登入）`=== 0 failure(s)`：
+  - `i2cdetect -y -r 7` 只有 `0x41` 回應。
+  - 範例輸出：`Load Voltage: 12.364 V`、`Current: 0.000000 A`、`Power: 0.000000 W`、`Percentage: 93.44 %`，5 秒內三輪完全相同。
+  - raw register（範例跑過之後讀）：Config `0x0EEF`、Shunt `0x0000`、Bus `0x609A`（3091 × 4 mV = 12.364 V，CNVR=1、OVF=0）、Power `0x0000`、Current `0x0000`、Calibration `0x68F4`（26868）。
+  - 讀不存在的位址（0x45）：`OSError(121, 'Remote I/O error')`。
+  - 容差：電壓判定「9.0～12.8 V」（3S 鋰電池 9～12.6 V，留 0.2 V）；電量和公式 `(V − 9) / 3.6` 差 ≤ 0.01 %。拔掉 adapter 時判定「|I| ≥ 0.05 A」。
+- **未實測**：拔掉 DC adapter 後的電流與正負號（遠端登入，沒人能拔）。腳本那一段已寫好，下次在板子旁邊跑 `bash scripts/verify_ina219_sample.sh`（不加參數）補記。adapter 接著時電流 0 是因為電池已充飽（使用者確認，2026-10-11）：不充不放；加上 bus 電壓等於電池電壓，推論 INA219 量的是電池側（未查證）。電池沒滿時，adapter 接著也該看到充電電流，可以順便驗方向；shunt 0.01 Ω 是範例註解的假設，也未查證。
+- 自動測試：`tests/test_ina219_sample.py` 21 個案例，code review 後 24 個（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 4、讀輸出 helper 1、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：151 個，`OK (skipped=39)`。
+- 紅燈紀錄：範例複製進 repo 前 19 個案例 1 failure + 13 errors（實機模式 14 errors）；「Config 逐欄拆解」「讀不存在的位址」兩條不依賴範例，先就會過，是守門測試。驗收腳本的兩條測試在腳本寫好前 1 failure + 1 error。
+- 規模：新增程式約 440 行（code review 後：測試 324、驗收腳本 103、README 12；第一版寫成「測試 260、腳本 120」是估的，實際是 281 / 101）；範例本身 175 行是第三方原檔，不計。
+
+### 踩坑
+
+- 原本以為 `i2cdetect -y 7` 的空白格是「沒有裝置」；Tegra 的 I2C 不支援 SMBus Quick Write，`i2cdetect` 只在 0x30–0x37、0x50–0x5f 改用讀取探測，其他位址整列空白（跳過，不是 `--`），0x41 因此看不到。要用 `-y -r`。
+- 原本以為 `timeout 5 python3 ina219.py` 會印出幾輪數字；結束碼 124、什麼都沒印：stdout 不是終端機時 Python 會緩衝，被 timeout 殺掉就沒寫出。加 `-u`；驗收腳本與章裡的指令都用 `python3 -u`，並送 `SIGINT`（等同 Ctrl-C）。
+- 原本以為範例跑完後 Bus Voltage 的 CNVR 一定是 1（第一版實機測試這樣寫，讀到 `0x6098` 而紅）；datasheet：讀 Power register 會清掉 CNVR，範例每輪都讀 Power。改成「讀 Power 後 CNVR 為 0、0.1 s 後為 1」；兩次讀之間可能剛好完成一次轉換（< 1 ms / 約 34 ms），所以試 5 次、至少一次為 0。
+- 原本以為範例的註解就是它的設定；註解寫 Cal 13434、Current LSB 100 µA、Power LSB 2 mW，程式是 26868、0.1524 mA、3.048 mW。程式那組和 datasheet 公式（Cal = 0.04096 / (LSB × R)、Power LSB = 20 × Current LSB）一致，滿刻度 32767 × 0.1524 mA ≈ 5 A。6-b / Step 7 以程式這組為期望值。
+- 原本以為跑範例只是「讀一下」；建構 `INA219` 物件就會寫 Calibration 和 Config，實機測試也因此會寫入晶片（寫的是範例本來就寫的值）。
+- 範例的類別預設位址是 `0x40`，主程式傳 `0x41`；直接 `INA219()` 會得到 `Errno 121`。
+- 寫測試時兩個格式字串的空白數抄錯（`Power:` 後面 10 個空白、`Percentage:` 的 `{:6.2f}`），第一次跑紅；改成直接用範例的 `format` 字串產生期望值。
+- 發現（範圍外，未修）：`docs/step05b.html` 第 142–150 行殘留一段 Step 4-b 的 `<nav>` 與章首，渲染時頁首多一列導覽和錯的標題；排進 Step 6-b 一併修。
+- code review（PR #9）找出的問題，原本都以為沒事：
+  - 原本以為測試名稱 `test_discharge_shows_negative_current` 只是好讀；它把「放電 = 負」寫成事實，但方向沒實測。改名 `test_negative_raw_current_prints_negative`，章裡改成「只驗算術」。
+  - 原本以為範例出錯就會結束、`readline()` 會拿到 EOF；範例活著卻不輸出時，實機測試和驗收腳本會一直等。改成 `select` 加 10 秒時限的 `sample_block()`，卡住時 AssertionError（用 `sleep 30` 當假範例，1 秒內失敗）。
+  - 原本以為 `timeout` 包住的範例收得到 Ctrl-C；`timeout` 不加 `--foreground` 會把子程序移出終端機的 process group，Ctrl-C 只送到 bash，而 bash 的 INT trap 要等前景的 `timeout` 結束才執行。用 `script` 開虛擬終端實測：不加時 trap 在第 8 秒（timeout 到期）才跑，加了在第 1 秒；真腳本在拔插那 20 秒內送 Ctrl-C，立刻 `rc=2`、沒有殘留的範例程序。
+  - PASS 訊息寫 `9.0 .. 12.6 V`，判定其實到 12.8 V；訊息改成寫出判定範圍。
+  - 原本以為 `test_config_fields` 有在守 Config；它拆的是測試自己寫的 `0x0EEF`，永遠不會紅。改成拆假 bus 記下的那筆寫入。
+  - `FakeSMBus.reads_from` 只寫不讀：改成記錄每次讀取，主程式測試檢查讀寫都對 0x41。建立假 `smbus` 的程式碼抽成 `fake_smbus()`。
+  - 授權：README 原本寫「和 Adafruit CircuitPython INA219 相同，推測由它改寫」；查了 Adafruit 目前版本（MIT，2017 Dean Miller），`set_calibration_16V_5A` 的寫法不同，也沒有 `Cal = 13434` 那段註解，出處無法確認。使用者決定保留在 repo（Waveshare 公開提供），README 改成照實寫「沒有授權聲明、出處未確認」。
+
