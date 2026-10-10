@@ -106,3 +106,32 @@
 - 原本以為驗收腳本開頭的「已經載入就 die」不會動到使用者的東西；但它寫在 `trap cleanup EXIT` 之後，die 時 cleanup 會把使用者自己載入的 module rmmod 掉（從 Step 2 的 `verify_edge_test.sh` 照抄來的，兩支都已改成先檢查再裝 trap）。
 - 原本以為「driver 載入期間 userspace 拿到 busy」用 `$SUDO_USER` 去測最貼近實際；但該使用者不在 `gpio` 群組時會先拿到 `EACCES`，被誤判成 driver 的問題。這一步改用 root 執行（只跑已建好的程式，不會在 `build/` 留 root 的檔案）。
 - 4-a 驗收腳本的兩個坑在這裡同樣存在並已修正：pinconf 的多行格式、root 寫入可猜的 `/tmp/<name>.$$`（`verify_edge_test.sh` 一併改成 `mktemp`）。改 `verify_edge_test.sh` 讓行號下移，step02 / step03 章的行號引用與節錄同步更新。
+
+## Step 5-b：GPIO IRQ + blocking read（kernel driver `edge_button`）
+
+- 拆分紀錄：驗收通過、寫教材時使用者指出這一步也能完全在 userspace 做（GPIO uAPI 的 edge event），kernel 版是為了教學親手寫 IRQ / wait queue。原 Step 5 因此改名為 5-b，另補 5-a（userspace 版）。這次拆分是教學上的考量，不是行數；5-b 本身仍超過上限（見下方「規模」）。
+
+- 驗收主機：同前。接線（2026-10-10）：header pin 33（GPIO13 = PH.00，gpiochip0 line 43，DT cell 56）→ 四腳按鍵（對角兩腳）→ pin 34（GND）；pin 33 另經 **330 Ω** 上拉到 pin 1（3.3 V）。LED 在驗收前因材料不夠拆除；拆除前跑過 `sudo bash scripts/verify_edge_gpio.sh --blink 3`：`0 failure(s)`，人眼確認慢閃 5 下、最後熄滅（Step 4-b 回歸）。
+- overlay：同一份 `dts/edge-gpio-overlay.dts` 加 `fragment@2`（`edge-button` 節點，`button-gpios = <&gpio TEGRA234_MAIN_GPIO(H, 0) GPIO_ACTIVE_LOW>`）與 `fragment@3`（`soc_gpio21_ph0`：pull-up、tristate、enable-input）；dtbo 由 999 bytes 變成 1589 bytes。開機後 `/proc/device-tree/edge-button` 有 `button-gpios compatible name pinctrl-0 pinctrl-names`。
+- 對照方法：`sudo bash scripts/verify_edge_button.sh`。實測：
+  - 沒有節點（overlay 重裝前的那次開機）：driver 註冊、不綁定、沒有 `/dev/edge_button`、line 43 沒被動到、dmesg 0 probe / 0 remove，10 項 PASS。
+  - 有節點（2026-10-10，最後一次）`=== 0 failure(s)`：bound、`/dev/edge_button` 0444、line 43 `"button" input active-low [used]`、`/proc/interrupts` 有 `2200000.gpio 43 Edge edge_button`（IRQ 278）、pinconf `pull=2 tristate=1 enable-input=1`、放開時 pin `hi`、device unittest 8 個案例、reader 睡 3 秒 **0 個 CPU tick**、wchan `edge_button_read`、reader 卡住時 rmmod 被拒、SIGTERM 讓 reader 印 `interrupted` 結束碼 1、rmmod 後節點 / line / IRQ 都釋放、dmesg 無 Oops。
+  - 按一下：`seq=1 pressed` → 0.188 s 後 `seq=2 released`，之後 2 秒內沒有多餘事件；原始 IRQ 4 次（前一輪是 2 次），debounce 後 2 筆事件。
+  - 長按：pressed 與 released 相隔 2.85 s（前一輪 1.70 s），中間沒有事件。
+  - 快速連按 6 秒：讀到 32 筆，pressed / released 交替、seq 連續、`dropped=0`；`event_count` 多了 34，差的 2 筆發生在 reader 被 timeout 結束後（關著時照設計不排事件）。全程 `irq_count=40 event_count=38 dropped=0`。
+  - 容差：長按判定「held ≥ 1.0 s」（人按的時間不固定）；快速連按判定「≥ 4 筆、交替、seq 無跳號，或有 dropped 時 seq 跳號 = dropped」。debounce 20 ms、佇列 16 筆是常數，沒有測到佇列滿（人手按不到 16 筆 / 20 ms 以內）。
+- 自動測試：`tests/test_edge_button_static.py` 20 個案例（overlay：兩個 dtbo 都有節點與 compatible、`button-gpios` cell 56 flags 1、fixup 指到 `edge-button`、pad 狀態 pull=2 / tristate=1 / input=1、pad 名稱和 NVIDIA hdr40 overlay 的 pin 33 一致、LED 節點仍在；driver：of_match、`devm_gpiod_get(dev, "button", GPIOD_IN)`、`gpiod_to_irq` + 雙邊緣、hard IRQ handler 不含會睡的呼叫、wait queue 與 `O_NONBLOCK`、`cancel_delayed_work_sync`、無舊式整數 API、`suppress_bind_attrs`、事件格式來自共用 header；header 在 C / C++ 下 16 bytes、offset 0/8/12、只用固定大小型別；`edge_button_wait` 用法錯誤回 2、找不到裝置回 1）；`tests/test_edge_button_device.py` 8 個案例（0444、`O_NONBLOCK` 沒事件回 `EAGAIN`、buffer < 16 回 `EINVAL`、第二個 open 回 `EBUSY`、關掉後能再開、blocking read 1.5 s 不吃 CPU 且被 signal 打斷、打斷後 fd 仍可用、sysfs 三個計數器）。沒有 module 時全套 `OK (skipped=30)`。
+- 紅燈紀錄：實作前靜態測試 17 failures + 2 errors、device 測試（`EDGE_BUTTON_REQUIRE=1`）8 failures；「LED 節點仍在」「pad 名稱與 NVIDIA 一致」兩個在實作前就會過，是守門測試。pin 31 改成 pin 33 時，先改期望值看到 3 個 failure 再改 overlay。變異測試：flags 改 HIGH、cell 改錯、tristate 改 DISABLE、pull 改 NONE、pad 名稱寫錯、IRQ handler 裡加 `gpiod_get_value_cansleep`、`cancel_delayed_work_sync` 改成不等待的版本、只留 FALLING、header 的 `seq` 改 `__u64`、`pressed` 改 `unsigned int`，每一種都讓測試失敗。
+- 只靠人眼 / 人手：所有按鍵事件（腳本只能請人按）。**未實測**：佇列滿時 `dropped` 與 seq 跳號（人手按不出來，只有程式邏輯）；`EFAULT` 時事件遺失（沒有測試）。
+- 規模：新增程式約 1031 行（driver 285、驗收腳本 245、測試 346、C++ 74、其他 81），超過約 800 行上限。實作前估約 775 行，又一次把測試和驗收腳本估低（4-b 記過同一個坑）；發現時已實作完，經使用者決定維持單一 Step。
+
+### 踩坑
+
+- 原本以為 SoC pad 的內部上拉（DT 的 `nvidia,pull = <TEGRA_PIN_PULL_UP>`）就夠了，像 STM32 的 `GPIO_PULLUP` 一樣；pinconf 確實顯示 `pull=2`，但 pin 33 什麼都不接時讀到 0，第一次驗收按鍵全部沒有反應（`irq_count=0`）。Orin Nano devkit 載板規格書（SP-11324-001 v1.3，Table 3-3）寫明：除了 I2C 的 pin 3/5/27/28，40-pin header 的 GPIO 都經過 **TI TXB0108** 電平轉換（1.8 V ↔ 3.3 V，Note 3）。TXB 兩側的 buffer 約 4 kΩ（TI 典型值），會「保持」上一次的電位，SoC 的弱上拉在 1.8 V 側拉不動它。
+- 原本以為照規格書的「上拉要 > 50 kΩ」選 51 kΩ 就好（第二次建議）；用 4 kΩ 的模型算，放開瞬間 pin 電壓 = 3.3 × 4k/(4k+R)，要超過 TXB 的高電位門檻（約 0.65 × 3.3 ≈ 2.15 V）才會翻回 1：51 kΩ 只有 0.24 V、10 kΩ 0.94 V（和論壇回報的「放開後約 1 V、卡低」一致），2.2 kΩ 2.13 V 在邊緣，1.5 kΩ 2.40 V、1 kΩ 2.64 V、330 Ω 3.05 V 才可靠。最後用手邊的 330 Ω，`gpioget` 放開 1、按下 0，驗收全過。「> 50 kΩ」那條是保護 pin 當**輸出**時的電位，按鍵 pin 只當輸入，所以刻意偏離。這個計算是推論（TI 典型值 + 論壇實測），沒有量測 4 kΩ。
+- 原本以為 header 上直接接 SoC 的 I2C pin 可以拿來接按鍵（模組上已有 1.5 k / 2.2 kΩ 上拉）；pin 27/28 是 `i2c-1`（`c240000.i2c`），上面有板上的 `ina3221`（0x40）和 `fusb301`（0x25），不能挪用；pin 3/5 是 `i2c-7`（`c250000.i2c`），目前空著，但 Phase 3 起 INA219、OLED、STM32 都要用它。
+- 原本以為挑 pin 看 GPIO 編號就好（第一版選 pin 31 = PQ.06，和 LED 的 PQ.05 同一個 port）；實體上 pin 31 和最近的 GND（pin 34）是斜對角，按鍵沒辦法直接跨上去，使用者提出改成相鄰的 pin 33/34。之後挑 pin 先看實體 header 上旁邊有沒有 GND / 3.3 V。
+- 原本以為驗收腳本在「放開時電位不對」之後繼續請人按鍵也無妨；那次 pin 卡在 0，人白按了 30 多秒。現在電位不對就印出原因（外接 330 Ω～1 kΩ、四腳按鍵用對角）並跳過按鍵段。快速連按的提示原本寫 `RAPIDLY … until told to stop`，使用者以為是「快速按一下」，第一次只按了一下而 FAIL；改成「about 10 times」。
+- 原本以為 `/proc/interrupts` 的計數從 insmod 開始；第二次驗收一開始就是 8，是上一次載入用同一個 IRQ 號（278）留下的累計。要看這次的中斷數，用 driver 自己的 sysfs `irq_count`。
+- 第一次驗收 probe 時 dmesg 就印出 `pressed`（pin 卡低），後來是 `released`：probe 時讀一次初始狀態寫進 log，接線問題在 dmesg 第一行就看得出來。
+- 寫變異測試的輔助函式時用 `git checkout -- <file>` 還原檔案，把**還沒 commit 的** overlay 修改一起洗掉，最後的 `git stash -u` 又把新 driver 收進 stash（已救回）。還原請從自己備份的複本複製，不要用 git 對工作中的檔案做還原。

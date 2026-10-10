@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 5-b　GPIO IRQ + blocking read — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step04b). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+table.num td, table.num th { font-family: var(--font-mono); font-size: 0.85rem; text-align: right; width: auto; }
+table.num td:first-child, table.num th:first-child { text-align: left; }
+table.num tr.hit td { color: var(--hw); font-weight: 600; }
+table.num tr.ok td:last-child { color: var(--ok); } table.num tr.bad td:last-child { color: var(--bad); }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+/* Step 5: debounce timing diagram and the pull-up calculator widget. */
+.wave { stroke: var(--hw); stroke-width: 2; fill: none; }
+.tick { stroke: var(--kern); stroke-width: 2; }
+.timer { fill: color-mix(in srgb, var(--drv) 30%, transparent); stroke: var(--drv); stroke-width: 1; }
+.evt { fill: var(--accent); }
+.calc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.2rem; }
+.calc .badge { font-family: var(--font-mono); font-size: 0.7rem; color: var(--drv); border: 1px solid var(--drv); border-radius: 4px; padding: 0 0.4em; margin-left: 0.5rem; }
+.calc label { display: flex; align-items: center; gap: 1rem; font-size: 0.93rem; }
+.calc input[type=range] { flex: 1; accent-color: var(--accent); }
+.calc .out { font-family: var(--font-mono); font-size: 0.95rem; margin-top: 0.6rem; }
+.calc .verdict.ok { color: var(--ok); } .calc .verdict.bad { color: var(--bad); }
+.calc .bar { position: relative; height: 0.7rem; background: var(--term-bg); border-radius: 4px; margin-top: 0.5rem; }
+.calc .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+.calc .bar b { position: absolute; top: -0.25rem; bottom: -0.25rem; width: 2px; background: var(--bad); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04a.html">← Step 4-a</a><span class="disabled">Step 5 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 4-b · platform driver + Device Tree</div>
+    <h1>讓 Device Tree 描述 LED，driver 去找它</h1>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><span class="disabled">Step 6 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 5-b · GPIO IRQ + wait queue（kernel driver）</div>
+    <h1>按下按鍵，叫醒睡著的 read()</h1>
+    <p class="lede">Step 4 的 LED 是輸出：userspace 說亮就亮。這一步反過來接一顆按鍵當輸入，而且 userspace 不去一直問「按了沒」，而是呼叫 <code>read()</code> 之後<b class="hl-key">睡著等</b>。按下的那一刻，GPIO 觸發中斷，driver 把事件放進佇列，再用 <code>wake_up_interruptible()</code> 叫醒睡在 wait queue 上的 reader。沒有按鍵時，這個程式 3 秒用掉 0 個 CPU tick。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_button/{edge_button.c, Makefile}</span>、<span class="new">include/edge_button.h</span>、<span class="new">apps/edge_button_wait.cpp</span>、<span class="new">scripts/verify_edge_button.sh</span>、<span class="new">tests/test_edge_button_static.py</span>、<span class="new">tests/test_edge_button_device.py</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_edge_gpio_static.py、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（gpiolib、IRQ 子系統、workqueue、VFS）</span>
+      <span style="--c: var(--drv)">我們寫的 driver</span>
+      <span style="--c: var(--hw)">硬體（SoC、載板、麵包板）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">5b.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>不要一直問，按了再叫我</h2>
+      <p>最直覺的寫法是迴圈裡一直讀 GPIO：讀到 0 就是按下。問題是要多久讀一次？讀太慢會漏掉短按，讀太快就是 CPU 一直空轉，大部分時間都在問「按了沒？沒有。按了沒？沒有。」</p>
+      <p>Linux 的做法是讓硬體主動通知：GPIO controller 偵測到電位<b>變化</b>（邊緣）時發出中斷，CPU 暫停手邊的事去執行 driver 的 IRQ handler。另一邊，userspace 的 <code>read()</code> 在 driver 裡找不到事件時，就把自己掛在一個 <b class="hl-key">wait queue</b> 上睡覺，排程器不再分 CPU 給它；事件來了，driver 叫醒這個 queue 上的人，<code>read()</code> 才返回。</p>
+      <p>同樣的事其實完全可以在 userspace 做：GPIO character device 本身就支援邊緣事件，請求 line 時要求 rising / falling 並設 debounce，對 line 的 fd 呼叫 <code>read()</code> 一樣會睡，事件裡也有時間戳和序號。那一版是 <b>Step 5-a</b>（另一個 PR，學習順序排在這章前面）；它背後的 IRQ handler、佇列、wait queue 是 kernel 的 <code>gpiolib-cdev</code> 寫好的。這一章刻意把這些在自己的 driver 裡親手寫一遍。實務上要做成 kernel driver，通常是因為事件要交給其他 kernel 子系統（例如 <code>gpio-keys</code> 把按鍵變成鍵盤輸入），或 policy 必須留在 kernel 裡。</p>
+      <p><b>互動雙方</b>：硬體端是按鍵和 GPIO controller（中斷來源），中間是我們的 kernel driver <code>edge_button.ko</code>（處理中斷、排事件），另一端是 userspace 的 <code>edge_button_wait</code>（blocking <code>read()</code>）。kernel 這邊沒有 master / slave 的匯流排關係，是「硬體通知 driver、driver 通知 reader」。<b>這一步不做</b>：<code>poll()</code> / <code>select()</code>（Phase 8 的 Step 19）。</p>
+      <dl class="terms">
+        <dt>IRQ</dt><dd>中斷請求。GPIO controller 偵測到邊緣時發出，CPU 跳去執行登記好的 handler。每個中斷源有一個號碼，這次是 278（<code>/proc/interrupts</code> 看得到）。</dd>
+        <dt>邊緣（edge）</dt><dd>電位從低變高（rising）或從高變低（falling）的那一瞬間。這個 driver 兩種都要：按下是一個邊緣，放開是另一個。</dd>
+        <dt>hard IRQ context</dt><dd>IRQ handler 執行的環境：它打斷了別人，不屬於任何 process，<b>不能睡</b>：不能等鎖、不能配會等待的記憶體、不能用名字帶 <code>_cansleep</code> 的 GPIO 函式。</dd>
+        <dt>彈跳（bounce）</dt><dd>機械按鍵的金屬片碰上的瞬間會彈幾下，一次按壓可能產生好幾個邊緣。實測一次按壓 2～4 個 IRQ。</dd>
+        <dt>debounce</dt><dd>去彈跳。這裡的做法：每個邊緣都把計時器往後推 20 ms，等訊號安靜 20 ms 之後才讀一次電位。</dd>
+        <dt>delayed work</dt><dd>「一段時間後，在 process context 執行這個函式」。kernel 的 workqueue 執行緒會跑它，所以裡面<b>可以睡</b>。</dd>
+        <dt>wait queue</dt><dd>一串正在等某個條件的 process。<code>wait_event_interruptible()</code> 把自己掛上去睡，<code>wake_up_interruptible()</code> 叫醒它們重新檢查條件。</dd>
+        <dt>kfifo</dt><dd>kernel 內建的環形佇列。這裡放最多 16 筆按鍵事件。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">5b.2</span><b>路徑</b>按下 → read()</div>
+    <div class="content">
+      <h2>一次按壓的六站</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 560" role="img" aria-label="按鍵把 pin 33 拉到 GND；GPIO controller 偵測到邊緣發出 IRQ 278；hard IRQ handler 只計數並把 debounce 計時器推到 20 毫秒後；20 毫秒後 work 讀電位，狀態變了就放進 kfifo 並 wake_up_interruptible；睡在 wait queue 的 read 醒來，取出事件 copy_to_user；userspace 的 edge_button_wait 印出 seq=1 pressed">
+          <defs>
+            <marker id="m5Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">HARDWARE</text>
+          <rect class="s-box" x="130" y="20" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="45" text-anchor="middle">按鍵把 pin 33 拉到 GND</text>
+          <text class="s-sm" x="350" y="66" text-anchor="middle">經載板的 TXB0108 → SoC pad PH.00</text>
+          <text class="s-mono" x="14" y="142">GPIO / IRQ</text>
+          <rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="135" text-anchor="middle">GPIO controller 偵測到邊緣 → IRQ 278</text>
+          <text class="s-sm" x="350" y="156" text-anchor="middle">rising、falling 都觸發；彈跳時一次按壓好幾個</text>
+          <text class="s-mono" x="14" y="232">HARD IRQ</text>
+          <rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="350" y="225" text-anchor="middle">edge_button_irq()</text>
+          <text class="s-sm" x="350" y="246" text-anchor="middle">irq_count++；mod_delayed_work(20 ms)；不讀 GPIO</text>
+          <text class="s-mono" x="14" y="322">WORK</text>
+          <rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="350" y="315" text-anchor="middle">edge_button_work()：最後一個邊緣 20 ms 後</text>
+          <text class="s-sm" x="350" y="336" text-anchor="middle">讀電位；狀態變了 → kfifo_put → wake_up_interruptible</text>
+          <text class="s-mono" x="14" y="412">READ</text>
+          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="350" y="405" text-anchor="middle">edge_button_read() 醒來</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">kfifo_get 取出一筆 → copy_to_user（16 bytes）</text>
+          <text class="s-mono" x="14" y="502">USERSPACE</text>
+          <rect class="s-box" x="130" y="470" width="440" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="350" y="495" text-anchor="middle">edge_button_wait：read() 返回</text>
+          <text class="s-sm" x="350" y="516" text-anchor="middle">印出 seq=1 pressed t=…</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m5Down)"/>
+          <line class="sv-down" x1="200" y1="169" x2="200" y2="196" marker-end="url(#m5Down)"/>
+          <line class="sv-down" x1="200" y1="259" x2="200" y2="286" marker-end="url(#m5Down)"/>
+          <line class="sv-down" x1="200" y1="349" x2="200" y2="376" marker-end="url(#m5Down)"/>
+          <line class="sv-down" x1="200" y1="439" x2="200" y2="466" marker-end="url(#m5Down)"/>
+          <text class="s-sm" x="590" y="226">不能睡</text>
+          <text class="s-sm" x="590" y="244">（打斷了別人）</text>
+          <text class="s-sm" x="590" y="316">可以睡</text>
+          <text class="s-sm" x="590" y="334">（workqueue 執行緒）</text>
+          <text class="s-sm" x="590" y="406">原本睡在</text>
+          <text class="s-sm" x="590" y="424">wait queue 上</text>
+        </svg>
+        <figcaption>圖 5.1 — driver 的工作分成三段，各在不同的環境執行：IRQ handler 只做最少的事、立刻返回；真正讀 GPIO、排事件的是 20 ms 後的 work；<code>read()</code> 在 reader 自己的 process 裡醒來。</figcaption>
+      </figure>
+      <p>為什麼要分三段？IRQ handler 打斷了 CPU 上正在跑的東西，越快返回越好，而且不能睡；讀 GPIO 的 <code>gpiod_get_value_cansleep()</code> 名字就寫明了可能會睡。所以 handler 只記一筆、排一個延後的工作，讀電位留給可以睡的 work 去做。延後 20 ms 正好順便做了 debounce（5b.5）。</p>
+    </div>
+  </section>
+
+  <section id="hw">
+    <div class="rail"><span class="no">5b.3</span><b>接線</b><span class="dot" style="background: var(--hw)"></span>TXB0108</div>
+    <div class="content">
+      <h2>為什麼 Jetson 的按鍵比 STM32 多一顆電阻</h2>
+      <p>按鍵本身只是兩片金屬，按下導通、放開斷開，不會產生 0 或 1。放開時 GPIO 腳要有東西把它「拉」到一個確定的電位，這就是上拉電阻。在 STM32 上設 <code>GPIO_PULLUP</code>，用的是晶片內建的電阻，因為 header 的腳直接連到晶片。第一版 overlay 也照這個想法，開了 SoC pad 的內部上拉（<code>nvidia,pull = &lt;TEGRA_PIN_PULL_UP&gt;</code>），pinconf 也確實顯示 <code>pull=2</code>。結果：</p>
+      <ul>
+        <li>放開時 pin 讀到 0；probe 時 dmesg 就印出 <code>pressed</code>。</li>
+        <li>按了 30 多秒，<code>irq_count=0</code>：一個邊緣都沒有。</li>
+        <li>把按鍵拔掉，pin 33 什麼都不接，<code>gpioget</code> 還是 0。</li>
+      </ul>
+      <p>原因在載板。Orin Nano devkit 載板規格書（SP-11324-001 v1.3，Table 3-3）的 40-pin 表，pin 33 那一列是 <code>GPIO13 … PH.00 … ±20uA … z … Note 3</code>，Note 3 寫著：「These pins connect to TI TXB0108 level translators. Due to the design of these devices, the output drivers are very weak…」。SoC 是 1.8 V、header 是 3.3 V，中間隔了一顆電平轉換晶片。整張表裡，除了 I2C 的 pin 3/5/27/28，<b>所有 GPIO 都是這樣</b>。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 270" role="img" aria-label="SoC 的 PH.00 pad 在 1.8 V 側，內部上拉拉不動；中間的 TXB0108 兩側各有約 4 kΩ 的 buffer，會保持上一次的電位；header 的 pin 33 在 3.3 V 側，經 330 歐姆上拉到 pin 1，經按鍵接到 pin 34 GND">
+          <text class="s-mono" x="20" y="24">1.8 V（模組）</text>
+          <text class="s-mono" x="560" y="24">3.3 V（header）</text>
+          <rect class="s-box" x="20" y="60" width="190" height="110" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="115" y="88" text-anchor="middle">SoC pad PH.00</text>
+          <text class="s-sm" x="115" y="112" text-anchor="middle">GPIO 輸入（gpiochip0 line 43）</text>
+          <text class="s-sm" x="115" y="134" text-anchor="middle">內部上拉 pull=2</text>
+          <text class="s-sm" x="115" y="154" text-anchor="middle" style="fill: var(--bad)">拉不動 TXB 的 buffer</text>
+          <rect class="s-box" x="270" y="60" width="210" height="110" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="375" y="88" text-anchor="middle">TXB0108（載板上）</text>
+          <text class="s-sm" x="375" y="112" text-anchor="middle">A 側 ≈4 kΩ ⇄ B 側 ≈4 kΩ</text>
+          <text class="s-sm" x="375" y="134" text-anchor="middle">兩側互相跟隨</text>
+          <text class="s-sm" x="375" y="154" text-anchor="middle">→ 保持上一次的電位</text>
+          <line class="sv-down" x1="210" y1="115" x2="270" y2="115"/>
+          <line class="sv-down" x1="480" y1="115" x2="560" y2="115"/>
+          <circle cx="566" cy="115" r="6" fill="var(--accent)"/>
+          <text class="s-key" x="580" y="120">pin 33</text>
+          <line class="sv-down" x1="566" y1="115" x2="566" y2="80"/>
+          <rect class="s-box" x="546" y="48" width="40" height="32" rx="4" style="stroke: var(--drv)"/>
+          <text class="s-sm" x="566" y="69" text-anchor="middle">330Ω</text>
+          <line class="sv-down" x1="566" y1="48" x2="566" y2="36"/>
+          <text class="s-sm" x="596" y="44">pin 1（3.3 V）</text>
+          <line class="sv-down" x1="566" y1="121" x2="566" y2="170"/>
+          <rect class="s-box" x="536" y="170" width="60" height="36" rx="4" style="stroke: var(--hw)"/>
+          <text class="s-sm" x="566" y="193" text-anchor="middle">按鍵</text>
+          <line class="sv-down" x1="566" y1="206" x2="566" y2="236"/>
+          <text class="s-sm" x="596" y="240">pin 34（GND）</text>
+          <text class="s-sm" x="20" y="214">放開：330 Ω 把 pin 33 拉到 3.3 V → TXB 翻成高 → SoC 讀到 1</text>
+          <text class="s-sm" x="20" y="238">按下：pin 33 直接接地 → TXB 翻成低 → SoC 讀到 0</text>
+        </svg>
+        <figcaption>圖 5.2 — 上拉電阻要放在 header 這一側，而且要夠強，才拉得贏 TXB0108 保持電位的 buffer。SoC 那顆內建上拉隔著 TXB，碰不到 pin 33。</figcaption>
+      </figure>
+      <h3>電阻要多小？</h3>
+      <p>按下再放開的那一瞬間，TXB 兩側都還記得「低」，B 側的 buffer 用約 4 kΩ（TI 的典型值）往下拉。上拉電阻 R 和這 4 kΩ 拔河，形成分壓：</p>
+<pre>放開瞬間的 pin 電壓 = 3.3 V × 4 kΩ / (4 kΩ + R)
+TXB 要認成「高」：  &gt; 0.65 × 3.3 V ≈ 2.15 V</pre>
+      <table class="num">
+        <thead><tr><th>上拉電阻 R</th><th>放開瞬間</th><th>結果</th></tr></thead>
+        <tbody>
+          <tr class="bad"><td>51 kΩ（照規格書「&gt; 50 kΩ」）</td><td>0.24 V</td><td>卡在 0</td></tr>
+          <tr class="bad"><td>10 kΩ</td><td>0.94 V</td><td>卡在 0</td></tr>
+          <tr class="bad"><td>2.2 kΩ</td><td>2.13 V</td><td>門檻邊緣</td></tr>
+          <tr class="ok"><td>1.5 kΩ</td><td>2.40 V</td><td>可以</td></tr>
+          <tr class="ok"><td>1 kΩ</td><td>2.64 V</td><td>可以</td></tr>
+          <tr class="ok hit"><td>330 Ω（這次用的，原本是 LED 的限流電阻）</td><td>3.05 V</td><td>可以，實測通過</td></tr>
+        </tbody>
+      </table>
+      <div class="calc" id="calc">
+        <label>上拉電阻 <input type="range" id="calcR" min="0" max="1000" value="174" aria-label="上拉電阻"> <span id="calcRv">330 Ω</span></label>
+        <div class="bar" aria-hidden="true"><i id="calcBar"></i><b id="calcTh"></b></div>
+        <div class="out">放開瞬間 <span id="calcV">3.05 V</span>　門檻 2.15 V　<span class="verdict" id="calcVerdict">翻回 1</span><span class="badge">計算，非實測</span></div>
+      </div>
+      <p>這張表是<b>推論</b>：4 kΩ 和 0.65 × VCC 是 TI 的典型值，我沒有量過這台板子上的實際數字。但它和三篇論壇回報對得上：有人在 Orin Nano 用 10 k～150 kΩ 都失敗、「放開後約 1 V」（表上 10 kΩ 是 0.94 V）；有人在同樣用 TXB0108 的 Jetson Nano 上加 1.5 kΩ 就好了；用 51 kΩ 的那篇回報會卡在低電位。最後用手邊的 330 Ω 實測：放開 1、按下 0、放開又回到 1，驗收全過。</p>
+      <div class="callout"><p>規格書確實寫著「上拉 / 下拉要 &gt; 50 kΩ」。那條規定保護的是 pin 當<b>輸出</b>的時候：太強的上拉會和 TXB 的 buffer 拉扯，讓 Jetson 輸出的低電位不夠低。按鍵 pin 只當輸入，我們要的正是「拉贏 TXB」，所以刻意偏離。按下時 330 Ω 的電流是 10 mA，3.3 V 電源（1 A）和電阻都承受得了。</p></div>
+      <h3>為什麼是 pin 33</h3>
+      <p>第一版選的是 pin 31（PQ.06），只因為它和 LED 的 PQ.05 是同一個 port、編號相鄰。實體上 pin 31 和最近的 GND（pin 34）是斜對角，pin 33 和 34 才是左右並排，按鍵直接跨上去就好。至於「直接接 SoC、模組上已有上拉」的 I2C pin：27/28 是 <code>i2c-1</code>，上面有板上的電源監測 <code>ina3221</code> 和 USB-C 控制器 <code>fusb301</code>，不能挪用；3/5 是 <code>i2c-7</code>，留給 Phase 3 起的 INA219、OLED、STM32。完整接線見 <a href="hardware-wiring.md">hardware-wiring.md</a>。</p>
+      <p>接好之後先用 <code>gpioget</code> 確認，不需要 root（使用者在 <code>gpio</code> 群組即可）、也不需要載入 driver。放開時執行：</p>
+<pre class="cmd">gpioget gpiochip0 43</pre>
+<pre class="out">1</pre>
+      <p>按住再執行一次要是 <code>0</code>，放開後要回到 <code>1</code>。讀到 0 又按不出變化，就是上拉不夠（或四腳按鍵接到同一側、內部永遠導通的兩支腳）。這個指令會短暫請求 line 43，driver 載入時它會得到 busy。</p>
+    </div>
+  </section>
+
+  <section id="overlay">
+    <div class="rail"><span class="no">5b.4</span><b>overlay</b><span class="dot" style="background: var(--accent)"></span>fragment@2/3</div>
+    <div class="content">
+      <h2>同一份 overlay，多一個節點</h2>
+      <p>按鍵節點直接加在 Step 4-b 那份 <code>dts/edge-gpio-overlay.dts</code> 的尾端，沿用同一支 installer、同一次重開機。形狀和 LED 一模一樣：一個裝置節點、一組 pad 設定。</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:71–95 — fragment@2 / fragment@3：按鍵節點與 pin 33 的 pad 狀態</figcaption>
+<pre data-start="71" data-hot="75,76,78,88,89,90,91">	fragment@2 {
+		target-path = "/";
+		__overlay__ {
+			edge-button {
+				compatible = "edge,gpio-button";
+				button-gpios = &lt;&amp;gpio TEGRA234_MAIN_GPIO(H, 0) GPIO_ACTIVE_LOW&gt;;
+				pinctrl-names = "default";
+				pinctrl-0 = &lt;&amp;edge_button_pins&gt;;
+			};
+		};
+	};
+
+	fragment@3 {
+		target = &lt;&amp;pinmux&gt;;
+		__overlay__ {
+			edge_button_pins: edge-button-pins {
+				pin33 {
+					nvidia,pins = "soc_gpio21_ph0";
+					nvidia,pull = &lt;TEGRA_PIN_PULL_UP&gt;;
+					nvidia,tristate = &lt;TEGRA_PIN_ENABLE&gt;;
+					nvidia,enable-input = &lt;TEGRA_PIN_ENABLE&gt;;
+				};
+			};
+		};
+	};</pre></figure>
+      <ul>
+        <li><code>compatible = "edge,gpio-button"</code> 配對新的 driver <code>edge_button.ko</code>；LED 的 <code>edge_gpio.ko</code> 不受影響。</li>
+        <li><code>TEGRA234_MAIN_GPIO(H, 0)</code> = 7 × 8 + 0 = <b>56</b>（binding header 裡 PORT_H = 7）。<code>gpiochip0</code> 裡則是 line 43：和 4-b 說的一樣，DT 編號和 line 編號不同。</li>
+        <li><code>GPIO_ACTIVE_LOW</code>：按下是低電位，宣告成 active-low 之後，driver 讀到的<b>邏輯值</b> 1 就是「按下」，C code 裡不用自己反相。</li>
+        <li>pad：<code>tristate</code> 開（pad 不輸出，萬一 GPIO 被設成輸出也不會在按下時短路）、<code>enable-input</code> 開（要讀腳位）。內部上拉留著不礙事，但真正的上拉是外接電阻（5b.3）。</li>
+      </ul>
+      <p>反組譯確認編號，在 repo 根目錄執行（不需要 root）：</p>
+<pre class="cmd">make -C dts
+dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</pre>
+<pre class="out" data-marks>			edge-button {
+				compatible = "edge,gpio-button";
+				button-gpios = &lt;0xffffffff 0x38 0x01&gt;; «1»
+				pinctrl-names = "default";
+				pinctrl-0 = &lt;0x02&gt;;</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>0x38</code> = 56，flags <code>0x01</code> = active-low；第一格是等開機時由 <code>__fixups__</code> 填入的 <code>&amp;gpio</code> phandle（4-b 詳述）。dtbo 從 999 bytes 變成 1589 bytes。</span></li>
+      </ol>
+      <p>改完 overlay 要重新安裝並重開機（4-b 的 4b.4）：</p>
+<pre class="cmd">sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo</pre>
+      <p>重開機後 <code>ls /proc/device-tree/edge-button</code> 應該看到 <code>button-gpios  compatible  name  pinctrl-0  pinctrl-names</code>。</p>
+    </div>
+  </section>
+
+  <section id="irq">
+    <div class="rail"><span class="no">5b.5</span><b>IRQ</b><span class="dot" style="background: var(--drv)"></span>debounce</div>
+    <div class="content">
+      <h2>IRQ handler 只做兩件事，讀電位交給 work</h2>
+      <p>driver 的狀態全放在一個 struct 裡，probe 時配置：</p>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:42–54 — driver 的狀態：GPIO、延後工作、wait queue、佇列</figcaption>
+<pre data-start="42" data-hot="45,46,47,48,49,52">struct edge_button {
+	struct gpio_desc *gpio;
+	struct miscdevice misc;
+	struct delayed_work work;
+	wait_queue_head_t wq;
+	spinlock_t lock;	/* fifo, last, seq, dropped */
+	DECLARE_KFIFO(fifo, struct edge_button_event, 16);
+	int last;		/* last debounced state, 1 = pressed */
+	u32 seq;
+	u32 dropped;
+	atomic_t irq_count;	/* raw edges, bounces included */
+	unsigned long flags;
+};</pre></figure>
+      <p>中斷進來時執行的就是這個函式。整個函式只有兩行實際動作：</p>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:61–74 — hard IRQ handler：計數、把 debounce 計時器往後推</figcaption>
+<pre data-start="61" data-hot="70,71,72,73">static irqreturn_t edge_button_irq(int irq, void *data)
+{
+	struct edge_button *eb = data;
+
+	/*
+	 * Hard IRQ context: no sleeping, no GPIO read (the _cansleep accessor may
+	 * sleep). Every edge pushes the deadline back, so the work runs once the
+	 * line has been quiet for the debounce time.
+	 */
+	atomic_inc(&amp;eb-&gt;irq_count);
+	mod_delayed_work(system_wq, &amp;eb-&gt;work,
+			 msecs_to_jiffies(EDGE_BUTTON_DEBOUNCE_MS));
+	return IRQ_HANDLED;
+}</pre></figure>
+      <ul>
+        <li><b><code>atomic_inc()</code></b>：原始邊緣數，含彈跳。用 atomic 是因為 sysfs 的讀取可能同時發生，而 handler 裡不能拿會睡的鎖。</li>
+        <li><b><code>mod_delayed_work()</code></b>：如果 work 還沒排，就排在 20 ms 後；如果已經排了，就把時間<b>改成</b>從現在起 20 ms。所以彈跳期間每個邊緣都把期限往後推，work 只會在訊號安靜 20 ms 之後執行一次。</li>
+        <li>回傳 <code>IRQ_HANDLED</code> 告訴 kernel 這個中斷有人處理了。</li>
+      </ul>
+      <figure class="figure">
+        <svg viewBox="0 0 760 270" role="img" aria-label="時序圖：按下時邏輯電位在約 10 毫秒內彈跳三次，每個邊緣觸發一次 IRQ，每次 IRQ 都把 20 毫秒計時器重新開始；最後一個邊緣 20 毫秒後 work 執行，產生一筆 pressed 事件；放開時同樣彈跳，最後產生一筆 released 事件">
+          <text class="s-mono" x="14" y="56">邏輯電位</text>
+          <text class="s-sm" x="14" y="72">1 = 按下</text>
+          <path class="wave" d="M110,80 L170,80 L170,40 L180,40 L180,80 L190,80 L190,40 L198,40 L198,80 L206,80 L206,40 L470,40 L470,80 L478,80 L478,40 L486,40 L486,80 L740,80"/>
+          <text class="s-mono" x="14" y="128">IRQ</text>
+          <line class="tick" x1="170" y1="110" x2="170" y2="130"/>
+          <line class="tick" x1="180" y1="110" x2="180" y2="130"/>
+          <line class="tick" x1="190" y1="110" x2="190" y2="130"/>
+          <line class="tick" x1="198" y1="110" x2="198" y2="130"/>
+          <line class="tick" x1="206" y1="110" x2="206" y2="130"/>
+          <line class="tick" x1="470" y1="110" x2="470" y2="130"/>
+          <line class="tick" x1="478" y1="110" x2="478" y2="130"/>
+          <line class="tick" x1="486" y1="110" x2="486" y2="130"/>
+          <text class="s-mono" x="14" y="172">計時器</text>
+          <text class="s-sm" x="14" y="188">20 ms</text>
+          <rect class="timer" x="170" y="160" width="10" height="14"/>
+          <rect class="timer" x="180" y="160" width="10" height="14"/>
+          <rect class="timer" x="190" y="160" width="8" height="14"/>
+          <rect class="timer" x="198" y="160" width="8" height="14"/>
+          <rect class="timer" x="206" y="160" width="80" height="14"/>
+          <rect class="timer" x="470" y="160" width="8" height="14"/>
+          <rect class="timer" x="478" y="160" width="8" height="14"/>
+          <rect class="timer" x="486" y="160" width="80" height="14"/>
+          <text class="s-sm" x="246" y="200" text-anchor="middle">安靜 20 ms</text>
+          <text class="s-mono" x="14" y="236">事件</text>
+          <circle class="evt" cx="286" cy="232" r="7"/>
+          <text class="s-lbl" x="298" y="237">pressed（work 讀到 1）</text>
+          <circle class="evt" cx="566" cy="232" r="7"/>
+          <text class="s-lbl" x="578" y="237">released</text>
+          <text class="s-sm" x="330" y="56">按住多久都沒有新事件</text>
+        </svg>
+        <figcaption>圖 5.3 — 示意圖（時間軸未依比例）：五個 IRQ 只產生一筆事件。被新邊緣打斷的計時器（短的橘色段）都作廢，只有最後一段跑滿 20 ms。代價是事件比實際按下晚 20 ms 以上，而短於 20 ms 的點按可能被當成彈跳吃掉。</figcaption>
+      </figure>
+      <p>20 ms 後，workqueue 執行緒跑這個函式。它在 process context，可以呼叫會睡的 GPIO 函式：</p>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:76–101 — debounce work：讀邏輯電位、狀態變了才排事件、叫醒 reader</figcaption>
+<pre data-start="76" data-hot="83,88,92,94,96,97,100">static void edge_button_work(struct work_struct *work)
+{
+	struct edge_button *eb = container_of(to_delayed_work(work),
+					      struct edge_button, work);
+	struct edge_button_event ev;
+	int val;
+
+	val = gpiod_get_value_cansleep(eb-&gt;gpio);	/* logical: DT says active-low */
+	if (val &lt; 0)
+		return;
+
+	spin_lock(&amp;eb-&gt;lock);
+	if (val == eb-&gt;last) {		/* bounced back to where it was */
+		spin_unlock(&amp;eb-&gt;lock);
+		return;
+	}
+	eb-&gt;last = val;
+	ev.timestamp_ns = ktime_get_ns();
+	ev.seq = ++eb-&gt;seq;
+	ev.pressed = val;
+	if (test_bit(EDGE_BUTTON_OPEN, &amp;eb-&gt;flags) &amp;&amp; !kfifo_put(&amp;eb-&gt;fifo, ev))
+		eb-&gt;dropped++;
+	spin_unlock(&amp;eb-&gt;lock);
+
+	wake_up_interruptible(&amp;eb-&gt;wq);
+}</pre></figure>
+      <ul>
+        <li><b><code>gpiod_get_value_cansleep()</code></b> 回傳邏輯值：DT 寫了 active-low，所以按下（實體低電位）讀到 1。</li>
+        <li><b><code>val == eb-&gt;last</code></b>：彈跳結束後電位回到原本的狀態（例如很短的雜訊），就不產生事件。所以按一下一定是 pressed、released 各一筆，不會連續兩筆 pressed。</li>
+        <li><b><code>seq</code></b> 每次狀態改變都加一，不管有沒有放進佇列。佇列滿了，<code>kfifo_put</code> 回 0，事件被丟掉，<code>dropped</code> 加一：reader 看到 seq 從 7 跳到 9，就知道中間掉了一筆。</li>
+        <li><b>沒有人開著裝置時不排事件</b>（<code>test_bit(EDGE_BUTTON_OPEN, …)</code>）：不然昨天按的十下會在今天打開時一口氣湧出來。</li>
+        <li>最後 <b><code>wake_up_interruptible()</code></b> 叫醒睡在 <code>eb-&gt;wq</code> 上的 reader。</li>
+      </ul>
+      <p>鎖用 spinlock 而不是 mutex：保護的只是幾個欄位的讀寫，持有時間很短。work 和 <code>read()</code> 都在 process context，用一般的 <code>spin_lock()</code> 就夠；IRQ handler 完全不碰這些欄位，所以不需要關中斷的 <code>spin_lock_irqsave()</code>。</p>
+    </div>
+  </section>
+
+  <section id="read">
+    <div class="rail"><span class="no">5b.6</span><b>read()</b><span class="dot" style="background: var(--drv)"></span>wait queue</div>
+    <div class="content">
+      <h2>read() 沒有事件就睡</h2>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:121–150 — blocking read：一次回一筆，沒有就睡在 wait queue 上</figcaption>
+<pre data-start="121" data-hot="129,130,134,138,139,141,142,143,147">/* Returns exactly one event per call; blocks until there is one. */
+static ssize_t edge_button_read(struct file *file, char __user *ubuf,
+				size_t count, loff_t *ppos)
+{
+	struct edge_button *eb = to_edge_button(file);
+	struct edge_button_event ev;
+	int got, ret;
+
+	if (count &lt; sizeof(ev))
+		return -EINVAL;
+
+	for (;;) {
+		spin_lock(&amp;eb-&gt;lock);
+		got = kfifo_get(&amp;eb-&gt;fifo, &amp;ev);
+		spin_unlock(&amp;eb-&gt;lock);
+		if (got)
+			break;
+		if (file-&gt;f_flags &amp; O_NONBLOCK)
+			return -EAGAIN;
+		/* Sleeps (no CPU) until the work queues an event or a signal arrives. */
+		ret = wait_event_interruptible(eb-&gt;wq, !kfifo_is_empty(&amp;eb-&gt;fifo));
+		if (ret)
+			return ret;
+	}
+
+	/* The event has left the queue: a bad buffer loses it (seq shows the gap). */
+	if (copy_to_user(ubuf, &amp;ev, sizeof(ev)))
+		return -EFAULT;
+	return sizeof(ev);
+}</pre></figure>
+      <ul>
+        <li><b>buffer 小於 16 bytes 回 <code>EINVAL</code></b>：一筆事件不能拆成兩次讀。一次 <code>read()</code> 只回一筆，給再大的 buffer 也一樣。</li>
+        <li><b><code>O_NONBLOCK</code></b>：用非阻塞模式開檔的人不想睡，沒有事件就回 <code>EAGAIN</code>。</li>
+        <li><b><code>wait_event_interruptible(wq, 條件)</code></b>：條件不成立就把自己掛到 <code>wq</code>、狀態設成可中斷睡眠（<code>ps</code> 看到的 <code>S</code>），讓出 CPU。被 <code>wake_up_interruptible()</code> 叫醒後重新檢查條件，成立才返回 0。收到 signal 會提早返回非 0（<code>-ERESTARTSYS</code>），這裡直接往上傳：userspace 沒有用 <code>SA_RESTART</code> 的話就看到 <code>EINTR</code>。</li>
+        <li>醒來後回到迴圈頂端重新 <code>kfifo_get</code>：醒來不保證佇列裡一定有東西，所以「取」和「等」寫成迴圈。</li>
+        <li><code>copy_to_user</code> 失敗時事件已經離開佇列，這一筆就丟了；註解寫明 seq 會顯示這個缺口。這條路徑沒有測試。</li>
+      </ul>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:103–119 — open / release：一次只允許一個 reader，開檔時清空佇列</figcaption>
+<pre data-start="103" data-hot="107,108,110">static int edge_button_open(struct inode *inode, struct file *file)
+{
+	struct edge_button *eb = to_edge_button(file);
+
+	if (test_and_set_bit(EDGE_BUTTON_OPEN, &amp;eb-&gt;flags))
+		return -EBUSY;
+	spin_lock(&amp;eb-&gt;lock);
+	kfifo_reset(&amp;eb-&gt;fifo);
+	spin_unlock(&amp;eb-&gt;lock);
+	return 0;
+}
+
+static int edge_button_release(struct inode *inode, struct file *file)
+{
+	clear_bit(EDGE_BUTTON_OPEN, &amp;to_edge_button(file)-&gt;flags);
+	return 0;
+}</pre></figure>
+      <p>只允許一個 reader：兩個程式同時讀，一筆事件只會被其中一個拿走，兩邊都看到殘缺的序列。第二個 <code>open()</code> 回 <code>EBUSY</code>，比默默分走事件好除錯。<code>test_and_set_bit()</code> 是原子操作，兩個 open 同時進來也只有一個成功。</p>
+      <h3>事件格式與語意</h3>
+      <figure class="listing"><figcaption>include/edge_button.h:13–17 — 事件格式：kernel 與 userspace 共用，固定 16 bytes</figcaption>
+<pre data-start="13" data-hot="14,15,16">struct edge_button_event {
+	__u64 timestamp_ns;	/* CLOCK_MONOTONIC when the debounced state was taken */
+	__u32 seq;		/* 1, 2, 3 ... per state change since load; a gap = lost events */
+	__u32 pressed;		/* 1 = pressed, 0 = released */
+};</pre></figure>
+      <p>和 Step 3 的 ioctl header 同一個原則：只用固定大小的型別，64-bit 欄位放最前面，32-bit 和 64-bit 程式看到的排列完全一樣。靜態測試用 C 和 C++ 各編一次，<code>static_assert</code> 大小是 16、offset 是 0／8／12。</p>
+      <table>
+        <thead><tr><th>情況</th><th>會收到什麼</th></tr></thead>
+        <tbody>
+          <tr><td>按一下</td><td><code>pressed</code>、<code>released</code> 各一筆，seq 連號</td></tr>
+          <tr><td>長按</td><td>一筆 <code>pressed</code>，放開時一筆 <code>released</code>；中間沒有重複事件（不像鍵盤會連發）</td></tr>
+          <tr><td>短於 20 ms 的點按、彈跳</td><td>可能被合併掉；電位最後回到原狀就不產生事件</td></tr>
+          <tr><td>按太快，佇列（16 筆）滿了</td><td>新事件被丟掉、<code>dropped</code> 加一，seq 照算，所以 seq 會跳號</td></tr>
+          <tr><td>沒有人開著裝置時按</td><td>不排事件（seq 照算）；<code>open()</code> 時佇列清空</td></tr>
+          <tr><td>第二個程式同時 <code>open()</code></td><td><code>EBUSY</code></td></tr>
+          <tr><td>reader 正在睡時 rmmod</td><td>rmmod 被拒（<code>.owner</code> 讓開著的檔案持有 module）；reader 要靠 signal 離開</td></tr>
+        </tbody>
+      </table>
+      <p>最後一列是規劃裡「driver unload 時要安全終止等待者」的答案：只要檔案開著，module 就卸載不掉，所以 <code>remove()</code> 執行時不可能有人睡在 wait queue 上；sysfs 手動 unbind 則和 4-b 一樣用 <code>suppress_bind_attrs</code> 關掉。驗收腳本兩件事都會測。</p>
+    </div>
+  </section>
+
+  <section id="probe">
+    <div class="rail"><span class="no">5b.7</span><b>probe</b><span class="dot" style="background: var(--drv)"></span>順序</div>
+    <div class="content">
+      <h2>probe：先準備好接中斷的東西，最後才開中斷</h2>
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:199–252 — probe：GPIO → 佇列與 work → 取消 work 的 devm 動作 → IRQ → /dev/edge_button</figcaption>
+<pre data-start="199" data-hot="210,217,222,226,230,233,234,244,245">static int edge_button_probe(struct platform_device *pdev)
+{
+	struct device *dev = &amp;pdev-&gt;dev;
+	struct edge_button *eb;
+	int irq, ret;
+
+	eb = devm_kzalloc(dev, sizeof(*eb), GFP_KERNEL);
+	if (!eb)
+		return -ENOMEM;
+
+	/* Looks up "button-gpios"; the active-low flag makes 1 mean pressed. */
+	eb-&gt;gpio = devm_gpiod_get(dev, "button", GPIOD_IN);
+	if (IS_ERR(eb-&gt;gpio))
+		return dev_err_probe(dev, PTR_ERR(eb-&gt;gpio), "cannot get button gpio\n");
+
+	spin_lock_init(&amp;eb-&gt;lock);
+	init_waitqueue_head(&amp;eb-&gt;wq);
+	INIT_KFIFO(eb-&gt;fifo);
+	INIT_DELAYED_WORK(&amp;eb-&gt;work, edge_button_work);
+	/*
+	 * devm undoes in reverse order: registered before the IRQ, so on removal
+	 * the IRQ is freed first (no new work) and then pending work is cancelled.
+	 */
+	ret = devm_add_action_or_reset(dev, edge_button_cancel_work, eb);
+	if (ret)
+		return ret;
+
+	eb-&gt;last = gpiod_get_value_cansleep(eb-&gt;gpio);
+	if (eb-&gt;last &lt; 0)
+		return dev_err_probe(dev, eb-&gt;last, "cannot read button gpio\n");
+
+	irq = gpiod_to_irq(eb-&gt;gpio);
+	if (irq &lt; 0)
+		return dev_err_probe(dev, irq, "button gpio has no irq\n");
+	ret = devm_request_irq(dev, irq, edge_button_irq,
+			       IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+			       "edge_button", eb);
+	if (ret)
+		return dev_err_probe(dev, ret, "cannot request irq %d\n", irq);
+
+	platform_set_drvdata(pdev, eb);
+	eb-&gt;misc.minor = MISC_DYNAMIC_MINOR;
+	eb-&gt;misc.name = "edge_button";
+	eb-&gt;misc.fops = &amp;edge_button_fops;
+	eb-&gt;misc.parent = dev;
+	eb-&gt;misc.mode = 0444;
+	ret = misc_register(&amp;eb-&gt;misc);
+	if (ret)
+		return ret;
+
+	dev_info(dev, "probed: button gpio acquired (irq %d, %s)\n",
+		 irq, eb-&gt;last ? "pressed" : "released");
+	return 0;
+}</pre></figure>
+      <ul>
+        <li><b><code>devm_gpiod_get(dev, "button", GPIOD_IN)</code></b>：去 DT 找 <code>button-gpios</code>，拿到時就設成輸入。</li>
+        <li><b>順序很重要</b>：<code>devm_request_irq()</code> 一成功，中斷隨時可能進來，handler 會用到 work；所以 spinlock、wait queue、kfifo、work 都要在它之前初始化好。</li>
+        <li><b><code>devm_add_action_or_reset()</code></b> 登記一個「卸載時呼叫 <code>cancel_delayed_work_sync()</code>」的動作。devm 的資源在 remove 之後<b>倒序</b>釋放：這個動作登記在 IRQ 之前，所以會先釋放 IRQ（不會再有新的 work 被排），再取消、等完還在跑的 work。順序反過來的話，work 取消之後 IRQ 還可能又排一個，在 <code>eb</code> 被釋放後執行。</li>
+        <li><b><code>gpiod_to_irq()</code></b>：把 GPIO descriptor 換成中斷號碼（這次 278），不用自己查。<code>IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING</code>：按下、放開都要。</li>
+        <li>probe 時讀一次初始狀態存進 <code>last</code>，也印在 dmesg。第一次驗收印出的是 <code>pressed</code>，那時 pin 卡在 0（5b.3），看 dmesg 第一行就知道接線有問題。</li>
+        <li>節點權限 0444：這個裝置只能讀。</li>
+      </ul>
+      <p>規劃寫的是 <code>request_threaded_irq()</code>：中斷進來先跑一個很短的 hard handler，再由專屬的 kernel 執行緒跑可以睡的部分。這裡改用一般的 <code>devm_request_irq()</code> 加 delayed work，因為 debounce 本來就需要「最後一個邊緣後再等 20 ms」：threaded IRQ 的執行緒在每個中斷後立刻執行，要延後只能在裡面睡，每次彈跳都會各睡一輪；delayed work 則可以用 <code>mod_delayed_work()</code> 不斷把期限往後推。kernel 自己的 <code>gpio-keys</code> driver 也是用 delayed work 做 debounce。</p>
+      <p>此外還有三個唯讀的 sysfs 屬性，掛在 platform device 上（<code>/sys/bus/platform/devices/edge-button/</code>）：<code>irq_count</code>（原始邊緣數）、<code>event_count</code>（debounce 後的狀態變化數，就是目前的 seq）、<code>dropped</code>。兩個數字一比，就看得出彈跳被合併了多少。</p>
+    </div>
+  </section>
+
+  <section id="app">
+    <div class="rail"><span class="no">5b.8</span><b>userspace</b><span class="dot" style="background: var(--user)"></span>C++</div>
+    <div class="content">
+      <h2>userspace：一個 read() 迴圈</h2>
+      <figure class="listing"><figcaption>apps/edge_button_wait.cpp:41–71 — edge_button_wait：signal 不重啟、blocking read、印出事件</figcaption>
+<pre data-start="41" data-hot="41,42,43,49,58,60,61,67">    struct sigaction sa{};
+    sa.sa_handler = on_signal;
+    sigaction(SIGINT, &amp;sa, nullptr);
+    sigaction(SIGTERM, &amp;sa, nullptr);
+
+    const char *path = std::getenv("EDGE_BUTTON_DEV");
+    if (!path)
+        path = "/dev/edge_button";
+    int fd = open(path, O_RDONLY);
+    if (fd &lt; 0) {
+        std::fprintf(stderr, "open %s: %s\n", path, std::strerror(errno));  // EBUSY: another reader
+        return 1;
+    }
+
+    int rc = 0;
+    for (long i = 0; i &lt; count; i++) {
+        edge_button_event ev{};
+        ssize_t n = read(fd, &amp;ev, sizeof(ev));   // blocks until a press or release
+        if (n != static_cast&lt;ssize_t&gt;(sizeof(ev))) {
+            if (n &lt; 0 &amp;&amp; errno == EINTR)
+                std::fprintf(stderr, "interrupted\n");
+            else
+                std::fprintf(stderr, "read %s: %s\n", path, n &lt; 0 ? std::strerror(errno) : "short read");
+            rc = 1;
+            break;
+        }
+        std::printf("seq=%u %s t=%llu.%09llu\n", ev.seq, ev.pressed ? "pressed" : "released",
+                    static_cast&lt;unsigned long long&gt;(ev.timestamp_ns / 1000000000ULL),
+                    static_cast&lt;unsigned long long&gt;(ev.timestamp_ns % 1000000000ULL));
+        std::fflush(stdout);                     // the acceptance script reads lines as they come
+    }</pre></figure>
+      <ul>
+        <li><b><code>read(fd, &amp;ev, sizeof(ev))</code></b>：就是規劃裡那一行。沒有事件時這個呼叫不會返回，程式不佔 CPU。</li>
+        <li><b><code>sigaction</code> 沒有設 <code>SA_RESTART</code></b>：Ctrl-C 或 <code>kill</code> 時，睡著的 <code>read()</code> 回 <code>-1</code>、<code>errno == EINTR</code>，程式印 <code>interrupted</code> 結束（結束碼 1）。如果用 <code>std::signal()</code>，glibc 預設會自動重啟 <code>read()</code>，程式就醒不過來。</li>
+        <li>結束碼：讀滿 N 筆回 0；裝置錯誤或被中斷回 1；參數錯誤回 2。<code>EDGE_BUTTON_DEV</code> 可以換裝置路徑，給測試用。</li>
+      </ul>
+      <p>用 CMake 建置，在 repo 根目錄執行（不需要 root）：</p>
+<pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target edge_button_wait</pre>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">5b.9</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="content">
+      <h2>不按按鍵能測的，都先寫成測試</h2>
+      <ul>
+        <li><code>tests/test_edge_button_static.py</code>：<span data-tests="tests/test_edge_button_static.py">20</span> 個案例，不需要硬體。overlay 用 cpp + dtc 實際編譯再反組譯：兩個 dtbo 都有 <code>edge-button</code> 節點、<code>button-gpios</code> 是 56 加 flags 1、<code>&amp;gpio</code> 留成 fixup、pad 狀態是 <code>soc_gpio21_ph0</code> 的 pull=2 / tristate=1 / input=1、pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 overlay 的 pin 33 一致、LED 節點還在。driver 原始碼：of_match、<code>devm_gpiod_get(dev, "button", GPIOD_IN)</code>、<code>gpiod_to_irq</code> 加雙邊緣、<b>hard IRQ handler 的函式本體裡不能有會睡的呼叫</b>（<code>_cansleep</code>、<code>mutex_lock</code>、<code>GFP_KERNEL</code>…）、有 wait queue 和 <code>O_NONBLOCK</code>、有 <code>cancel_delayed_work_sync</code>、沒有舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。header 在 C 和 C++ 下各編一次檢查大小與 offset。<code>edge_button_wait</code> 的用法錯誤回 2、找不到裝置回 1。</li>
+        <li><code>tests/test_edge_button_device.py</code>：<span data-tests="tests/test_edge_button_device.py">8</span> 個案例，對真的 <code>/dev/edge_button</code>，<b>不需要有人按</b>：權限 0444、<code>O_NONBLOCK</code> 沒事件回 <code>EAGAIN</code>、buffer 小於 16 回 <code>EINVAL</code>、第二個 open 回 <code>EBUSY</code>、關掉後能再開、blocking read 1.5 秒內用掉的 CPU 少於 0.1 秒並被 signal 打斷、打斷後 fd 還能用、三個 sysfs 計數器讀得到。裝置不存在時 skip；<code>EDGE_BUTTON_REQUIRE=1</code> 時改成 fail。</li>
+      </ul>
+      <p>紅燈紀錄：實作前靜態測試 17 個 failure、2 個 error；device 測試在 <code>EDGE_BUTTON_REQUIRE=1</code> 下 8 個 failure。「LED 節點還在」和「pad 名稱和 NVIDIA 一致」在實作前就會過，只能當守門測試。後來把 pin 31 改成 pin 33 時，也是先改期望值、看到 3 個 failure，再改 overlay。變異測試：flags 改成 active-high、編號改錯、tristate 關掉、上拉拿掉、pad 名稱寫錯、在 IRQ handler 裡呼叫 <code>gpiod_get_value_cansleep</code>、改用不等待的 <code>cancel_delayed_work</code>、只留 falling、header 的欄位型別改掉，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
+      <p>另外，加按鍵節點讓 Step 4-b 的兩個靜態測試紅了：它們假設 <code>__fixups__</code> 的 <code>gpio</code>、<code>pinmux</code> 只有一項，現在多了按鍵的那一項（用 <code>\0</code> 隔開）。改成接受多項的寫法。</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_button_static.py' -v
+python3 -m unittest discover -s tests -p 'test_edge_button_device.py' -v</pre>
+      <p>第一支需要 <code>dtc</code>、<code>cpp</code>、kernel headers 和 CMake（overlay 那組缺工具時 skip）。第二支在沒載入 module 時會顯示 <code>OK (skipped=8)</code>，這是正常的；要真的跑，先照下一節 insmod。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">5b.10</span><b>實機</b><span class="dot" style="background: var(--hw)"></span>insmod</div>
+    <div class="content">
+      <h2>手動跑一次：載入、按兩下、看計數、卸載</h2>
+      <p><b>起點狀態</b>：按鍵照 5b.3 接好（含 330 Ω 上拉）；overlay 已安裝並重開機（<code>/proc/device-tree/edge-button</code> 存在）；<code>build/edge_button_wait</code> 已建置（5b.8）；module 沒有載入；站在 repo 根目錄。跑到 <code>./build/edge_button_wait 4</code> 時程式會停住，<b>按兩下按鍵</b>它才會結束。</p>
+<pre class="cmd">make -s -C kernel/edge_button
+sudo insmod kernel/edge_button/edge_button.ko
+sudo dmesg | tail -n 1
+ls -l /dev/edge_button
+gpioinfo gpiochip0 | grep 'line  43:'
+gpioget gpiochip0 43; echo "exit=$?"
+./build/edge_button_wait 1 &amp; sleep 1; ps -o stat,wchan:20,cmd -p $!; kill $!; sleep 0.5
+./build/edge_button_wait 4
+grep . /sys/bus/platform/devices/edge-button/{irq_count,event_count,dropped}
+sudo rmmod edge_button</pre>
+      <p>2026-10-10 的實測輸出（<code>make</code> 那行的 compiler 版本警告和 Step 2 一樣無害，這裡省略）：</p>
+<pre class="out" data-marks><span class="prompt">$</span> sudo insmod kernel/edge_button/edge_button.ko
+<span class="prompt">$</span> sudo dmesg | tail -n 1
+[ 1001.477821] edge_button edge-button: probed: button gpio acquired (irq 278, released) «1»
+<span class="prompt">$</span> ls -l /dev/edge_button
+cr--r--r-- 1 root root 10, 121 Oct 10 18:10 /dev/edge_button «2»
+<span class="prompt">$</span> gpioinfo gpiochip0 | grep 'line  43:'
+    line  43:      "PH.00"     "button"   input   active-low [used] «3»
+<span class="prompt">$</span> gpioget gpiochip0 43; echo "exit=$?"
+gpioget: error reading GPIO values: Device or resource busy
+exit=1 «4»
+<span class="prompt">$</span> ./build/edge_button_wait 1 &amp; sleep 1; ps -o stat,wchan:20,cmd -p $!; kill $!; sleep 0.5
+[1] 7048
+STAT WCHAN                CMD
+S    edge_button_read     ./build/edge_button_wait 1 «5»
+interrupted
+[1]+  Exit 1                  ./build/edge_button_wait 1 «6»
+<span class="prompt">$</span> ./build/edge_button_wait 4
+seq=1 pressed t=1089.584033763
+seq=2 released t=1089.744021628
+seq=3 pressed t=1091.460022106
+seq=4 released t=1091.628038409 «7»
+<span class="prompt">$</span> grep . /sys/bus/platform/devices/edge-button/{irq_count,event_count,dropped}
+/sys/bus/platform/devices/edge-button/irq_count:4
+/sys/bus/platform/devices/edge-button/event_count:4
+/sys/bus/platform/devices/edge-button/dropped:0 «8»
+<span class="prompt">$</span> sudo rmmod edge_button</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>insmod 當下 platform bus 就配對到 <code>edge-button</code> 並呼叫 probe；IRQ 號碼是 <code>gpiod_to_irq()</code> 換來的 278；初始狀態 <code>released</code>，上拉正常。</span></li>
+        <li><span class="mk">2</span><span>misc device（major 10），權限 <code>cr--r--r--</code> 就是 probe 裡設的 0444。</span></li>
+        <li><span class="mk">3</span><span>consumer 是 <code>"button"</code>（<code>devm_gpiod_get(dev, "button", …)</code>），方向 input、極性 active-low：都來自 DT。</span></li>
+        <li><span class="mk">4</span><span>driver 持有 line 43 時，userspace 的 <code>gpioget</code> 拿到 busy：和 4-b 的 LED 一樣，一條 line 同時只有一個使用者。</span></li>
+        <li><span class="mk">5</span><span>reader 開著、沒有事件：狀態 <code>S</code>（可中斷睡眠），<code>WCHAN</code> 顯示它睡在 <code>edge_button_read</code> 裡。不需要 root 就看得到自己程式的 wchan。</span></li>
+        <li><span class="mk">6</span><span><code>kill</code> 送出 SIGTERM，<code>wait_event_interruptible()</code> 提早返回，<code>read()</code> 回 <code>EINTR</code>，程式印 <code>interrupted</code>、結束碼 1。</span></li>
+        <li><span class="mk">7</span><span>按兩下，四筆事件，pressed / released 交替、seq 連號。每次按住約 0.16～0.17 秒。</span></li>
+        <li><span class="mk">8</span><span>這次 4 個 IRQ 產生 4 筆事件：這兩下剛好沒有彈跳。驗收時同樣按一下出現過 4 個 IRQ（5b.11），彈跳次數每次不同。</span></li>
+      </ol>
+      <p>如果 insmod 成功但 dmesg 沒有 <code>probed</code>、<code>/dev/edge_button</code> 也不存在，表示這次開機沒有 <code>edge-button</code> 節點（overlay 沒裝上或被 jetson-io 洗掉，見 4-b 的 4b.4）。如果 dmesg 寫的是 <code>pressed</code>，或按了 <code>edge_button_wait</code> 都沒反應，回 5b.3 檢查上拉電阻。<code>ps</code> 的 PID、時間戳、minor 號每次都不一樣。</p>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">5b.11</span><b>驗收</b>有人按</div>
+    <div class="content">
+      <h2>驗收：一半自動，一半要人按</h2>
+      <p><code>scripts/verify_edge_button.sh</code> 和 4-b 一樣先看 <code>/proc/device-tree/edge-button</code> 在不在。<b>不在</b>時只確認 insmod 後不 probe（overlay 重裝前的那次開機實測 10 項 PASS）。<b>在</b>的時候：</p>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>建置 module 和 C++ 程式</td><td>腳本用 <code>sudo</code> 前的使用者身分 <code>make</code>、<code>cmake --build</code>（不在 tree 裡留 root 的檔案，Step 2 的坑）</td></tr>
+          <tr><td>確認接線</td><td>先讀 pinconf 和放開時的電位；不是 <code>hi</code> 就印出原因並<b>跳過按鍵段</b>，不讓人白按</td></tr>
+          <tr><td>確認 reader 真的在睡</td><td>背景跑一個 reader，3 秒後讀 <code>/proc/&lt;pid&gt;/stat</code>：狀態要是 <code>S</code>、CPU tick ≤ 1，並印出 <code>wchan</code>（睡在哪個 kernel 函式）</td></tr>
+          <tr><td>測 unload</td><td>reader 睡著時 rmmod 必須失敗；送 SIGTERM 後 reader 必須在 2 秒內印 <code>interrupted</code> 結束</td></tr>
+          <tr><td>按鍵時盯著輸出</td><td>reader 在提示<b>之前</b>就開始讀，不會漏掉；每段有 timeout，腳本自己檢查 pressed / released 交替、seq 連號</td></tr>
+          <tr><td>結束後清理</td><td>trap 會殺掉殘留的 reader、rmmod；最後用 <code>pgrep</code> 確認沒有殘留</td></tr>
+        </tbody>
+      </table>
+      <p>在 repo 根目錄執行（整支要 root；要有人照提示按按鍵，沒辦法按時加 <code>--no-press</code> 只跑自動的部分）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_button.sh</pre>
+      <p>2026-10-10 的實測輸出（快速連按那行的事件列表很長，略）：</p>
+<pre class="out" data-marks>PASS build edge_button.ko
+PASS build edge_button_wait (CMake)
+PASS vermagic matches running kernel
+PASS line 43 (PH.00) unused before insmod
+--- /proc/device-tree/edge-button present: checking probe, input/IRQ and blocking read
+PASS edge-button bound to edge_button
+PASS /dev/edge_button created, mode 0444
+PASS line 43 owned by "button", input, active-low
+PASS IRQ registered: 278: 8 0 0 0 0 0 2200000.gpio 43 Edge edge_button «1»
+    132 (soc_gpio21_ph0): pull=2 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=0 function=rsvd0
+PASS PH.00 pad: pull-up, output off, input on
+PASS pin idles high (released) «2»
+    do NOT touch the button until asked
+PASS device unittest as nvidia
+PASS reader asleep after 3 s (state S, 0 CPU ticks, wchan edge_button_read) «3»
+PASS rmmod refused while a reader is blocked
+PASS SIGTERM wakes the reader: exit 1, 'interrupted' «4»
+&gt;&gt;&gt; press the button ONCE and release it (15 s)
+    seq=1 pressed t=483.596029563
+    seq=2 released t=483.784025846
+PASS one press -&gt; pressed + released
+PASS no extra event after the release
+    raw IRQs for that press: 4 (bounces), events: 2 «5»
+&gt;&gt;&gt; press and HOLD the button about 2 s, then release (15 s)
+    seq=3 pressed t=492.232025828
+    seq=4 released t=495.080037184
+PASS long press -&gt; one pressed, one released 2.85 s later, nothing in between «6»
+&gt;&gt;&gt; press the button over and over, about 10 times, as fast as you can, until '&gt;&gt;&gt; stop' (6 s)
+&gt;&gt;&gt; stop
+    32 events read, 34 state changes, 0 dropped, seq=5 pressed t=497.668029421 seq=6 released t=497.732033731 …
+PASS rapid presses: 32 events, alternating, no seq gap «7»
+    totals: irq_count=40 event_count=38 dropped=0
+PASS module and /dev/edge_button gone
+PASS line 43 released
+PASS IRQ freed
+PASS dmesg free of Oops/BUG/WARNING
+PASS dmesg shows 1 probe / 1 remove
+[  475.405839] edge_button verify 5638 1791626521
+[  475.410620] edge_button edge-button: probed: button gpio acquired (irq 278, released)
+[  501.612584] edge_button edge-button: removed: 40 irqs, 38 events, 0 dropped
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>IRQ 278 是 GPIO controller <code>2200000.gpio</code> 的第 43 號，邊緣觸發。一開始就是 8，是<b>上一次</b>載入用同一個號碼留下的累計，<code>/proc/interrupts</code> 不會歸零；這次的數字要看 driver 自己的 <code>irq_count</code>。</span></li>
+        <li><span class="mk">2</span><span>放開時 pin 是 <code>hi</code>：330 Ω 的上拉有效。第一次驗收這一行是 FAIL（pin 卡在 <code>lo</code>，5b.3）。</span></li>
+        <li><span class="mk">3</span><span>reader 睡了 3 秒，用掉 <b class="hl-ok">0 個 CPU tick</b>，<code>wchan</code> 顯示它睡在 <code>edge_button_read</code> 裡：就是 5b.6 那個 <code>wait_event_interruptible()</code>。</span></li>
+        <li><span class="mk">4</span><span>signal 打斷睡眠：kernel 回 <code>-ERESTARTSYS</code>，因為沒有 <code>SA_RESTART</code>，userspace 看到 <code>EINTR</code>。</span></li>
+        <li><span class="mk">5</span><span>一次按壓 4 個 IRQ（有彈跳），debounce 後剛好 2 筆事件。上一次執行同樣的動作是 2 個 IRQ：彈跳次數每次不同。</span></li>
+        <li><span class="mk">6</span><span>按住 2.85 秒，中間沒有任何事件。腳本只要求間隔 ≥ 1.0 秒，因為人按的時間不固定。</span></li>
+        <li><span class="mk">7</span><span>6 秒讀到 32 筆，交替且連號、<code>dropped=0</code>。<code>event_count</code> 多了 34：差的 2 筆發生在 reader 被 timeout 結束、<code>&gt;&gt;&gt; stop</code> 印出前後，裝置已經關了，照設計只計數不排隊。人手按不出「20 ms 內 16 筆」，所以佇列滿、<code>dropped</code> 增加的情況<b class="hl-bad">沒有實測</b>。</span></li>
+      </ol>
+      <p>同一支腳本也當 Step 4-b 的回歸：overlay 加了按鍵節點之後，拆 LED 前跑 <code>sudo bash scripts/verify_edge_gpio.sh --blink 3</code>，<code>0 failure(s)</code>，人眼看到慢閃 5 下、最後熄滅。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">5b.12</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為內部上拉就夠了</h4><dl><dt>症狀</dt><dd>pinconf 顯示 <code>pull=2</code>，pin 卻恆為 0，按了 30 秒 <code>irq_count=0</code>。</dd><dt>後果</dt><dd>driver 收不到任何中斷，看起來像 IRQ 沒接好。</dd><dt>正解</dt><dd class="fix">header GPIO 經過 TXB0108，SoC 的上拉碰不到 pin。外接上拉到 3.3 V。</dd></dl></div>
+        <div class="pit"><h4>照規格書選 51 kΩ</h4><dl><dt>症狀</dt><dd>「上拉要 &gt; 50 kΩ」，51 kΩ 看起來剛好。</dd><dt>後果</dt><dd>按一次之後放開只有約 0.24 V，卡在 0（推算；論壇的 10 kΩ 實測約 1 V）。</dd><dt>正解</dt><dd class="fix">輸入用的上拉要遠小於 TXB 的 4 kΩ：330 Ω～1 kΩ。&gt; 50 kΩ 是給輸出用的。</dd></dl></div>
+        <div class="pit"><h4>挑 pin 只看編號</h4><dl><dt>症狀</dt><dd>選了 pin 31（PQ.06），因為和 LED 的 PQ.05 相鄰。</dd><dt>後果</dt><dd>最近的 GND 在斜對角，按鍵跨不上去。</dd><dt>正解</dt><dd class="fix">先看實體 header：pin 33 和 GND 的 pin 34 並排。</dd></dl></div>
+        <div class="pit"><h4>想挪用 I2C 的 pin</h4><dl><dt>症狀</dt><dd>pin 27/28 直接接 SoC、模組上已有上拉，看起來最省事。</dd><dt>後果</dt><dd>那是 <code>i2c-1</code>，板上的 <code>ina3221</code>、<code>fusb301</code> 會斷線。</dd><dt>正解</dt><dd class="fix">先 <code>ls /sys/bus/i2c/devices/</code> 看 bus 上有誰；3/5 留給 Phase 3。</dd></dl></div>
+        <div class="pit"><h4>拿 /proc/interrupts 算這次的中斷</h4><dl><dt>症狀</dt><dd>剛 insmod，IRQ 278 已經是 8。</dd><dt>後果</dt><dd>以為有雜訊在亂觸發。</dd><dt>正解</dt><dd class="fix">那是上次載入的累計；看 driver 的 sysfs <code>irq_count</code>，它每次 probe 從 0 開始。</dd></dl></div>
+        <div class="pit"><h4>測試提示寫得不清楚</h4><dl><dt>症狀</dt><dd><code>press RAPIDLY … until told to stop</code>，被理解成「快速按一下」。</dd><dt>後果</dt><dd>6 秒只按一次，快速連按那項 FAIL，不是 driver 的錯。</dd><dt>正解</dt><dd class="fix">要人做的事寫成可數的：「about 10 times」。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">5b.13</span><b>收尾</b>Phase 2 → 3</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">按下按鍵 → IRQ → driver → <code>wake_up_interruptible()</code> → 睡著的 <code>read()</code> 返回；等待時 0 CPU tick。</li>
+        <li class="y">按一下一筆 pressed、一筆 released；長按不重複；快速連按 32 筆交替、seq 連號；debounce 把 40 個 IRQ 合併成 38 次狀態變化。</li>
+        <li class="y">reader 睡著時 rmmod 被拒，signal 能叫醒它；卸載後 GPIO、IRQ、節點都釋放；驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="n">沒有實測：佇列滿（<code>dropped</code> 增加、seq 跳號）只有程式邏輯；<code>copy_to_user</code> 失敗時事件遺失沒有測試。</li>
+        <li class="n">5b.3 的電阻計算用的是 TI 典型值，沒有量測 TXB 的實際 buffer 強度；330 Ω 偏離規格書的「&gt; 50 kΩ」（理由見 5b.3）。</li>
+        <li class="n">LED 為了接按鍵已經拆除；重跑 Step 4 的驗收要先接回。</li>
+        <li class="n">新增約 1031 行，超過約 800 行的上限：實作前估約 775 行，又一次把測試和驗收腳本估低了。原本叫 Step 5，驗收後改名 5-b，另補 userspace 版的 5-a 對照。</li>
+      </ul>
+      <p>Phase 2 到這裡結束：GPIO 輸出（LED）和輸入加中斷（按鍵）都由 Device Tree 描述、descriptor API 取得。Phase 3 換到 I2C：Step 6 先不寫 driver，用 userspace 工具確認 INA219 電流感測器接在 pin 3/5 的 <code>i2c-7</code> 上、讀得到暫存器，再進 kernel。</p>
+      <details class="quiz"><summary>1. 為什麼 IRQ handler 裡不能直接呼叫 <code>gpiod_get_value_cansleep()</code> 讀電位？</summary><p>handler 在 hard IRQ context 執行，不能睡；<code>_cansleep</code> 版本可能會睡（例如 GPIO 在 I2C 擴充晶片上時要等匯流排）。所以 handler 只排 work，在 work 裡讀。靜態測試會檢查 handler 的本體裡沒有這類呼叫。</p></details>
+      <details class="quiz"><summary>2. 一次按壓彈跳了 5 個邊緣，為什麼只有一筆 pressed？</summary><p>每個邊緣都用 <code>mod_delayed_work()</code> 把 work 的期限推到「現在 + 20 ms」，所以 work 只在最後一個邊緣之後安靜 20 ms 時執行一次；它讀到 1，和上次的 0 不同，才產生一筆事件。</p></details>
+      <details class="quiz"><summary>3. reader 睡在 <code>read()</code> 裡時執行 <code>rmmod edge_button</code>，會發生什麼？怎麼讓 reader 離開？</summary><p>rmmod 失敗（module 使用中）：開著的檔案透過 <code>.owner = THIS_MODULE</code> 持有 module 的參考。送 signal（Ctrl-C、<code>kill</code>）給 reader，<code>wait_event_interruptible()</code> 返回非 0，<code>read()</code> 回 <code>EINTR</code>，程式關檔之後 rmmod 才會成功。</p></details>
+      <details class="quiz"><summary>4. 把上拉電阻從 330 Ω 換成 10 kΩ，第一次按下和放開會看到什麼？</summary><p>（推算，沒有實測。）按下時 pin 被直接接地，TXB 翻成低；放開時 10 kΩ 和 TXB 約 4 kΩ 的 buffer 分壓只有約 0.94 V，低於 2.15 V 的門檻，TXB 繼續保持低電位，所以收不到 released，之後也不會再有事件。如果開機時 TXB 就停在低電位，連第一個 pressed 都不會有。驗收腳本的「按一下」會因為少了 released 而 FAIL。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><span class="disabled">Step 6 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+// Pull-up calculator (section 5b.3): the same 4 kOhm divider model as the table.
+(function () {
+  var r = document.getElementById('calcR');
+  if (!r) return;
+  var TH = 2.145, MAXV = 3.3;
+  function ohms(v) { return 100 * Math.pow(1000, v / 1000); }       // 100 Ohm .. 100 kOhm, log scale
+  function fmt(o) { return o >= 1000 ? (o / 1000).toFixed(o >= 10000 ? 0 : 1) + ' kΩ' : Math.round(o) + ' Ω'; }
+  function update() {
+    var o = ohms(+r.value), v = MAXV * 4000 / (4000 + o), ok = v > TH;
+    document.getElementById('calcRv').textContent = fmt(o);
+    document.getElementById('calcV').textContent = v.toFixed(2) + ' V';
+    var verdict = document.getElementById('calcVerdict');
+    verdict.textContent = ok ? '翻回 1' : '卡在 0';
+    verdict.className = 'verdict ' + (ok ? 'ok' : 'bad');
+    document.getElementById('calcBar').style.width = (v / MAXV * 100) + '%';
+  }
+  document.getElementById('calcTh').style.left = (TH / MAXV * 100) + '%';
+  r.addEventListener('input', update);
+  update();
+})();
+</script>
+</body>
+</html>

@@ -243,11 +243,57 @@ userspace command
 LED ON/OFF
 ```
 
-### Step 5 — GPIO IRQ + blocking read
+### Step 5-a — userspace GPIO input + edge event（C++ GPIO v2 uAPI）
 
 **目標**
 
-讓實體 button event 從硬體一路喚醒 userspace。
+不寫 kernel driver，用 GPIO character device 的 edge event 在 userspace 等按鍵：`read()` 一樣會睡、一樣有 debounce。和 5-b 對照：5-b 親手寫的 IRQ handler、佇列、wait queue，這裡由 kernel 的 `gpiolib-cdev` 代勞。
+
+**實作範圍**
+
+- C++ 程式直接用 GPIO v2 uAPI（不依賴 libgpiod）：請求 gpiochip0 line 43（pin 33）為 input，`GPIO_V2_LINE_FLAG_EDGE_RISING | GPIO_V2_LINE_FLAG_EDGE_FALLING`，`GPIO_V2_LINE_ATTR_ID_DEBOUNCE` 設 debounce
+- 對 line request fd 做 blocking `read()`，拿到 `struct gpio_v2_line_event`（`timestamp_ns`、`id`、`seqno`）
+- 驗收腳本與測試
+
+<!-- STEP_DETAIL_START -->
+### 這一步到底要做什麼
+
+拆分紀錄：原 Step 5 先做成 kernel 版（現在的 5-b），驗收後使用者指出這件事完全可以在 userspace 做，kernel 版是為了教學。所以補這一步當對照，學習順序上排在 5-b 前面（和 4-a / 4-b 同一個形狀：先 userspace、再 kernel）。
+
+誰和誰互動：
+
+```text
+userspace 程式 ── ioctl(GPIO_V2_GET_LINE_IOCTL) ──▶ gpiolib-cdev
+     ▲                                                │ IRQ handler、kfifo、wait queue（kernel 內建）
+     └──────── read(line fd) 回 gpio_v2_line_event ◀──┘
+                                                      │
+                     GPIO controller（line 43 = PH.00）◀─ TXB0108 ◀─ pin 33 ◀─ 按鍵 / 330 Ω 上拉
+```
+
+- 硬體與接線沿用 5-b（pin 33 → 按鍵 → pin 34，330 Ω 上拉到 pin 1）
+- 先確認：沒有 `edge_button` driver probe（pinctrl 狀態沒被套用）時，pin 33 的開機預設 pad 能不能讀到按鍵；不能的話要記錄並決定怎麼設 pad
+
+### 這一步不做
+
+- 不寫 kernel driver、不改 Device Tree
+- 不做 `poll()`（Phase 8）
+<!-- STEP_DETAIL_END -->
+
+**驗收條件**
+
+```text
+按下 button
+  ↓
+gpiolib-cdev（kernel 內建）
+  ↓
+blocked userspace read(line fd) returns gpio_v2_line_event
+```
+
+### Step 5-b — GPIO IRQ + blocking read（kernel driver）
+
+**目標**
+
+讓實體 button event 從硬體一路喚醒 userspace，IRQ handler、debounce、wait queue 由我們的 driver 親手實作。
 
 **實作範圍**
 
@@ -297,6 +343,30 @@ read(fd, &event, sizeof(event));
 - IRQ handler 不能做會 sleep 的重工作
 - event lost / repeated event 的行為要定義
 - driver unload 時要喚醒或安全終止等待者
+
+### 實作決策（Step 5-b 落地時裁決）
+
+- 接線：header pin 33（GPIO13，PH.00，gpiochip0 line 43，DT cell 56）→ 按鍵 → pin 34（GND），兩支 pin 左右相鄰，按鍵直接跨上去（原本選 pin 31 只因它和 LED 的 PQ.05 同一個 port，但實體上和 34 是斜對角）。DT 用 `GPIO_ACTIVE_LOW`，邏輯 1 = 按下；pad 的 pinctrl 狀態設 tristate（pad 不輸出，按下時不會短路）、enable-input。上拉要外接 330 Ω～1 kΩ 到 3.3 V（pin 1）：pin 33 在載板上經 TXB0108，SoC 內部上拉拉不到 header 這側（實測恆為 0）；TXB 的 ~4 kΩ buffer 會保持上一次的電位，上拉要遠小於 4 kΩ 才拉得回高電位，51 kΩ／10 kΩ 都不行。這和規格書「上拉 > 50 kΩ」相反，那條規定是保護 pin 當輸出時的電位，按鍵 pin 只當輸入。
+- 獨立 module `kernel/edge_button`（compatible `edge,gpio-button`，`/dev/edge_button`），不改 Step 4 的 `edge_gpio`；DT 節點加在同一份 overlay 的 `fragment@2/3`，沿用同一支 installer。
+- IRQ：`devm_request_irq()` 雙邊緣觸發，hard IRQ handler 只計數並 `mod_delayed_work()`（不讀 GPIO、不睡）；debounce 用 gpio-keys 的做法：最後一個邊緣後 20 ms 才在 work 裡讀電位，狀態有變才產生事件。debounce 本身就要延遲，所以用 delayed work 取代 threaded IRQ。
+- 事件格式 `include/edge_button.h`：`u64 timestamp_ns`、`u32 seq`、`u32 pressed`，16 bytes；`read()` 一次回一筆，buffer 小於 16 回 `EINVAL`，`O_NONBLOCK` 沒事件回 `EAGAIN`。
+- 事件語意：按一下 = pressed + released 兩筆；長按不重複；佇列 16 筆，滿了丟新事件並累加 `dropped`，`seq` 照算，所以 seq 跳號 = 遺失。只允許一個 reader（第二個 open 回 `EBUSY`），open 時清空佇列，關著時不排事件。
+- unload：檔案開著時 `.owner` 讓 rmmod 被拒，所以 remove 時不可能有等待者；等待者靠 signal 離開（`wait_event_interruptible`）。`suppress_bind_attrs` 擋掉 sysfs unbind。
+- sysfs 計數器 `irq_count`（原始邊緣數，含彈跳）、`event_count`、`dropped`，掛在 platform device 上，驗收時用來看彈跳被合併了多少。
+
+### 預期檔案
+
+```text
+include/edge_button.h                 （事件格式，kernel / userspace 共用）
+kernel/edge_button/
+├── edge_button.c
+└── Makefile
+dts/edge-gpio-overlay.dts             （加 edge-button 節點與 pin 33 的 pad 狀態）
+apps/edge_button_wait.cpp             （C++：blocking read 印出 N 筆事件）
+scripts/verify_edge_button.sh         （驗收：有 / 沒有 DT node；按一下、長按、快速連按要人按）
+tests/test_edge_button_static.py
+tests/test_edge_button_device.py
+```
 
 ### 驗證
 

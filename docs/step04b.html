@@ -139,7 +139,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04a.html">← Step 4-a</a><span class="disabled">Step 5 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04a.html">← Step 4-a</a><a href="step05b.html">Step 5-b →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 4-b · platform driver + Device Tree</div>
     <h1>讓 Device Tree 描述 LED，driver 去找它</h1>
@@ -160,7 +160,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <h2>硬體描述不該寫死在程式裡</h2>
       <p>4-a 的 <code>edge_gpio_blink</code> 把「<code>gpiochip0</code> 的 line 105」寫死在 C++ 裡，pad 要另外用 root 跑 <code>pad_pin29.py</code> 打開。換一塊板子、LED 改接別根腳、改成反向接法，就得改程式、重新編譯，而 pad 的設定 kernel 完全不知道。</p>
       <p>Linux 在 ARM 板子上的做法是把「板子上有什麼、接在哪裡」寫成 <b>Device Tree</b>，driver 只說「我認得哪一種裝置」。開機時 kernel 讀 Device Tree，為每個節點建立一個 device；platform bus 拿 device 的 <code>compatible</code> 去比對已註冊 driver 的清單，對上了就呼叫那個 driver 的 <code>probe()</code>。driver 在 <code>probe()</code> 裡向 kernel 要「這個 device 的 led GPIO」，拿到的已經是 DT 裡寫好的那根腳和極性。</p>
-      <p><b>互動雙方</b>：controller 是 Jetson 上的 kernel driver <code>edge_gpio.ko</code>，target 是 GPIO controller 與 pin 29 的 pad，最後是麵包板上的 LED。userspace 只看到 <code>/dev/edge_gpio</code>：寫 <code>1</code> 亮、寫 <code>0</code> 暗。<b>這一步不做</b>：IRQ、按鈕（Step 5）。</p>
+      <p><b>互動雙方</b>：controller 是 Jetson 上的 kernel driver <code>edge_gpio.ko</code>，target 是 GPIO controller 與 pin 29 的 pad，最後是麵包板上的 LED。userspace 只看到 <code>/dev/edge_gpio</code>：寫 <code>1</code> 亮、寫 <code>0</code> 暗。<b>這一步不做</b>：IRQ、按鈕（Step 5-a、5-b）。</p>
       <dl class="terms">
         <dt>Device Tree</dt><dd>描述硬體的一棵樹，編譯成二進位的 <code>.dtb</code>，開機時交給 kernel。每個節點描述一個裝置：它是什麼（<code>compatible</code>）、用到哪些資源（暫存器、GPIO、中斷）。</dd>
         <dt>overlay</dt><dd>疊在原廠 <code>.dtb</code> 上的補丁（<code>.dtbo</code>）。不改原廠檔案，開機時由 bootloader 合併；kernel 看到的是合併後的樹，在 <code>/proc/device-tree</code> 可以查看。</dd>
@@ -233,7 +233,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <tbody>
           <tr><td><code>.dts</code></td><td>人寫的文字原始檔（device tree source）</td><td><code>dts/edge-gpio-overlay.dts</code>，就是下面節錄的那份</td></tr>
           <tr><td><code>.dtb</code></td><td>編譯好的<b>完整</b>樹（device tree blob），二進位</td><td>原廠的 <code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code>（249353 bytes），extlinux.conf 的 <code>FDT</code> 行指定用它</td></tr>
-          <tr><td><code>.dtbo</code></td><td>編譯好的<b>補丁</b>（overlay），二進位</td><td><code>dts/edge-gpio-overlay.dtbo</code>（999 bytes），安裝時複製到 <code>/boot</code>，寫進同一個 label 的 <code>OVERLAYS</code> 行</td></tr>
+          <tr><td><code>.dtbo</code></td><td>編譯好的<b>補丁</b>（overlay），二進位</td><td><code>dts/edge-gpio-overlay.dtbo</code>（999 bytes；Step 5-b 加入按鍵節點後是 1589 bytes），安裝時複製到 <code>/boot</code>，寫進同一個 label 的 <code>OVERLAYS</code> 行</td></tr>
         </tbody>
       </table>
       <figure class="figure">
@@ -315,7 +315,7 @@ $(OUT)/edge-gpio-overlay-active-low.dtbo: edge-gpio-overlay.dts
         <thead><tr><th>節點</th><th>內容</th><th>在這份 overlay 裡</th></tr></thead>
         <tbody>
           <tr><td><code>fragment@N / __overlay__</code></td><td>要疊到哪裡（<code>target</code> 或 <code>target-path</code>），以及疊什麼</td><td>@0 疊到 <code>/</code>，@1 疊到 <code>&amp;pinmux</code></td></tr>
-          <tr><td><code>__symbols__</code></td><td>這份檔案定義的標籤（<code>-@</code> 產生）</td><td><code>edge_led_pins</code></td></tr>
+          <tr><td><code>__symbols__</code></td><td>這份檔案定義的標籤（<code>-@</code> 產生）</td><td><code>edge_led_pins</code>（Step 5-b 起還有 <code>edge_button_pins</code>）</td></tr>
           <tr><td><code>__fixups__</code></td><td>引用了<b>外部</b>（原廠樹）的標籤：哪個屬性的哪一格要換成誰的 phandle</td><td><code>gpio</code>、<code>pinmux</code></td></tr>
           <tr><td><code>__local_fixups__</code></td><td>引用了<b>自己</b>的標籤：合併時 phandle 會整體重新編號，這些位置要跟著改</td><td><code>edge-led</code> 的 <code>pinctrl-0</code>（編譯時是 <code>0x01</code>，這次開機合併後讀到 <code>0x384</code>）</td></tr>
         </tbody>
@@ -382,8 +382,8 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -A3 '__fixups__'</pre>
 				pinctrl-names = "default";
 				pinctrl-0 = &lt;0x01&gt;; «2»
 	__fixups__ {
-		gpio = "/fragment@0/__overlay__/edge-led:led-gpios:0"; «3»
-		pinmux = "/fragment@1:target:0";
+		gpio = "/fragment@0/__overlay__/edge-led:led-gpios:0\0/fragment@2/__overlay__/edge-button:button-gpios:0"; «3»
+		pinmux = "/fragment@1:target:0\0/fragment@3:target:0";
 	};</pre>
       <p>（<code>make -C dts</code> 自己的輸出這裡省略。）開機、overlay 合併之後，再看 kernel 實際拿到的值：</p>
 <pre class="cmd">od -An -tx1 /proc/device-tree/edge-led/led-gpios
@@ -395,7 +395,7 @@ od -An -tx1 /proc/device-tree/bus@0/gpio@2200000/phandle</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>第一格還是 <code>0xffffffff</code>（佔位），第二格 <code>0x7d</code> = 125，第三格 0 = active-high。</span></li>
         <li><span class="mk">2</span><span>指向同一份 overlay 裡的 <code>edge-led-pins</code>，編譯時就能決定（合併時會整體重新編號）。</span></li>
-        <li><span class="mk">3</span><span>dtc 在這裡記下「<code>edge-led</code> 的 <code>led-gpios</code> 第 0 格要換成 <code>gpio</code> 這個符號的 phandle」。原廠 DT 的 <code>__symbols__</code> 裡有 <code>gpio</code>。</span></li>
+        <li><span class="mk">3</span><span>dtc 在這裡記下「<code>edge-led</code> 的 <code>led-gpios</code> 第 0 格要換成 <code>gpio</code> 這個符號的 phandle」。原廠 DT 的 <code>__symbols__</code> 裡有 <code>gpio</code>。同一個符號被引用幾次就有幾項，用 <code>\0</code> 隔開：<code>\0</code> 後面那項是 <a href="step05b.html">Step 5-b</a> 在同一份 overlay 加的按鍵節點（Step 4-b 當時只有第一項）。</span></li>
         <li><span class="mk">4</span><span>合併後佔位變成 <code>0xf3</code>，正好是 <code>gpio@2200000</code> 的 phandle。phandle 的數值每個原廠 DT 版本都可能不同，你看到的不一定是 <code>f3</code>，但前後兩行應該相同。</span></li>
       </ol>
     </div>
@@ -725,7 +725,7 @@ PASS dmesg shows 3 probe / 3 remove «8»
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04a.html">← Step 4-a</a><span class="disabled">Step 5 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04a.html">← Step 4-a</a><a href="step05b.html">Step 5-b →</a></nav>
 </main>
 
 <script>
