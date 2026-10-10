@@ -65,10 +65,44 @@
 - 原本以為 `gpioinfo` 和 `/sys/kernel/debug/gpio` 顯示 output `hi`，就代表腳位有 3.3 V；它們讀的是 GPIO controller 的 output 暫存器。JP6 開機時 pin 29 的 pad（`soc_gpio32_pq5`）是 `tristate=1`，暫存器是 1，腳位卻沒有輸出。用 `gpioset`（完全不經過我們的 code）對照也一樣不亮，才確定問題在 pad。驗收若只看軟體層會全部 PASS，必須人眼看 LED，並檢查 pinconf。
 - 原本以為 header pin 的 GPIO 像 JP5 教學那樣開機就能用；JP6 要靠 pinmux（jetson-io、DT overlay 或 devmem）先把 pad 打開。網路上的 Python 範例「直接能用」，多半是 JP5 時代寫的，或作者先跑過 jetson-io（它產生的就是 pinmux overlay）。
 - pinmux 暫存器位址 `0x02430068` 不是從 TRM 查來的，而是先只讀、比對低位元組 `0x58` 拆成 pull=up / tristate / input，和 debugfs 完全一致後才寫入。`pad_pin29.py` 把這個保護寫死：低位元組不是 `0x58` 或 `0x00` 就拒寫。
-- 原本以為暫存器 bit 10 意義不明，所以保留不動；這次實測顯示 bit 10 為 1 時 pinconf 都是 `gpio-mode=1`，而開機後、任何程式請求 line 之前量到的是 `gpio-mode=0`。推論 bit 10 是 GPIO/SFIO 選擇，在 line 第一次被請求時由 GPIO 這一側設定（實測推論，未對照 TRM）。
+- 原本以為暫存器 bit 10 意義不明，所以保留不動；這次實測顯示 bit 10 為 1 時 pinconf 都是 `gpio-mode=1`，而開機後、任何程式請求 line 之前量到的是 `gpio-mode=0`。推論 bit 10 是 GPIO/SFIO 選擇，在 line 第一次被請求時由 GPIO 這一側設定（實測推論，未對照 TRM）。**（更正：Step 4-b 實測推翻了「請求時設定」，見 Step 4-b 踩坑。）**
 - 原本以為 `gpioset --mode=time` 結束後 LED 會熄；Tegra 的 GPIO driver 釋放 line 時不會把輸出改回 0，pad 開著時 LED 會一直亮。程式（以及 4-b 的 driver）都要在釋放前自己寫 0。
-- 原本以為 debugfs `pinconf-groups` 一個 group 一行；實際是 group 名稱一行，每個設定各一行。第一版用 `grep` 只抓到名稱那行，造成兩個假 FAIL；改用 awk 收到下一個 group 為止。4-b 的 `verify_edge_gpio.sh` 有同樣的寫法，回到 4-b 時要一起改。
+- 原本以為 debugfs `pinconf-groups` 一個 group 一行；實際是 group 名稱一行，每個設定各一行。第一版用 `grep` 只抓到名稱那行，造成兩個假 FAIL；改用 awk 收到下一個 group 為止。4-b 的 `verify_edge_gpio.sh` 有同樣的寫法，回到 4-b 時要一起改。**（結案：4-b 已改。）**
 - 原本以為「低位元組 `0x00`」就足以認定 pad 已開啟；code review 指出很多不相干的位址讀出來就是全 0，位址一旦錯了，`close` 會把 `0x58` 寫進不認識的暫存器。現在「已開啟」要求低位元組 `0x00` 且 bit 10 為 1（實測值 `0x400`），全 0 一律拒寫。代價：剛開機還沒人請求過 line 時 `open` 會得到 `0x000`，之後要先跑過一次 GPIO 程式，`close` 才會被接受。
 - 原本以為程式迴圈最後一次寫 0 就保證 LED 熄滅；code review 指出兩個漏洞：寫入的 ioctl 沒檢查回傳值（全失敗也回 0），以及 Ctrl-C / `kill` 落在亮燈時會直接結束，留下亮著的 LED（正是上一條 Tegra 不歸零的坑）。現在每次寫入都檢查，SIGINT / SIGTERM 只設旗標，迴圈結束後一律寫 0 再釋放。4-b 的 driver 在 `remove()` 也要注意同一件事。
-- 原本以為驗收腳本把 unittest 輸出寫到 `/tmp/<name>.$$` 沒問題；但重新導向是 root 的 shell 做的，檔名可猜，別的使用者可以預先放 symlink（Ubuntu 預設的 `fs.protected_symlinks` 會擋下大部分情況）。本步的腳本改用 `mktemp`；Step 2/3 的 `verify_edge_test.sh` 和 4-b 的 `verify_edge_gpio.sh` 有同樣寫法，排進 4-b 一起修。
+- 原本以為驗收腳本把 unittest 輸出寫到 `/tmp/<name>.$$` 沒問題；但重新導向是 root 的 shell 做的，檔名可猜，別的使用者可以預先放 symlink（Ubuntu 預設的 `fs.protected_symlinks` 會擋下大部分情況）。本步的腳本改用 `mktemp`；Step 2/3 的 `verify_edge_test.sh` 和 4-b 的 `verify_edge_gpio.sh` 有同樣寫法，排進 4-b 一起修。**（結案：4-b 已改。）**
 - 板子上原裝的 Jetson.GPIO 一 import 就 `Could not determine Jetson model`（不認得 Super 型號），改用 `python3-libgpiod` 做 Python 對照實驗；入庫的 C++ 版直接用 kernel 的 GPIO v2 uAPI，不依賴 libgpiod。
+
+## Step 4-b：GPIO output + Device Tree（kernel driver `edge_gpio`）
+
+- 驗收主機：同前。接線同 4-a（pin 29 → 330 Ω → 紅色 LED → pin 30，active-high）。overlay 以 `scripts/install_edge_gpio_overlay.py` 加進 extlinux.conf 的 DEFAULT label（`JetsonIO`）的 `OVERLAYS`，接在原有 IMX219 overlay 後面；開機後 `/proc/device-tree/edge-led` 有 `compatible`、`led-gpios`（phandle、`0x7d`、flags `0`）、`pinctrl-0`、`pinctrl-names = "default"`，`pinmux@2430000` 底下多了 `edge-led-pins/pin29`。
+- 對照方法：`sudo bash scripts/verify_edge_gpio.sh --blink 3`。實測（2026-10-10）`=== 0 failure(s)`：
+  - 開機後、insmod 前：`pad_pin29.py show` 讀到 `0x00000058`（tristate；bit 10 為 0）。
+  - insmod 後 pinconf `pull=0 tristate=0 enable-input=0 … gpio-mode=0`：pad 由 DT 的 pinctrl "default" 狀態在 probe 前打開，沒有用 devmem。
+  - driver 綁定期間 4-a 的 `edge_gpio_blink` 得到 `request line 105: Device or resource busy`、結束碼 1。
+  - 3 輪 × 每輪：bound、`/dev/edge_gpio` 出現、`gpioinfo` 顯示 `"led" output active-high`、初始 0 / `lo`、寫 1 → `hi`、寫 0 → `lo`、device unittest 6 個案例、開著檔案時 rmmod 被拒、寫 1 後 rmmod、節點消失、line 釋放。dmesg 3 probe / 3 remove，無 Oops。
+  - **LED（人眼）**：第 1 輪 5 次慢閃可見，其餘步驟是快閃。
+  - rmmod 後 pinconf 仍是 `tristate=0`（`gpio-mode=1`）：pinctrl 狀態不會在 unbind 時還原。
+- 沒有 DT node 的對照（overlay 安裝前，同一支腳本自動切換模式）：insmod 後 driver 註冊在 platform bus、沒有任何 device 綁定、`/dev/edge_gpio` 不存在、line 105 未被動到，10 項 PASS。
+- 第一版 overlay（沒有 pinctrl 狀態）的實測：33 項 PASS、只有「pad tristated」FAIL，LED 不亮；這就是拆出 4-a 的原因。
+- 自動測試：`tests/test_edge_gpio_static.py` 14 個案例（cpp 出錯時 make 失敗且不留 dtbo；overlay 用 cpp + dtc 實際編譯後反組譯檢查：binding header 的 port Q = 15、兩種極性都編得出來、板型 compatible、節點 compatible、`led-gpios` cell 125 與 flags 0/1、`&gpio` / `&pinmux` 留成 fixup、pinctrl-0 指到設定 `soc_gpio32_pq5` tristate=0 / input=0 的狀態節點、pad 名稱和 NVIDIA 自家 hdr40 overlay 的 pin 29 一致；driver 端 of_match 與 overlay 一致、`devm_gpiod_get(dev, "led", GPIOD_OUT_LOW)`、沒有舊式整數 GPIO API、`suppress_bind_attrs`）；`tests/test_install_overlay.py` 12 個案例（假的 extlinux.conf；含空的 OVERLAYS 行、值有空白時拒改、remove 清掉每個 label、寫入後權限不變不留暫存檔）；`tests/test_edge_gpio_device.py` 6 個案例（裝置不存在時 skip，`EDGE_GPIO_REQUIRE=1` 時 fail）。沒有 module 時全套 `OK (skipped=22)`。
+- 紅燈紀錄：靜態與 installer 測試在實作前全紅（11/11、8/8）；pinctrl 的 2 個靜態測試在加 `fragment@1` 前紅；device 測試在 overlay 開機、insmod 前以 `EDGE_GPIO_REQUIRE=1` 跑出 6 個 failure。變異測試：overlay 的 compatible 改錯、port 改成 P、tristate 改回 enable、pad 名稱寫錯、拿掉 `pinctrl-0`，各自都讓測試失敗。
+- **只靠人眼**：rmmod 後腳位是否為 low（`remove()` 寫 0）。line 釋放後 debugfs 不再列出它，重新請求又會改到輸出值，自動化驗不到；刪掉 `remove()` 那一行，腳本照樣 PASS。驗收腳本最後會提示看 LED 是否熄滅；review 修正後重跑（2026-10-10）：慢閃 5 下、約 1 秒快閃後 LED 熄滅（人眼確認）。
+- **未實測**：active-low。active-low dtbo 的 flags cell = 1 有靜態測試，driver 只用邏輯值 API（`gpiod_set_value_cansleep`、`GPIOD_OUT_LOW`），驗收腳本會從 DT 讀極性自動改預期；但沒有改接線（3.3 V → 電阻 → LED → pin 29）實機驗證。
+- 規模：新增約 1090 行（其中測試約 450 行、腳本約 400 行，含 Step 2 腳本的修正），超過約 800 行的上限，而且沒有在實作前處理：4-b 的 kernel code 在決定拆分**之前**就已經寫好，拆分時只估了 4-a，沒有重估 4-b。
+
+### 踩坑
+
+- 原本以為 driver 的 probe、`gpioinfo`、debugfs 都正常，LED 就會亮；JP6 開機時 pad 是 tristate（4-a 已詳述）。正解是讓 DT 節點帶 `pinctrl-names = "default"` + `pinctrl-0`，指向 pinmux 底下的狀態節點；driver core 在 `probe()` 之前就套用它，driver 的 C code 不用改。
+- 原本以為（4-a 的推論）pad 暫存器的 bit 10 在 line 被請求時就會設成 1；實測 kernel driver 持有 line、LED 正常閃爍時 pinconf 顯示 `gpio-mode=0`，rmmod 之後才變成 `gpio-mode=1`。所以 bit 10 不是 GPIO 輸出的必要條件，設定的時機與來源不明（未查 TRM）。4-a 的章、baseline 與 `pad_pin29.py` 的註解已改成只寫實測事實。
+- 原本以為 rmmod 後 pad 會回到開機的 tristate；pinctrl 的 "default" 狀態在 driver unbind 後不會被還原，腳位仍由輸出暫存器驅動。這也是 `remove()` 一定要寫 0 的原因（Tegra 釋放 line 時不歸零）。
+- 原本以為只能在開機後動態載入 overlay；這台 kernel 有 `CONFIG_OF_OVERLAY=y` 但沒有 `CONFIG_OF_CONFIGFS`，只能寫進 extlinux.conf 的 `OVERLAYS` 由 UEFI 在開機時合併，所以每改一次 overlay 都要重開機。重新執行 jetson-io 會重寫 `JetsonIO` label，可能洗掉我們加的 overlay。
+- 原本以為 overlay 可以直接用 dtc 編；`TEGRA234_MAIN_GPIO(Q, 5)` 這類巨集來自 kernel 的 binding header，要先過 C 前處理器（`#include`、`#define`）再交給 dtc。`dts/Makefile` 的 `DTC_CPP` 照 kernel 的做法加了 `-nostdinc -undef -x assembler-with-cpp`，`-undef` 避免 gcc 預先定義的 `linux` 等巨集把 `linux,code` 這類屬性名稱展開掉（照慣例預防，這次沒有實際踩到）。
+- DT 和 userspace 的 GPIO 編號不同：DT binding 是 `port × 8 + pin`（PQ.05 = 125），`gpiochip0` 的 line 是依實際腳數累加（105）。
+- 寫 0 個 byte（`write(fd, b"", 0)`）也會進到 driver 的 `write()`；`kstrtouint_from_user` 對空字串回 `EINVAL`，device 測試守著這件事。
+- 原本以為拆分時只要估新拆出來的那一半；4-b 的程式在拆分前就寫好了，沒有重估，結果超過上限（code review 指出）。教訓：拆分時兩邊都要重估行數，測試和驗收腳本也要算進去（這一步佔了將近一半）；已經寫好的部分也算。
+- 原本以為 installer 只要處理 jetson-io 寫出來的那種 OVERLAYS 行；code review 找出四個會弄壞開機設定的情況：空的 `OVERLAYS` 行時 regex 的 `\s+` 吃掉換行、把 dtbo 黏到下一行；值裡有空白時對不上、在同一個 label 再加一行；直接覆寫檔案，寫到一半斷電就截斷；remove 只看 DEFAULT 卻無條件刪 dtbo。現在空白只比對 `[ \t]`、看不懂就拒改、remove 清每個 label 且最後才刪檔、寫入走暫存檔 + fsync + rename。先拿板子上真正的 extlinux.conf 複本做過 install / remove / install，結果和現用檔逐位元組相同。
+- 原本以為 `cpp | dtc` 出錯時 make 一定會失敗；pipe 的結束碼只看 dtc，而 cpp 遇到 `#error` 回 1 卻照樣輸出全部內容，dtc 就會編出一個 dtbo。`dts/Makefile` 加了 `pipefail` 與 `.DELETE_ON_ERROR`，測試在 dts 副本加一行 `#error` 守著。（缺 header 這種錯，cpp 會中止、dtc 也會跟著失敗，所以原本的寫法剛好沒出事。）
+- 原本以為驗收腳本開頭的「已經載入就 die」不會動到使用者的東西；但它寫在 `trap cleanup EXIT` 之後，die 時 cleanup 會把使用者自己載入的 module rmmod 掉（從 Step 2 的 `verify_edge_test.sh` 照抄來的，兩支都已改成先檢查再裝 trap）。
+- 原本以為「driver 載入期間 userspace 拿到 busy」用 `$SUDO_USER` 去測最貼近實際；但該使用者不在 `gpio` 群組時會先拿到 `EACCES`，被誤判成 driver 的問題。這一步改用 root 執行（只跑已建好的程式，不會在 `build/` 留 root 的檔案）。
+- 4-a 驗收腳本的兩個坑在這裡同樣存在並已修正：pinconf 的多行格式、root 寫入可猜的 `/tmp/<name>.$$`（`verify_edge_test.sh` 一併改成 `mktemp`）。改 `verify_edge_test.sh` 讓行號下移，step02 / step03 章的行號引用與節錄同步更新。

@@ -12,3 +12,6 @@ kernel/**/Module.symvers
 
 # CMake build tree
 build/
+
+# Device Tree overlay build products (make -C dts)
+dts/*.dtbo

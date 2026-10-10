@@ -13,8 +13,8 @@ its low byte 0x58 decodes to exactly what debugfs pinconf reports for
 soc_gpio32_pq5 (pull=up, tristate=1, enable-input=1, function=rsvd0).
 
 open/close only write when the register looks like this pad: low byte 0x58
-(boot value), or low byte 0x00 with bit 10 set (opened after a GPIO request;
-measured 0x400). An all-zero register is refused, because that is what many
+(boot value), or low byte 0x00 with bit 10 set (measured 0x400 once a GPIO
+program has used the line). An all-zero register is refused, because that is what many
 unrelated addresses read. Anything else means a wrong address or another
 function, and the register is left alone. Bits outside the three fields are
 always kept.
@@ -42,7 +42,7 @@ TRISTATE = 0x10
 INPUT = 0x40
 FIELDS = PULL_MASK | TRISTATE | INPUT
 BOOT_BITS = (2 << PULL_SHIFT) | TRISTATE | INPUT  # 0x58: pull-up, tristate, input on
-GPIO_MODE = 0x400         # bit 10: reads 1 once a GPIO request has claimed the pad (measured, not from the TRM)
+GPIO_MODE = 0x400         # bit 10: 0 at boot, 1 after a GPIO line was used and released (measured; meaning not from the TRM)
 PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}
 
 

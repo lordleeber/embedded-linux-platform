@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Step 4: describe one LED on the 40-pin header so edge_gpio.ko can probe.
+ *
+ *   header pin 29 (GPIO01, SoC pad PQ.05) --[330R..1k]-->|-- pin 30 (GND)
+ *
+ * JP6 boots this pad tristated, so the node also carries a "default" pinctrl
+ * state that turns the output buffer on; the platform core applies it right
+ * before edge_gpio's probe().
+ *
+ * Built with cpp + dtc by dts/Makefile; -DEDGE_LED_ACTIVE_LOW builds the
+ * variant for an LED wired from 3.3 V into the pin (lit when the pin is low).
+ */
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/gpio/tegra234-gpio.h>
+#include <dt-bindings/pinctrl/pinctrl-tegra.h>
+
+#ifdef EDGE_LED_ACTIVE_LOW
+#define EDGE_LED_FLAGS GPIO_ACTIVE_LOW
+#else
+#define EDGE_LED_FLAGS GPIO_ACTIVE_HIGH
+#endif
+
+/ {
+	overlay-name = "edge_gpio LED on pin 29";
+	compatible = "nvidia,p3768-0000+p3767-0005-super", "nvidia,p3768-0000+p3767-0005";
+
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			edge-led {
+				compatible = "edge,gpio-led";
+				led-gpios = <&gpio TEGRA234_MAIN_GPIO(Q, 5) EDGE_LED_FLAGS>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&edge_led_pins>;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&pinmux>;
+		__overlay__ {
+			edge_led_pins: edge-led-pins {
+				pin29 {
+					nvidia,pins = "soc_gpio32_pq5";
+					nvidia,pull = <TEGRA_PIN_PULL_NONE>;
+					nvidia,tristate = <TEGRA_PIN_DISABLE>;
+					nvidia,enable-input = <TEGRA_PIN_DISABLE>;
+				};
+			};
+		};
+	};
+};

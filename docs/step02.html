@@ -630,7 +630,7 @@ PASS dmesg shows 3 load / 3 unload messages
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:39</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
+          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:42</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
           <tr><td>先 <code>mknod /dev/edge_test</code></td><td>不用；<code>device_create()</code> 讓 devtmpfs 自動建立節點。</td></tr>
           <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 26–31 行）在任何結束路徑都會卸載。</td></tr>
           <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 61–62、129 行），並自動比對 load/unload 次數。</td></tr>
