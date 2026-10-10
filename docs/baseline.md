@@ -55,9 +55,10 @@
   - pad 關閉（`0x458`）：pinconf `pull=2 tristate=1 enable-input=1`；`edge_gpio_blink` 執行中 debugfs 讀到 `hi` → `lo`；**LED 不亮（人眼）**。
   - pad 開啟（`0x400`）：pinconf `pull=0 tristate=0 enable-input=0`；debugfs `hi` → `lo`；**LED 閃爍（人眼，取樣 5 次 + 兩個實機測試各 5 次，約 15 次）**；line 105 結束後 `unused`；pad 還原成開始時的值。
   - 時序容差：程式固定 500 ms on / 500 ms off；腳本在看到 consumer 後 0.2 s 取 `hi`、再 0.5 s 取 `lo`，兩點各離切換點至少 200 ms。
-- 自動測試：`tests/test_pad_pin29.py` 7 個案例（假的 `/dev/mem` 稀疏檔：解碼、open/close、保留其他 bit、低位元組不符時拒寫、用法錯誤）；`tests/test_edge_gpio_blink.py` 2 個實機案例（`EDGE_GPIO_HW=1` 才跑：閃完釋放 line；執行中 `gpioinfo` 顯示 `"edge_gpio_blink"` output，第二個程式拿到 busy、結束碼 1）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=15)`。
-- 紅燈紀錄：兩支測試在程式不存在時都紅過（pad 腳本 9 個 failure，blink 測試在 CMake 找不到 target 時 error）。變異測試：output 改 input、改 consumer 名稱、改錯誤訊息、拿掉低位元組檢查、漏清 pull、整個暫存器清 0，各自都讓測試失敗。
-- 尚未涵蓋：程式結束時 pin 是否為 low，自動化看不到（line 釋放後 debugfs 不再列出），只靠人眼看到 LED 最後熄滅。精簡版沒有參數，chip 不存在 / line 超出範圍的錯誤路徑沒有測試。
+- 自動測試：`tests/test_pad_pin29.py` 8 個案例（假的 `/dev/mem` 稀疏檔：解碼、open/close、保留其他 bit、剛開機 bit 10 為 0 也能 open、不認得的值含全 0 一律拒寫、用法錯誤）；`tests/test_edge_gpio_blink.py` 3 個實機案例（`EDGE_GPIO_HW=1` 才跑、也才建置：閃完釋放 line；執行中 `gpioinfo` 顯示 `"edge_gpio_blink"` output，第二個程式拿到 busy、結束碼 1；亮燈中送 SIGINT / SIGTERM，1 秒內結束、結束碼 1、印 `interrupted`、line 已釋放）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=16)`。
+- 紅燈紀錄：兩支測試在程式不存在時都紅過（pad 腳本 9 個 failure，blink 測試在 CMake 找不到 target 時 error）。變異測試：output 改 input、改 consumer 名稱、改錯誤訊息、拿掉低位元組檢查、漏清 pull、整個暫存器清 0、不裝 SIGTERM handler、不印 `interrupted`，各自都讓測試失敗。code review（PR #4）後補的三個案例（全 0 拒寫、bit 10 規則、signal）也是先紅再修。
+- 尚未涵蓋：程式結束時 pin 是否為 low，自動化看不到（line 釋放後 debugfs 不再列出），只靠人眼看到 LED 最後熄滅。精簡版沒有參數，chip 不存在 / line 超出範圍 / 寫入失敗的錯誤路徑沒有測試（寫入失敗無法從外部觸發）。SIGKILL 或 crash 時 LED 仍可能留在亮的狀態。
+- 已知限制（`pad_pin29.py` 開頭有寫）：暫存器的讀改寫走 Python memoryview，CPython 不保證是單一一次 32-bit 匯流排存取（實測正常）；讀與寫之間 kernel 的 pinctrl driver 也可能改同一個暫存器。這支是實驗工具，4-b 改用 DT pinctrl 後就不再需要。
 
 ### 踩坑
 
@@ -67,4 +68,7 @@
 - 原本以為暫存器 bit 10 意義不明，所以保留不動；這次實測顯示 bit 10 為 1 時 pinconf 都是 `gpio-mode=1`，而開機後、任何程式請求 line 之前量到的是 `gpio-mode=0`。推論 bit 10 是 GPIO/SFIO 選擇，在 line 第一次被請求時由 GPIO 這一側設定（實測推論，未對照 TRM）。
 - 原本以為 `gpioset --mode=time` 結束後 LED 會熄；Tegra 的 GPIO driver 釋放 line 時不會把輸出改回 0，pad 開著時 LED 會一直亮。程式（以及 4-b 的 driver）都要在釋放前自己寫 0。
 - 原本以為 debugfs `pinconf-groups` 一個 group 一行；實際是 group 名稱一行，每個設定各一行。第一版用 `grep` 只抓到名稱那行，造成兩個假 FAIL；改用 awk 收到下一個 group 為止。4-b 的 `verify_edge_gpio.sh` 有同樣的寫法，回到 4-b 時要一起改。
+- 原本以為「低位元組 `0x00`」就足以認定 pad 已開啟；code review 指出很多不相干的位址讀出來就是全 0，位址一旦錯了，`close` 會把 `0x58` 寫進不認識的暫存器。現在「已開啟」要求低位元組 `0x00` 且 bit 10 為 1（實測值 `0x400`），全 0 一律拒寫。代價：剛開機還沒人請求過 line 時 `open` 會得到 `0x000`，之後要先跑過一次 GPIO 程式，`close` 才會被接受。
+- 原本以為程式迴圈最後一次寫 0 就保證 LED 熄滅；code review 指出兩個漏洞：寫入的 ioctl 沒檢查回傳值（全失敗也回 0），以及 Ctrl-C / `kill` 落在亮燈時會直接結束，留下亮著的 LED（正是上一條 Tegra 不歸零的坑）。現在每次寫入都檢查，SIGINT / SIGTERM 只設旗標，迴圈結束後一律寫 0 再釋放。4-b 的 driver 在 `remove()` 也要注意同一件事。
+- 原本以為驗收腳本把 unittest 輸出寫到 `/tmp/<name>.$$` 沒問題；但重新導向是 root 的 shell 做的，檔名可猜，別的使用者可以預先放 symlink（Ubuntu 預設的 `fs.protected_symlinks` 會擋下大部分情況）。本步的腳本改用 `mktemp`；Step 2/3 的 `verify_edge_test.sh` 和 4-b 的 `verify_edge_gpio.sh` 有同樣寫法，排進 4-b 一起修。
 - 板子上原裝的 Jetson.GPIO 一 import 就 `Could not determine Jetson model`（不認得 Super 型號），改用 `python3-libgpiod` 做 Python 對照實驗；入庫的 C++ 版直接用 kernel 的 GPIO v2 uAPI，不依賴 libgpiod。

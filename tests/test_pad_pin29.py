@@ -78,9 +78,16 @@ class PadPin29Test(unittest.TestCase):
         self.assertEqual(self.run_script("close").returncode, 0)
         self.assertEqual(self.peek(), 0xABC00458)
 
-    def test_unexpected_low_byte_is_refused_and_untouched(self):
-        # Another function selected, or a wrong address: never write.
-        for value in (0x00000459, 0x0000045C, 0x00000000 | 0x10, 0xFFFFFFFF):
+    def test_open_from_a_fresh_boot_value_without_bit10(self):
+        # Before any GPIO request bit 10 may still be 0; open must still work.
+        self.poke(0x00000058)
+        self.assertEqual(self.run_script("open").returncode, 0)
+        self.assertEqual(self.peek(), 0x00000000)
+
+    def test_unexpected_value_is_refused_and_untouched(self):
+        # Another function selected, or a wrong address: never write. An all-zero
+        # register is what many unrelated addresses read, so "open" needs bit 10 too.
+        for value in (0x00000459, 0x0000045C, 0x00000010, 0xFFFFFFFF, 0x00000000, 0x00ABC000):
             with self.subTest(value=hex(value)):
                 self.poke(value)
                 for cmd in ("open", "close"):
