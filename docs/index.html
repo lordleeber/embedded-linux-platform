@@ -592,6 +592,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step01.html">Step 1 · 建立開發環境基線</a><p class="toc-desc">環境檢查、Jetson 版本快照與接線紀錄。</p></li>
     <li><a class="toc-title" href="step02.html">Step 2 · 最小 character device</a><p class="toc-desc">第一個 kernel module：<code>/dev/edge_test</code>，從 <code>echo</code> 一路追到 driver 的 <code>write()</code>。</p></li>
     <li><a class="toc-title" href="step03.html">Step 3 · ioctl 控制通道</a><p class="toc-desc">共用 header、兩個 ioctl 命令與第一支 C++ CLI；ioctl 號碼為什麼是 ABI。</p></li>
+    <li><a class="toc-title" href="step04a.html">Step 4-a · userspace GPIO：先點亮 pin 29</a><p class="toc-desc">第一次接上 LED：用 GPIO v2 uAPI 的 C++ 程式控制 line 105，並找出 JP6 開機時 pad 被 tristate 的坑。</p></li>
   </ol>
 </main>
 <script id="inline-js">

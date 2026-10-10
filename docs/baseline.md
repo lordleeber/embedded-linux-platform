@@ -46,3 +46,25 @@
 - Step 2 的 `copy_from_user` 坑在這裡換了個樣子：`SET` 先 `get_user()` 到區域變數，成功才寫進 `edge_test_value`，壞指標時 value 不變（有測試守著）。
 - 原本以為驗收腳本可以直接用 root 跑 CLI 的 Python 測試；但那支測試第一次執行會跑 CMake，用 root 跑就會在 `build/` 留下 root 所有的檔案，是 Step 2「不要 sudo make」那個坑的變體。現在 CLI 測試以 `sudo -u "$SUDO_USER"` 執行。
 - 原本以為加 ioctl 不會影響 Step 2 的章；結果 `edge_test.c` 行號整體下移，`step02.html` 的 9 段節錄有 8 段過期，而 `check_book.py` 不檢查這件事。這是 Step 2 那條「節錄行號」坑的第二次發生，所以照當時的約定寫成正式檢查 `scripts/check_listings.py`，並用舊版 `step02.html` 確認它會抓到那 8 段。Step 2 那條紀錄就此結案。
+
+## Step 4-a：userspace GPIO output（C++ GPIO v2 uAPI）
+
+- 拆分紀錄：原 Step 4（kernel driver + DT）在實機驗收時發現 LED 不亮，問題在 pad 而不在 driver；加上原 Step 4 已累積約 930 行，超過 800 行上限，所以拆成 4-a（userspace 先把電路、pad、GPIO line 分層驗證）與 4-b（原 kernel 版）。
+- 驗收主機：同 Step 1–3。接線：pin 29 → 330 Ω → 紅色 LED → pin 30（見 [hardware-wiring.md](hardware-wiring.md)）。
+- 對照方法：`sudo bash scripts/verify_edge_gpio_blink.sh`。實測 `=== 0 failure(s)`：
+  - pad 關閉（`0x458`）：pinconf `pull=2 tristate=1 enable-input=1`；`edge_gpio_blink` 執行中 debugfs 讀到 `hi` → `lo`；**LED 不亮（人眼）**。
+  - pad 開啟（`0x400`）：pinconf `pull=0 tristate=0 enable-input=0`；debugfs `hi` → `lo`；**LED 閃爍（人眼，取樣 5 次 + 兩個實機測試各 5 次，約 15 次）**；line 105 結束後 `unused`；pad 還原成開始時的值。
+  - 時序容差：程式固定 500 ms on / 500 ms off；腳本在看到 consumer 後 0.2 s 取 `hi`、再 0.5 s 取 `lo`，兩點各離切換點至少 200 ms。
+- 自動測試：`tests/test_pad_pin29.py` 7 個案例（假的 `/dev/mem` 稀疏檔：解碼、open/close、保留其他 bit、低位元組不符時拒寫、用法錯誤）；`tests/test_edge_gpio_blink.py` 2 個實機案例（`EDGE_GPIO_HW=1` 才跑：閃完釋放 line；執行中 `gpioinfo` 顯示 `"edge_gpio_blink"` output，第二個程式拿到 busy、結束碼 1）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=15)`。
+- 紅燈紀錄：兩支測試在程式不存在時都紅過（pad 腳本 9 個 failure，blink 測試在 CMake 找不到 target 時 error）。變異測試：output 改 input、改 consumer 名稱、改錯誤訊息、拿掉低位元組檢查、漏清 pull、整個暫存器清 0，各自都讓測試失敗。
+- 尚未涵蓋：程式結束時 pin 是否為 low，自動化看不到（line 釋放後 debugfs 不再列出），只靠人眼看到 LED 最後熄滅。精簡版沒有參數，chip 不存在 / line 超出範圍的錯誤路徑沒有測試。
+
+### 踩坑
+
+- 原本以為 `gpioinfo` 和 `/sys/kernel/debug/gpio` 顯示 output `hi`，就代表腳位有 3.3 V；它們讀的是 GPIO controller 的 output 暫存器。JP6 開機時 pin 29 的 pad（`soc_gpio32_pq5`）是 `tristate=1`，暫存器是 1，腳位卻沒有輸出。用 `gpioset`（完全不經過我們的 code）對照也一樣不亮，才確定問題在 pad。驗收若只看軟體層會全部 PASS，必須人眼看 LED，並檢查 pinconf。
+- 原本以為 header pin 的 GPIO 像 JP5 教學那樣開機就能用；JP6 要靠 pinmux（jetson-io、DT overlay 或 devmem）先把 pad 打開。網路上的 Python 範例「直接能用」，多半是 JP5 時代寫的，或作者先跑過 jetson-io（它產生的就是 pinmux overlay）。
+- pinmux 暫存器位址 `0x02430068` 不是從 TRM 查來的，而是先只讀、比對低位元組 `0x58` 拆成 pull=up / tristate / input，和 debugfs 完全一致後才寫入。`pad_pin29.py` 把這個保護寫死：低位元組不是 `0x58` 或 `0x00` 就拒寫。
+- 原本以為暫存器 bit 10 意義不明，所以保留不動；這次實測顯示 bit 10 為 1 時 pinconf 都是 `gpio-mode=1`，而開機後、任何程式請求 line 之前量到的是 `gpio-mode=0`。推論 bit 10 是 GPIO/SFIO 選擇，在 line 第一次被請求時由 GPIO 這一側設定（實測推論，未對照 TRM）。
+- 原本以為 `gpioset --mode=time` 結束後 LED 會熄；Tegra 的 GPIO driver 釋放 line 時不會把輸出改回 0，pad 開著時 LED 會一直亮。程式（以及 4-b 的 driver）都要在釋放前自己寫 0。
+- 原本以為 debugfs `pinconf-groups` 一個 group 一行；實際是 group 名稱一行，每個設定各一行。第一版用 `grep` 只抓到名稱那行，造成兩個假 FAIL；改用 awk 收到下一個 group 為止。4-b 的 `verify_edge_gpio.sh` 有同樣的寫法，回到 4-b 時要一起改。
+- 板子上原裝的 Jetson.GPIO 一 import 就 `Could not determine Jetson model`（不認得 Super 型號），改用 `python3-libgpiod` 做 Python 對照實驗；入庫的 C++ 版直接用 kernel 的 GPIO v2 uAPI，不依賴 libgpiod。

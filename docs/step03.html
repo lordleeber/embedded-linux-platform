@@ -153,7 +153,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><span class="disabled">Step 4 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><a href="step04a.html">Step 4-a →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 3 · Linux kernel module</div>
     <h1>ioctl：給 edge_test 一條控制通道</h1>
@@ -600,7 +600,7 @@ python3 scripts/check_listings.py docs</pre>
         <li class="y">Step 2 的資料通道沒有退化。</li>
         <li class="n">沒有實測：32-bit 程式走 <code>compat_ptr_ioctl</code> 的路徑；4 個 <code>ENOTTY</code>／不動 buffer 的守門測試沒有紅過。</li>
       </ul>
-      <p>到這裡，<code>edge_test</code> 還是一個純軟體的裝置。Step 4 開始接上真正的硬體：GPIO 與 LED，同樣用 character device 當入口，並換成 platform driver 加 Device Tree 的寫法。</p>
+      <p>到這裡，<code>edge_test</code> 還是一個純軟體的裝置。Step 4 開始接上真正的硬體：GPIO 與 LED。實作時發現 LED 不亮的原因在 pad 而不在 driver，所以 Step 4 拆成兩步：4-a 先在 userspace 點亮 LED，4-b 再換成 platform driver 加 Device Tree 的寫法。</p>
       <details class="quiz"><summary>1. 為什麼「設定一個值」該用 ioctl，而不是往 <code>/dev/edge_test</code> 寫一串 <code>SET 123</code>？</summary><p>寫入的是資料通道，driver 得自己解析文字，資料和命令也會混在一起；ioctl 用號碼區分命令、參數格式固定，不需要解析。</p></details>
       <details class="quiz"><summary>2. <code>EDGE_TEST_GET_VALUE</code> 為什麼是 <code>_IOR</code> 而不是 <code>_IOW</code>？</summary><p>方向是從 userspace 的角度看：GET 要把 kernel 的值讀回 userspace，所以是 READ。</p></details>
       <details class="quiz"><summary>3. 把參數型別從 <code>__u32</code> 改成 <code>__u64</code>，舊程式會發生什麼事？</summary><p>參數大小被編在號碼裡，新號碼和舊程式送來的號碼不同，舊程式的呼叫會落進 <code>default</code> 拿到 <code>ENOTTY</code>。這就是 ABI 被打破。</p></details>
@@ -608,7 +608,7 @@ python3 scripts/check_listings.py docs</pre>
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><span class="disabled">Step 4 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step02.html">← Step 2</a><a href="step04a.html">Step 4-a →</a></nav>
 </main>
 
 <script>

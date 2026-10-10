@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 4-a　userspace GPIO — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step03). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. Step 4-a adds --hw for hardware (SoC pad, board, breadboard). */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-side { stroke: var(--user); stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+.bit { stroke-width: 1.5; }
+.bit-0 { fill: var(--surface); stroke: var(--line); }
+.bit-1 { fill: color-mix(in srgb, var(--accent) 22%, var(--surface)); stroke: var(--accent); }
+.bit-chg { stroke: var(--bad); stroke-width: 2.5; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-bottom: 0.35rem; }
+.tag.bad { color: var(--bad); } .tag.ok { color: var(--ok); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+table.ports td, table.ports th { font-family: var(--font-mono); font-size: 0.85rem; text-align: right; width: auto; }
+table.ports td:first-child, table.ports th:first-child { text-align: left; }
+table.ports tr.hit td { color: var(--hw); font-weight: 600; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><span class="disabled">Step 4-b →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 4-a · userspace GPIO</div>
+    <h1>先在 userspace 點亮 pin 29</h1>
+    <p class="lede">這是第一次接上真正的硬體：一顆接在 40-pin header 第 29 腳的紅色 LED。原本的計畫是直接寫 kernel driver，結果 driver 每一項檢查都通過，LED 卻始終不亮。問題不在程式碼，而在晶片腳位的 <b class="hl-key">pad</b>：JP6 開機時它是斷開的。這一步先不碰 kernel，用一支最精簡的 C++ 程式和一支設定 pad 的腳本，把「電路、pad、GPIO line」分層驗清楚。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_blink.cpp</span>、<span class="new">scripts/pad_pin29.py</span>、<span class="new">scripts/verify_edge_gpio_blink.sh</span>、<span class="new">tests/test_edge_gpio_blink.py</span>、<span class="new">tests/test_pad_pin29.py</span>；修改 CMakeLists.txt、ROADMAP.md、phase02.md、docs/hardware-wiring.md</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（syscall、VFS、gpiolib）</span>
+      <span style="--c: var(--drv)">我們寫的 driver</span>
+      <span style="--c: var(--hw)">硬體（SoC、板子、麵包板）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">4a.1</span><b>起點</b>為什麼拆</div>
+    <div class="content">
+      <h2>driver 全部 PASS，LED 卻不亮</h2>
+      <p>Step 4 原本要做的是「Device Tree 描述一顆 LED，platform driver 在 <code>probe()</code> 裡拿到 GPIO 去控制它」。driver 寫好、overlay 也套上之後，驗收腳本 33 項 PASS：driver 有 probe、<code>gpioinfo</code> 顯示 line 105 是 output、debugfs 讀到的電位跟著寫入在 <code>hi</code> 和 <code>lo</code> 之間切換。只有一項 FAIL，而 LED 一次都沒亮：</p>
+<pre class="out">FAIL PQ.05 pad is tristated: output will not reach the pin</pre>
+      <p>為了排除「是不是我們的 driver 寫錯」，再用系統內建的 <code>gpioset</code> 直接控制同一條 line，完全不經過我們的程式碼。結果一樣不亮。兩條獨立的路得到同一個結果，代表問題在比 GPIO 更底層的地方。</p>
+      <p>所以原本的 Step 4 拆成兩步：<b>4-a（本章）</b>先在 userspace 把問題分層、確認 LED 真的點得亮；<b>4-b</b> 再回到 kernel driver，並用 Device Tree 正式處理 pad。原本的 Step 4 也已經累積了約 930 行，超過每步約 800 行的上限，拆開剛好。</p>
+      <p><b>互動雙方</b>：controller 是 Jetson 上的 userspace 程式 <code>edge_gpio_blink</code>，target 是 SoC 的 GPIO controller 和 pin 29 的 pad，最後接到麵包板上的 LED。<b>這一步不做</b>：kernel driver、Device Tree、IRQ、按鈕；也不把 <code>/dev/mem</code> 當成正式做法。</p>
+      <dl class="terms">
+        <dt>GPIO line</dt><dd>GPIO controller 裡的一條可控制的訊號，通常對應晶片上的一根腳。程式用「哪個 controller 的第幾條 line」指定它。</dd>
+        <dt>gpiochip</dt><dd>kernel 把每個 GPIO controller 開放成一個字元裝置 <code>/dev/gpiochipN</code>。userspace 打開它、用 ioctl 請求 line，就能控制 GPIO，不需要寫 driver。</dd>
+        <dt>pad</dt><dd>晶片邊緣和外界接觸的那一小塊電路。裡面有輸出驅動器、輸入接收器、上拉／下拉電阻，以及一個選擇這根腳給哪個功能用的多工器。GPIO controller 決定「想輸出 1」，pad 決定這個 1 能不能變成腳位上的電壓。</dd>
+        <dt>tristate</dt><dd>輸出的第三種狀態「高阻抗」（Hi-Z）：輸出驅動器和腳位斷開，既不推高也不拉低。</dd>
+        <dt>pinmux / pinctrl</dt><dd>設定 pad 的硬體暫存器叫 pinmux；Linux 管理它們的子系統叫 pinctrl。4-b 會用 Device Tree 透過 pinctrl 設定 pad，本章先直接寫暫存器。</dd>
+        <dt>/dev/mem</dt><dd>把實體位址空間攤開成一個檔案的特殊裝置。SoC 的暫存器都對應到某個實體位址，所以 root 可以透過它直接讀寫硬體暫存器，完全繞過 kernel 的 driver。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">4a.2</span><b>路徑</b>程式 → 電壓</div>
+    <div class="content">
+      <h2>一個 1 要經過幾站才變成 3.3 V</h2>
+      <p>從程式寫下 1，到 LED 亮起，中間有五站。前三站都正常時，所有軟體工具都會告訴你「輸出是 hi」，因為它們讀的是第三站的暫存器，看不到第四站。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 440" role="img" aria-label="edge_gpio_blink 經 /dev/gpiochip0 進 kernel gpiolib，寫到 GPIO controller 的 output 暫存器；之後還要經過 pad，tristate 關掉時電壓才會到 header pin 29 和 LED。pad_pin29.py 從旁經 /dev/mem 直接改 pad 的暫存器">
+          <defs>
+            <marker id="m4Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+            <marker id="m4Side" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--user)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <rect class="s-box" x="130" y="20" width="300" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="280" y="45" text-anchor="middle">edge_gpio_blink</text>
+          <text class="s-sm" x="280" y="66" text-anchor="middle">ioctl：請求 line 105、寫 1/0</text>
+          <rect class="s-box" x="470" y="20" width="230" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="585" y="45" text-anchor="middle">pad_pin29.py open</text>
+          <text class="s-sm" x="585" y="66" text-anchor="middle">root；只在實驗時用</text>
+          <line class="sv-edge" x1="10" y1="90" x2="710" y2="90"/>
+          <text class="s-sm edge-lbl" x="710" y="106" text-anchor="end">user ↕ kernel 邊界</text>
+          <text class="s-mono" x="14" y="142">KERNEL</text>
+          <rect class="s-box" x="130" y="110" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="280" y="135" text-anchor="middle">/dev/gpiochip0 → gpiolib</text>
+          <text class="s-sm" x="280" y="156" text-anchor="middle">gpio-tegra186 換算暫存器位置</text>
+          <rect class="s-box" x="470" y="110" width="230" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="585" y="135" text-anchor="middle">/dev/mem（mmap）</text>
+          <text class="s-sm" x="585" y="156" text-anchor="middle">繞過 pinctrl driver</text>
+          <line class="sv-edge" x1="10" y1="182" x2="710" y2="182"/>
+          <text class="s-sm edge-lbl" x="710" y="198" text-anchor="end">kernel ↕ 硬體邊界</text>
+          <text class="s-mono" x="14" y="232">SOC</text>
+          <rect class="s-box" x="130" y="202" width="300" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="280" y="227" text-anchor="middle">GPIO controller：OUTPUT = 1</text>
+          <text class="s-sm" x="280" y="248" text-anchor="middle">gpioinfo、debugfs 讀的是這裡</text>
+          <text class="s-mono" x="14" y="314">PAD</text>
+          <rect class="s-box" x="130" y="284" width="300" height="58" rx="9" style="stroke: var(--bad)"/>
+          <text class="s-key" x="280" y="309" text-anchor="middle">soc_gpio32_pq5 · 0x02430068</text>
+          <text class="s-sm" x="280" y="330" text-anchor="middle">tristate=1 時輸出被斷開</text>
+          <text class="s-mono" x="14" y="396">BOARD</text>
+          <rect class="s-box" x="130" y="366" width="300" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="280" y="391" text-anchor="middle">pin 29 → 330 Ω → LED → pin 30</text>
+          <text class="s-sm" x="280" y="412" text-anchor="middle">約 4 mA（估算）</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m4Down)"/>
+          <line class="sv-down" x1="200" y1="169" x2="200" y2="198" marker-end="url(#m4Down)"/>
+          <line class="sv-down" x1="200" y1="261" x2="200" y2="280" marker-end="url(#m4Down)"/>
+          <line class="sv-down" x1="200" y1="343" x2="200" y2="362" marker-end="url(#m4Down)"/>
+          <line class="sv-side" x1="585" y1="79" x2="585" y2="106" marker-end="url(#m4Side)"/>
+          <path class="sv-side" d="M585,169 L585,313 L436,313" marker-end="url(#m4Side)"/>
+          <text class="s-sm" x="600" y="250">直接寫 pad 暫存器：</text>
+          <text class="s-sm" x="600" y="268">清掉 tristate、</text>
+          <text class="s-sm" x="600" y="286">input、pull</text>
+        </svg>
+        <figcaption>圖 4.1 — <code>gpioinfo</code> 和 debugfs 只看得到 SoC 那一站的 output 暫存器。JP6 開機時 PAD 那一站是斷開的，所以軟體層全部 PASS，LED 仍然不亮；<code>pad_pin29.py</code> 走右邊那條路，繞過 kernel 直接把 pad 打開。</figcaption>
+      </figure>
+      <p>這張圖也說明了為什麼驗收一定要有人看 LED：腳本能讀到的最底層是 SoC 的暫存器和 pad 的設定，腳位上的實際電壓只有 LED（或三用電表）看得到。</p>
+    </div>
+  </section>
+
+  <section id="number">
+    <div class="rail"><span class="no">4a.3</span><b>編號</b>pin 29 = line 105</div>
+    <div class="content">
+      <h2>同一根腳的五個名字</h2>
+      <p>header 上的 pin 29，在不同層有不同的名字：Jetson 文件叫它 <code>GPIO01</code>；SoC 的 port/pin 叫 <code>PQ.05</code>（port Q 的第 5 支）；pinctrl 把它的 pad 叫 <code>soc_gpio32_pq5</code>；userspace 的 GPIO 工具用的是 <code>gpiochip0</code> 的 <b class="hl-key">line 105</b>。</p>
+      <p>這塊板子有兩個 GPIO controller。在 repo 根目錄（任何目錄都可以，這兩個指令不需要 root）執行：</p>
+<pre class="cmd">gpiodetect
+gpioinfo gpiochip0 | grep 'line 105:'</pre>
+<pre class="out">gpiochip0 [tegra234-gpio] (164 lines)
+gpiochip1 [tegra234-gpio-aon] (32 lines)
+	line 105:      "PQ.05"       unused  output  active-high</pre>
+      <p>最後一行的 <code>output</code> 不一定和你看到的相同：line 沒被使用時，顯示的是上一次被設定的方向。剛開機、還沒人用過它時會是 <code>input</code>。</p>
+      <p>105 是怎麼來的？<code>gpiochip0</code> 把所有 port 的腳依序接起來編號，每個 port 實際有幾支腳就佔幾號。下表是用 <code>gpioinfo gpiochip0</code> 的 line 名稱逐一數出來的：</p>
+      <table class="ports">
+        <thead><tr><th>port</th><th>起始 line</th><th>腳數</th><th>port</th><th>起始 line</th><th>腳數</th></tr></thead>
+        <tbody>
+          <tr><td>A</td><td>0</td><td>8</td><td>J</td><td>58</td><td>6</td></tr>
+          <tr><td>B</td><td>8</td><td>1</td><td>K</td><td>64</td><td>8</td></tr>
+          <tr><td>C</td><td>9</td><td>8</td><td>L</td><td>72</td><td>4</td></tr>
+          <tr><td>D</td><td>17</td><td>4</td><td>M</td><td>76</td><td>8</td></tr>
+          <tr><td>E</td><td>21</td><td>8</td><td>N</td><td>84</td><td>8</td></tr>
+          <tr><td>F</td><td>29</td><td>6</td><td>P</td><td>92</td><td>8</td></tr>
+          <tr><td>G</td><td>35</td><td>8</td><td>Q</td><td>100</td><td>8</td></tr>
+          <tr><td>H</td><td>43</td><td>8</td><td>R</td><td>108</td><td>6</td></tr>
+          <tr><td>I</td><td>51</td><td>7</td><td>…</td><td>…</td><td>…</td></tr>
+        </tbody>
+      </table>
+      <p>port Q 從 100 開始，PQ.05 是第 5 支，所以 <b class="hl-key">100 + 5 = 105</b>。先記住一件事，4-b 會用到：Device Tree 用的是另一套編號，binding header 定義成 <code>port × 8 + pin</code>，不管每個 port 實際有幾支腳一律當 8 支算，所以同一根腳在 DT 裡是 15 × 8 + 5 = 125。不要把 header pin 號、DT 編號和 line 編號混用。</p>
+    </div>
+  </section>
+
+  <section id="pad">
+    <div class="rail"><span class="no">4a.4</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>0x458 → 0x400</div>
+    <div class="content">
+      <h2>把 pad 打開：一個暫存器、三個欄位</h2>
+      <p>PQ.05 的 pad 設定在實體位址 <code>0x02430068</code>：pinmux 區塊的基底 <code>0x02430000</code>（Device Tree 裡的 <code>pinmux@2430000</code>）加上偏移 <code>0x68</code>。一個 32-bit 暫存器，用不同的 bit 表示不同的電氣設定。開機時讀到 <code>0x00000458</code>：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 230" role="img" aria-label="暫存器低 12 bit：開機值 0x458 的 bit 10、6、4、3 為 1；打開後 0x400 只剩 bit 10。改動的是 bit 6 input、bit 4 tristate、bit 3:2 pull">
+          <text class="s-mono" x="10" y="30">BIT</text>
+          <text class="s-sm" x="153" y="30" text-anchor="middle">11</text><text class="s-sm" x="203" y="30" text-anchor="middle">10</text><text class="s-sm" x="253" y="30" text-anchor="middle">9</text><text class="s-sm" x="303" y="30" text-anchor="middle">8</text><text class="s-sm" x="353" y="30" text-anchor="middle">7</text><text class="s-sm" x="403" y="30" text-anchor="middle">6</text><text class="s-sm" x="453" y="30" text-anchor="middle">5</text><text class="s-sm" x="503" y="30" text-anchor="middle">4</text><text class="s-sm" x="553" y="30" text-anchor="middle">3</text><text class="s-sm" x="603" y="30" text-anchor="middle">2</text><text class="s-sm" x="653" y="30" text-anchor="middle">1</text><text class="s-sm" x="703" y="30" text-anchor="middle">0</text>
+          <text class="s-lbl" x="10" y="69">開機</text>
+          <text class="s-sm" x="10" y="86">0x458</text>
+          <rect class="bit bit-0" x="133" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1" x="183" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="233" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="283" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="333" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="383" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="433" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="483" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="533" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="583" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="633" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="683" y="45" width="40" height="40" rx="5"/>
+          <text class="s-key" x="153" y="70" text-anchor="middle">0</text><text class="s-key" x="203" y="70" text-anchor="middle">1</text><text class="s-key" x="253" y="70" text-anchor="middle">0</text><text class="s-key" x="303" y="70" text-anchor="middle">0</text><text class="s-key" x="353" y="70" text-anchor="middle">0</text><text class="s-key" x="403" y="70" text-anchor="middle">1</text><text class="s-key" x="453" y="70" text-anchor="middle">0</text><text class="s-key" x="503" y="70" text-anchor="middle">1</text><text class="s-key" x="553" y="70" text-anchor="middle">1</text><text class="s-key" x="603" y="70" text-anchor="middle">0</text><text class="s-key" x="653" y="70" text-anchor="middle">0</text><text class="s-key" x="703" y="70" text-anchor="middle">0</text>
+          <text class="s-lbl" x="10" y="129">open</text>
+          <text class="s-sm" x="10" y="146">0x400</text>
+          <rect class="bit bit-0" x="133" y="105" width="40" height="40" rx="5"/><rect class="bit bit-1" x="183" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="233" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="283" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="333" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="383" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="433" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="483" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="533" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="583" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="633" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="683" y="105" width="40" height="40" rx="5"/>
+          <text class="s-key" x="153" y="130" text-anchor="middle">0</text><text class="s-key" x="203" y="130" text-anchor="middle">1</text><text class="s-key" x="253" y="130" text-anchor="middle">0</text><text class="s-key" x="303" y="130" text-anchor="middle">0</text><text class="s-key" x="353" y="130" text-anchor="middle">0</text><text class="s-key" x="403" y="130" text-anchor="middle">0</text><text class="s-key" x="453" y="130" text-anchor="middle">0</text><text class="s-key" x="503" y="130" text-anchor="middle">0</text><text class="s-key" x="553" y="130" text-anchor="middle">0</text><text class="s-key" x="603" y="130" text-anchor="middle">0</text><text class="s-key" x="653" y="130" text-anchor="middle">0</text><text class="s-key" x="703" y="130" text-anchor="middle">0</text>
+          <text class="s-sm" x="203" y="172" text-anchor="middle">gpio-mode</text>
+          <text class="s-sm" x="203" y="190" text-anchor="middle">（推論）</text>
+          <text class="s-sm edge-lbl" x="403" y="172" text-anchor="middle">input</text>
+          <text class="s-sm edge-lbl" x="503" y="172" text-anchor="middle">tristate</text>
+          <text class="s-sm edge-lbl" x="578" y="172" text-anchor="middle">pull 10→00</text>
+          <text class="s-sm" x="678" y="172" text-anchor="middle">function 00</text>
+          <text class="s-sm" x="10" y="218">紅框 = open 清掉的三個欄位；其他 bit 一律保留</text>
+        </svg>
+        <figcaption>圖 4.2 — 低位元組 <code>0x58</code> 拆開來是 pull=up（<code>0x08</code>）、tristate（<code>0x10</code>）、input（<code>0x40</code>）。只清掉這三個欄位就得到 <code>0x400</code>，LED 就亮了。</figcaption>
+      </figure>
+      <ul>
+        <li><b>tristate（bit 4）</b>：1 = 輸出驅動器斷開。這是 LED 不亮的原因，非清不可。</li>
+        <li><b>input（bit 6）</b>：輸入接收器。當輸出用不需要；NVIDIA 自家 40-pin overlay 對 pin 29 也是設成 0。</li>
+        <li><b>pull（bit 3:2）</b>：<code>10</code> 是內部上拉。腳位由輸出主動驅動時不需要，改成 <code>00</code>（不拉）。</li>
+        <li><b>bit 10</b>：意義沒有查過 TRM，所以不動。實測時它為 1 時 debugfs 都顯示 <code>gpio-mode=1</code>，而剛開機、還沒人請求過 line 時量到的是 <code>gpio-mode=0</code>。推論它是 GPIO / 其他功能的選擇位元，在 line 第一次被請求時由 GPIO 那一側設定。這是推論，不是查證過的事實。</li>
+      </ul>
+      <p>這個位址一開始是憑印象提出的，所以第一步只讀不寫：讀回 <code>0x458</code>，低位元組拆開和 debugfs 的 <code>pull=2 tristate=1 enable-input=1 function=rsvd0</code> 完全一致，才確定位址正確。對錯的位址寫入，可能改到別根腳或別的硬體。<code>scripts/pad_pin29.py</code> 把這個保護寫成程式：</p>
+      <figure class="listing"><figcaption>scripts/pad_pin29.py:29–35 — 暫存器位址與三個欄位</figcaption>
+<pre data-start="29" data-hot="29,30,35">PINMUX_BASE = 0x02430000  # pinmux@2430000 in the base DT
+REG_OFFSET = 0x68         # soc_gpio32_pq5
+PULL_SHIFT, PULL_MASK = 2, 0x0C
+TRISTATE = 0x10
+INPUT = 0x40
+FIELDS = PULL_MASK | TRISTATE | INPUT
+BOOT_BITS = (2 &lt;&lt; PULL_SHIFT) | TRISTATE | INPUT  # 0x58: pull-up, tristate, input on</pre></figure>
+      <figure class="listing"><figcaption>scripts/pad_pin29.py:45–61 — 先讀、檢查低位元組，才寫</figcaption>
+<pre data-start="45" data-hot="50,51,52,53,54,55,56,57">def apply(reg, index, action):
+    value = reg[index]
+    print(f"before: {decode(value)}")
+    if action == "show":
+        return 0
+    if value &amp; 0xFF not in (BOOT_BITS, 0x00):
+        print(f"error: low byte 0x{value &amp; 0xFF:02x} is neither the boot value 0x58 nor "
+              "the open value 0x00; wrong address or pad reassigned, not writing",
+              file=sys.stderr)
+        return 1
+    new = value &amp; ~FIELDS &amp; 0xFFFFFFFF
+    if action == "close":
+        new |= BOOT_BITS
+    if new != value:
+        reg[index] = new
+    print(f"after:  {decode(reg[index])}")
+    return 0</pre></figure>
+      <p><code>open</code> 和 <code>close</code> 只在低位元組是開機值 <code>0x58</code> 或已開啟的 <code>0x00</code> 時才寫；其他值代表位址錯了、或這根腳被設成別的功能，一律拒寫並回傳 1。寫入時只動三個欄位，其他 bit 原樣保留。存取方式是把 <code>/dev/mem</code> 從 <code>0x02430000</code> mmap 一頁進來，再用 32-bit 的 memoryview 讀寫第 <code>0x68 / 4</code> 格，每次都是一個對齊的 32-bit 存取。這個修改 kernel 完全不知道，重開機就會消失。</p>
+    </div>
+  </section>
+
+  <section id="program">
+    <div class="rail"><span class="no">4a.5</span><b>程式</b><span class="dot" style="background: var(--user)"></span>GPIO v2 uAPI</div>
+    <div class="content">
+      <h2>最精簡的 C++：兩個 ioctl</h2>
+      <p><code>apps/edge_gpio_blink.cpp</code> 沒有任何參數，固定在 <code>/dev/gpiochip0</code> 的 line 105 閃 5 次。它直接用 kernel 提供的 GPIO 字元裝置 v2 介面（<code>&lt;linux/gpio.h&gt;</code>），不依賴任何函式庫。第一個 ioctl 請求 line：</p>
+      <figure class="listing"><figcaption>apps/edge_gpio_blink.cpp:15–30 — 請求 line 105 當輸出</figcaption>
+<pre data-start="15" data-hot="21,22,23,24,25,26,27">    int chip = open("/dev/gpiochip0", O_RDWR);
+    if (chip &lt; 0) {
+        perror("open /dev/gpiochip0");
+        return 1;
+    }
+
+    gpio_v2_line_request req{};
+    req.offsets[0] = 105;                          // PQ.05 = header pin 29
+    req.num_lines = 1;
+    req.config.flags = GPIO_V2_LINE_FLAG_OUTPUT;   // starts low
+    std::strcpy(req.consumer, "edge_gpio_blink");  // shown by gpioinfo
+    if (ioctl(chip, GPIO_V2_GET_LINE_IOCTL, &amp;req) &lt; 0) {
+        perror("request line 105");                // EBUSY while another user holds it
+        close(chip);
+        return 1;
+    }</pre></figure>
+      <p>和 Step 3 的 <code>edge_test_cli</code> 一樣是 <code>open</code> 加 <code>ioctl</code>，差別在 ioctl 的結果：<code>GPIO_V2_GET_LINE_IOCTL</code> 成功後，kernel 在 <code>req.fd</code> 裡回傳一個<b>新的檔案描述子</b>，代表「這條 line 的使用權」。之後的操作都對這個 fd 做。line 已經被別人持有時，請求會失敗，<code>errno</code> 是 <code>EBUSY</code>。<code>consumer</code> 是給人看的名字，<code>gpioinfo</code> 會顯示誰正在用這條 line。</p>
+      <p>第二個 ioctl 設定輸出值，最後關掉 fd 就是釋放：</p>
+      <figure class="listing"><figcaption>apps/edge_gpio_blink.cpp:32–39 — 寫 1 / 0，最後釋放</figcaption>
+<pre data-start="32" data-hot="33,35,36,38">    gpio_v2_line_values v{};
+    v.mask = 1;                                    // bit 0 = the only requested line
+    for (int i = 0; i &lt; 5; i++) {
+        v.bits = 1; ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &amp;v); usleep(500000);
+        v.bits = 0; ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &amp;v); usleep(500000);
+    }
+    close(req.fd);                                 // release the line (ends low)
+    close(chip);</pre></figure>
+      <p><code>mask</code> 和 <code>bits</code> 都是位元遮罩：一次請求可以包含多條 line，第 n 個 bit 對應 <code>offsets[n]</code>。這裡只請求一條，所以只用 bit 0。迴圈最後一次寫的是 0，所以 LED 熄滅後才釋放。這個順序很重要：Tegra 的 GPIO driver 釋放 line 時<b>不會</b>把輸出改回 0，最後寫的值會一直留著（見 4a.9）。</p>
+      <h3>和 Python 版對照</h3>
+      <p>做這一步之前，先用 Python 的 libgpiod（<code>python3-libgpiod</code>，v1 API）做過同樣的實驗，在板子上實測可以閃。這段不在 repo 裡，放在這裡是為了對照：</p>
+      <figure class="snippet"><figcaption>Python 對照版（不在 repo 裡；需要 sudo apt install python3-libgpiod）</figcaption>
+<pre>import time
+
+import gpiod
+
+chip = gpiod.Chip("gpiochip0")
+line = chip.get_line(105)  <span class="c"># PQ.05 = header pin 29</span>
+line.request(consumer="blink", type=gpiod.LINE_REQ_DIR_OUT, default_vals=[0])
+try:
+    for i in range(5):
+        line.set_value(1)
+        time.sleep(0.5)
+        line.set_value(0)
+        time.sleep(0.5)
+finally:
+    line.set_value(0)  <span class="c"># leave it off: Tegra keeps the last value after release</span>
+    line.release()</pre></figure>
+      <table>
+        <thead><tr><th>Python（libgpiod）</th><th>C++（GPIO v2 uAPI）</th></tr></thead>
+        <tbody>
+          <tr><td><code>gpiod.Chip("gpiochip0")</code></td><td><code>open("/dev/gpiochip0", O_RDWR)</code></td></tr>
+          <tr><td><code>get_line(105)</code> + <code>request(..., LINE_REQ_DIR_OUT)</code></td><td>填 <code>gpio_v2_line_request</code>，<code>ioctl(GPIO_V2_GET_LINE_IOCTL)</code>，得到 <code>req.fd</code></td></tr>
+          <tr><td><code>set_value(1)</code></td><td><code>ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &amp;v)</code></td></tr>
+          <tr><td><code>release()</code></td><td><code>close(req.fd)</code></td></tr>
+        </tbody>
+      </table>
+      <p>libgpiod 底下做的就是這幾個 ioctl。板子上原本裝的 Jetson.GPIO 在這台機器上一 import 就出現 <code>Could not determine Jetson model</code>，看起來不認得 Super 這個型號，所以 Python 實驗改用 libgpiod。</p>
+      <div class="callout"><p>這支程式刻意寫成最精簡：沒有參數解析，chip、line、次數、間隔都寫死。代價是「chip 不存在」「line 超出範圍」這些錯誤路徑沒有測試；它們只有兩個 <code>perror</code> 會印出原因。</p></div>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">4a.6</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="content">
+      <h2>pad 腳本用假的 /dev/mem，程式用真的腳位</h2>
+      <p><code>tests/test_pad_pin29.py</code> 的 <span data-tests="tests/test_pad_pin29.py">7</span> 個案例不碰硬體：測試建立一個稀疏檔案當成 <code>/dev/mem</code>，在 <code>0x02430068</code> 那個 offset 寫入暫存器值，再用 <code>--mem</code> 讓腳本去讀寫它。預期值來自板子的實測（開機 <code>0x458</code>、打開後 <code>0x400</code>），不是從腳本抄的。案例涵蓋解碼、open、重複 open 不動作、close 還原、高位元保留、低位元組不符時拒寫，以及用法錯誤。</p>
+      <p><code>tests/test_edge_gpio_blink.py</code> 的 <span data-tests="tests/test_edge_gpio_blink.py">2</span> 個案例會真的驅動 pin 29，所以只有設了 <code>EDGE_GPIO_HW=1</code> 才跑，沒設就 skip：</p>
+      <ul>
+        <li>跑完結束碼 0，之後 <code>gpioinfo</code> 顯示 line 105 是 <code>unused</code>（已釋放）。</li>
+        <li>執行中 <code>gpioinfo</code> 顯示 consumer 是 <code>"edge_gpio_blink"</code>、方向 output；這時再啟動第二個，它要回傳 1，stderr 有 <code>request line 105</code> 和 <code>busy</code>。</li>
+      </ul>
+      <p>兩支測試都在實作之前寫好，先看它們紅：pad 腳本還不存在時有 9 個 failure；CMake 還沒有 <code>edge_gpio_blink</code> 這個 target 時，blink 測試在建置那一步就出錯。實作之後再做變異測試，每次故意改壞一處，看測試會不會抓到：把 output 改成 input、改掉 consumer 名稱、改掉錯誤訊息、拿掉低位元組檢查、漏清 pull、整個暫存器寫 0，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
+      <p>不需要 root 的部分隨時可以跑（在 repo 根目錄）：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p 'test_pad_pin29.py' -v
+EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_blink.py' -v</pre>
+      <p>第二行會讓 LED 閃 10 次（如果 pad 開著）。執行者要在 <code>gpio</code> 群組裡（<code>/dev/gpiochip0</code> 是 <code>root:gpio 0660</code>），而且 line 105 不能被別的程式佔著，否則 <code>setUp</code> 就會失敗。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">4a.7</span><b>實機</b><span class="dot" style="background: var(--hw)"></span>看 LED</div>
+    <div class="content">
+      <h2>手動跑一次：關著 pad 和打開 pad</h2>
+      <p><b>起點狀態</b>：LED 照 <a href="hardware-wiring.md">hardware-wiring.md</a> 接好（pin 29 → 330 Ω → LED 長腳，短腳 → pin 30）；站在 repo 根目錄；沒有其他程式佔用 line 105。先建置（不需要 root）：</p>
+<pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target edge_gpio_blink</pre>
+      <p>然後依序執行，每次 <code>edge_gpio_blink</code> 大約 5 秒，注意看 LED：</p>
+<pre class="cmd">sudo python3 scripts/pad_pin29.py close
+./build/edge_gpio_blink; echo "exit=$?"
+sudo python3 scripts/pad_pin29.py open
+./build/edge_gpio_blink &amp; sleep 1; gpioinfo gpiochip0 | grep 'line 105:'; ./build/edge_gpio_blink; echo "exit=$?"; wait
+gpioinfo gpiochip0 | grep 'line 105:'
+sudo python3 scripts/pad_pin29.py close</pre>
+      <p>2026-10-10 的實測輸出：</p>
+<pre class="out" data-marks><span class="prompt">$</span> sudo python3 scripts/pad_pin29.py close
+before: 0x00000400 pull=none tristate=0 input=0 function=0
+after:  0x00000458 pull=up tristate=1 input=1 function=0 «1»
+<span class="prompt">$</span> ./build/edge_gpio_blink; echo "exit=$?"
+exit=0 «2»
+<span class="prompt">$</span> sudo python3 scripts/pad_pin29.py open
+before: 0x00000458 pull=up tristate=1 input=1 function=0
+after:  0x00000400 pull=none tristate=0 input=0 function=0
+<span class="prompt">$</span> ./build/edge_gpio_blink &amp; sleep 1; gpioinfo gpiochip0 | grep 'line 105:'; ./build/edge_gpio_blink; echo "exit=$?"; wait
+[1] 18262
+	line 105:      "PQ.05" "edge_gpio_blink" output active-high [used] «3»
+request line 105: Device or resource busy
+exit=1 «4»
+[1]+  Done                    ./build/edge_gpio_blink
+<span class="prompt">$</span> gpioinfo gpiochip0 | grep 'line 105:'
+	line 105:      "PQ.05"       unused  output  active-high «5»
+<span class="prompt">$</span> sudo python3 scripts/pad_pin29.py close
+before: 0x00000400 pull=none tristate=0 input=0 function=0
+after:  0x00000458 pull=up tristate=1 input=1 function=0 «6»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>pad 回到開機時的 <code>0x458</code>：上拉、tristate、輸入都開著。</span></li>
+        <li><span class="mk">2</span><span>程式成功結束、結束碼 0，但<b class="hl-bad">這 5 秒 LED 沒亮</b>（人眼確認）。從程式的角度看，一切正常。</span></li>
+        <li><span class="mk">3</span><span>pad 打開後背景跑的那個程式持有 line 105，consumer 就是程式裡填的 <code>"edge_gpio_blink"</code>。這 5 秒 <b class="hl-ok">LED 閃了 5 次</b>（人眼確認）。<code>[1] 18262</code> 是 shell 印的背景工作編號和 PID，每次都不一樣。</span></li>
+        <li><span class="mk">4</span><span>第二個程式請求同一條 line，kernel 回 <code>EBUSY</code>，<code>perror</code> 印出原因，結束碼 1。一條 line 同一時間只能有一個使用者。</span></li>
+        <li><span class="mk">5</span><span>背景程式結束後 line 被釋放（<code>unused</code>）；方向仍顯示 output，因為釋放不會改動暫存器。</span></li>
+        <li><span class="mk">6</span><span>把 pad 關回去，板子回到開機時的狀態。</span></li>
+      </ol>
+      <p>如果你的第一行 <code>before:</code> 是 <code>0x00000058</code> 而不是 <code>0x00000458</code>，代表這次開機後還沒有程式請求過 line 105（bit 10 還沒被設起來），不影響結果。如果低位元組不是 <code>58</code> 或 <code>00</code>，腳本會拒寫：那代表這根腳被其他設定（例如 jetson-io）改過，先別硬寫。</p>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">4a.8</span><b>驗收</b>兩階段</div>
+    <div class="content">
+      <h2>驗收腳本：同一支程式，pad 關一次、開一次</h2>
+      <p><code>scripts/verify_edge_gpio_blink.sh</code> 把上一節自動化，並在每個階段讀 debugfs 的 pinconf 和電位。電位的取樣時間點是這樣定的：</p>
+      <figure class="listing"><figcaption>scripts/verify_edge_gpio_blink.sh:65–76 — 在 high 與 low 的中間各取樣一次</figcaption>
+<pre data-start="65" data-hot="73,74"># One full run (5 x 500 ms on / 500 ms off) in the background; sample the
+# register in the middle of the first high half and the first low half.
+sample_run() {
+    echo "    watch the LED on pin 29 for 5 s: $1"
+    sudo -u "$BUILD_USER" "$CLI" &gt;/dev/null &amp;
+    bg=$!
+    local deadline=$((SECONDS + 3))
+    until [[ "$(line_info)" == *'"edge_gpio_blink"'* ]] || ((SECONDS &gt; deadline)); do sleep 0.02; done
+    sleep 0.2; high="$(pin_level)"
+    sleep 0.5; low="$(pin_level)"
+    wait "$bg"; status=$?; bg=""
+}</pre></figure>
+      <p>程式固定 500 ms 亮、500 ms 暗。腳本看到 line 被 <code>edge_gpio_blink</code> 持有後，0.2 秒取一次（應在第一段 high 中間），再過 0.5 秒取一次（應在第一段 low 中間），兩個取樣點離切換時間都至少 200 ms。在 repo 根目錄執行（整支要 root，會問 sudo 密碼）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_gpio_blink.sh</pre>
+      <p>2026-10-10 的實測輸出：</p>
+<pre class="out" data-marks>--- pad at start: 0x00000400 pull=none tristate=0 input=0 function=0 «1»
+PASS build edge_gpio_blink (CMake)
+--- phase 1: pad closed (boot state)
+    115 (soc_gpio32_pq5): pull=2 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=1 function=rsvd0
+PASS pad tristated «2»
+    watch the LED on pin 29 for 5 s: it should stay DARK
+PASS register goes hi/lo although the pad is tristated «3»
+--- phase 2: pad opened
+    before: 0x00000458 pull=up tristate=1 input=1 function=0
+    after:  0x00000400 pull=none tristate=0 input=0 function=0
+    115 (soc_gpio32_pq5): pull=0 tristate=0 enable-input=0 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=1 function=rsvd0
+PASS pad drives (tristate=0, input=0) «4»
+    watch the LED on pin 29 for 5 s: it should BLINK 5 times (the unittests after it blink 2 x 5 more)
+PASS register goes hi then lo with the pad open
+PASS edge_gpio_blink unittests (hardware) as nvidia «5»
+PASS line 105 released
+PASS pad restored to low byte 0x00 «6»
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>開始時 pad 是開著的（之前手動開過）。腳本記下這個狀態，結束時還原。</span></li>
+        <li><span class="mk">2</span><span>pinconf 的 <code>tristate=1</code> 是 debugfs 對同一個暫存器的解讀，和 <code>pad_pin29.py</code> 讀到的一致。</span></li>
+        <li><span class="mk">3</span><span>這一行是本章的核心：暫存器確實在 hi 和 lo 之間切換，但<b class="hl-bad">這 5 秒 LED 完全沒亮</b>（人眼確認）。軟體層看起來一切正常。</span></li>
+        <li><span class="mk">4</span><span>打開後 <code>pull=0 tristate=0 enable-input=0</code>，<b class="hl-ok">LED 開始閃</b>（人眼確認；這一階段共跑三次程式，看到約 15 次閃爍）。</span></li>
+        <li><span class="mk">5</span><span>4a.6 的兩個實機測試，以呼叫 sudo 的使用者身分執行，CMake 不會在 <code>build/</code> 留下 root 的檔案。</span></li>
+        <li><span class="mk">6</span><span>pad 回到開始時的狀態。如果開始時是 <code>0x58</code>（剛開機），結束時就是關閉。</span></li>
+      </ol>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>cmake</code> 建置再跑腳本</td><td>腳本會以你的身分自己建置（<code>scripts/verify_edge_gpio_blink.sh:59</code>）。</td></tr>
+          <tr><td>跑完手動把 pad 改回去</td><td>腳本一開始記下低位元組（第 46–47 行），結束或中斷時由 <code>cleanup</code> 還原（第 52–55 行）。</td></tr>
+          <tr><td>另外跑實機測試</td><td>第二階段會以你的身分、帶 <code>EDGE_GPIO_HW=1</code> 執行（第 95 行）。</td></tr>
+          <tr><td>相信 PASS 就代表 LED 正常</td><td>不行：腳本讀不到腳位電壓。兩個階段都要親眼看 LED，一暗一閃才算通過。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">4a.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過或差點踩的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>debugfs 說 hi，就以為有電</h4><dl><dt>症狀</dt><dd><code>gpioinfo</code> 是 output、debugfs 是 <code>hi</code>，LED 不亮。</dd><dt>後果</dt><dd>花時間在沒有問題的 driver 上找 bug。</dd><dt>正解</dt><dd class="fix">那是 output 暫存器，不是腳位電壓。看 pinconf 的 tristate，並用 <code>gpioset</code> 這種不經過自己程式的工具對照。</dd></dl></div>
+        <div class="pit"><h4>照網路範例，以為開機就能用</h4><dl><dt>症狀</dt><dd>Python 範例在別人那裡能閃，在 JP6 上不亮。</dd><dt>後果</dt><dd>懷疑接線或程式。</dd><dt>正解</dt><dd class="fix">JP6 開機時這根腳的 pad 是 tristate。很多範例是 JP5 時代寫的，或作者先跑過 jetson-io（它產生的就是 pinmux overlay）。</dd></dl></div>
+        <div class="pit"><h4>沒讀就寫 /dev/mem</h4><dl><dt>症狀</dt><dd>憑印象的位址直接寫入。</dd><dt>後果</dt><dd>位址錯了就會改到別的硬體，而且沒有錯誤訊息。</dd><dt>正解</dt><dd class="fix">先讀、拆欄位和 debugfs 比對；<code>pad_pin29.py</code> 把「低位元組不符就拒寫」寫死。</dd></dl></div>
+        <div class="pit"><h4>gpioset 結束後 LED 還亮著</h4><dl><dt>症狀</dt><dd><code>gpioset --mode=time --sec=3 ... 105=1</code> 結束很久了，LED 仍亮。</dd><dt>後果</dt><dd>line 已經沒人管，腳位卻一直輸出 3.3 V。</dd><dt>正解</dt><dd class="fix">Tegra 釋放 line 時不會歸零。程式要自己最後寫 0 再釋放；4-b 的 driver 在 <code>remove()</code> 裡也要這樣做。</dd></dl></div>
+        <div class="pit"><h4>以為 pinconf 一個 group 一行</h4><dl><dt>症狀</dt><dd>驗收腳本用 <code>grep</code> 只抓到 <code>115 (soc_gpio32_pq5):</code>，兩項假 FAIL。</dd><dt>後果</dt><dd>腳本說 pad 沒開，但其實開了。</dd><dt>正解</dt><dd class="fix">那個檔案是「名稱一行、每個設定一行」，改用 awk 收到下一個 group 為止。</dd></dl></div>
+        <div class="pit"><h4>Jetson.GPIO 不認得 Super</h4><dl><dt>症狀</dt><dd>import 就丟出 <code>Could not determine Jetson model</code>。</dd><dt>後果</dt><dd>官方 Python 函式庫在這台不能用。</dd><dt>正解</dt><dd class="fix">Python 實驗改用 libgpiod；入庫的 C++ 版直接用 kernel 的 GPIO v2 uAPI。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">4a.10</span><b>收尾</b>4-a → 4-b</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">接線正確：pad 打開後，userspace 程式能讓 pin 29 的 LED 閃爍（人眼確認）。</li>
+        <li class="y">分層證明：同一支程式在 pad 關閉時暫存器照樣切換、LED 不亮，問題鎖定在 pad 的 tristate。</li>
+        <li class="y">line 的使用權：執行中 <code>gpioinfo</code> 看得到 consumer，第二個使用者拿到 busy，結束後釋放；驗收<b class="hl-ok">0 failure</b>。</li>
+        <li class="n">沒有自動驗證：程式結束時腳位是否為 low（line 釋放後 debugfs 不再列出），只靠看到 LED 熄滅。</li>
+        <li class="n">pad 是用 <code>/dev/mem</code> 硬改的，kernel 不知情，重開機就消失；bit 10 的意義和暫存器位址都沒有對照 TRM。</li>
+      </ul>
+      <p>下一步 4-b 回到原本的計畫：Device Tree 描述這顆 LED，platform driver 在 <code>probe()</code> 裡用 <code>devm_gpiod_get()</code> 拿到 GPIO。而本章用 <code>/dev/mem</code> 做的事，會改成寫在 overlay 裡的 pinctrl 狀態，在 <code>probe()</code> 之前由 kernel 自動套用。到時候 <code>edge_gpio_blink</code> 也有新用途：driver 載入期間跑它，應該要拿到 busy。</p>
+      <details class="quiz"><summary>1. debugfs 顯示 PQ.05 輸出 <code>hi</code>，LED 卻不亮。列出兩種可能，各要怎麼查？</summary><p>pad 被 tristate（看 debugfs <code>pinconf-groups</code> 的 <code>tristate=</code>，或讀 pinmux 暫存器）；接線問題（LED 方向接反、沒接到 pin 30，可以把 LED 改接 pin 1 的常時 3.3 V 確認 LED 本身是好的）。</p></details>
+      <details class="quiz"><summary>2. 為什麼 <code>gpioinfo</code> 用 105，而 Device Tree 裡同一根腳是 125？</summary><p>gpiochip 依序累加每個 port 實際的腳數，port Q 從 100 開始；DT binding 一律把每個 port 當 8 支腳算，15 × 8 + 5 = 125。driver 解析 DT 時再換算回 105。</p></details>
+      <details class="quiz"><summary>3. <code>pad_pin29.py</code> 為什麼讀到低位元組 <code>0x59</code> 時拒寫？</summary><p><code>0x59</code> 的 function 欄位是 1，代表這根腳被設成別的功能（或位址根本錯了）。腳本只認得開機值 <code>0x58</code> 和打開後的 <code>0x00</code>，其他值都不寫，避免改壞不認識的設定。</p></details>
+      <details class="quiz"><summary>4. 程式如果在迴圈中途寫了 1 之後就 crash，LED 會怎樣？</summary><p>kernel 會在程式結束時關掉 fd、釋放 line，但 Tegra 不會把輸出歸零，所以 LED 會一直亮著，直到有人再寫 0 或把 pad 關掉。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><span class="disabled">Step 4-b →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>

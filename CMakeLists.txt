@@ -14,3 +14,6 @@ target_include_directories(edge_test_cli PRIVATE include)
 
 add_executable(test_edge_device tests/test_edge_device.cpp)
 target_include_directories(test_edge_device PRIVATE include)
+
+# Step 4-a: userspace GPIO through the kernel's GPIO v2 character-device uAPI (fixed: pin 29).
+add_executable(edge_gpio_blink apps/edge_gpio_blink.cpp)

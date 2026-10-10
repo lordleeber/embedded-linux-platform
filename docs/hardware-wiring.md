@@ -1,6 +1,6 @@
 # 硬體接線與 pin mapping
 
-狀態：**尚未接線**（Step 1）。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
+狀態：LED 已接線（Step 4-a，2026-10-10），其餘**尚未接線**。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
 
 | 元件 / 訊號 | Jetson 40-pin header 實體 pin | Linux controller / bus | 電壓 | 對端 pin | 狀態 / 驗證 |
 |---|---|---|---|---|---|
@@ -12,7 +12,8 @@
 | OLED GND | 待確認 | GND，非 bus | 0 V | OLED GND | 未接線 |
 | OLED SDA | 待確認 | I2C controller 待確認 | 待確認 | OLED SDA | 未接線 |
 | OLED SCL | 待確認 | I2C controller 待確認 | 待確認 | OLED SCL | 未接線 |
-| LED signal | 待確認 | GPIO controller / line 待確認 | 待確認 | LED 限流電阻及正極 | 未接線 |
+| LED signal | 29（GPIO01） | `gpiochip0`（tegra234-gpio）line 105 = PQ.05；pad `soc_gpio32_pq5`（pinmux 暫存器 `0x02430068`）；DT cell `TEGRA234_MAIN_GPIO(Q, 5)` = 125 | 3.3 V | 330 Ω → 紅色 LED 正極（長腳） | 已接線，active-high。Step 4-a 實測：JP6 開機 pad 為 tristate，LED 不亮；pad 開啟後 `edge_gpio_blink` 可閃爍（人眼確認） |
+| LED GND | 30 | GND，非 bus | 0 V | 紅色 LED 負極（短腳） | 已接線 |
 | STM32F103 GND | 待確認 | GND，非 bus | 0 V | STM32 GND | 未接線 |
 | STM32F103 I2C SDA/SCL | 待確認 | I2C controller 待確認 | 待確認 | STM32 SDA/SCL 待確認 | 未接線 |
 | STM32F103 SPI CLK/MOSI/MISO/CS | 待確認 | SPI controller 待確認 | 待確認 | STM32 SPI pins 待確認 | 未接線 |
