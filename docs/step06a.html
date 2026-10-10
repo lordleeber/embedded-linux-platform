@@ -404,7 +404,7 @@ Traceback (most recent call last):
 KeyboardInterrupt «4»</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>raw <code>0x609A</code>，3S 電池在 9～12.6 V 之間，合理。</span></li>
-        <li><span class="mk">2</span><span>電流是 0：DC adapter 接著時，shunt 上沒有電流流過。6a.9 拔掉 adapter 時會變。</span></li>
+        <li><span class="mk">2</span><span>電流是 0：電池已經充飽（使用者確認），DC adapter 接著時由 adapter 供電，電池不充也不放，shunt 上沒有電流。電池沒滿時這裡會是充電電流；拔掉 adapter 時會變成放電電流（6a.10）。</span></li>
         <li><span class="mk">3</span><span>(12.364 − 9) / 3.6 = 93.44 %。</span></li>
         <li><span class="mk">4</span><span><code>timeout</code> 送的 SIGINT，和按 Ctrl-C 一樣。結束碼是 124（<code>timeout</code> 的「時間到」）。</span></li>
       </ol>
@@ -494,7 +494,7 @@ current on adapter: 0.000000 A «4»
         <li><span class="mk">1</span><span>controller <code>c250000.i2c</code>（pin 3 / 5）上，target 0x41 回應了位址。</span></li>
         <li><span class="mk">2</span><span>21 個案例全過，含 4 個實機案例：晶片確實保留了範例寫進去的設定。</span></li>
         <li><span class="mk">3</span><span>電壓在 3S 電池範圍內，電量照 <code>(V − 9) / 3.6</code>。</span></li>
-        <li><span class="mk">4</span><span>adapter 接著時電流 0：bus voltage 等於電池電壓，表示 INA219 量的是電池這一側；電池沒有在充放電，shunt 上就沒有電流。這是<b>推論</b>，要靠拔掉 adapter 驗證。</span></li>
+        <li><span class="mk">4</span><span>adapter 接著時電流 0：電池已經充飽（使用者確認），電池不充也不放，所以 shunt 上沒有電流。bus voltage 等於電池電壓，加上「充飽時電流歸零」，都指向 INA219 量的是電池這一側；這仍是<b>推論</b>，正負號代表哪個方向要靠拔掉 adapter 驗證。</span></li>
       </ol>
       <div class="callout"><p><b class="hl-bad">沒有實測</b>：拔掉 DC adapter 之後電流會不會變成非 0、正負號代表哪個方向（放電是負的嗎？）。腳本的這一段已經寫好，下次有人在板子旁邊時跑 <code>bash scripts/verify_ina219_sample.sh</code>（不加參數）補上，結果記進 <code>docs/baseline.md</code>。測試 <code>test_discharge_shows_negative_current</code> 只驗證範例「會把負的 raw 印成負數」，不能代替實機的方向。</p></div>
     </div>

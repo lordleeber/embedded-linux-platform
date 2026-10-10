@@ -184,7 +184,7 @@
   - raw register（範例跑過之後讀）：Config `0x0EEF`、Shunt `0x0000`、Bus `0x609A`（3091 × 4 mV = 12.364 V，CNVR=1、OVF=0）、Power `0x0000`、Current `0x0000`、Calibration `0x68F4`（26868）。
   - 讀不存在的位址（0x45）：`OSError(121, 'Remote I/O error')`。
   - 容差：電壓判定「9.0～12.8 V」（3S 鋰電池 9～12.6 V，留 0.2 V）；電量和公式 `(V − 9) / 3.6` 差 ≤ 0.01 %。拔掉 adapter 時判定「|I| ≥ 0.05 A」。
-- **未實測**：拔掉 DC adapter 後的電流與正負號（遠端登入，沒人能拔）。腳本那一段已寫好，下次在板子旁邊跑 `bash scripts/verify_ina219_sample.sh`（不加參數）補記。adapter 接著時電流 0、bus 電壓等於電池電壓，推論 INA219 量的是電池側（未查證）；shunt 0.01 Ω 是範例註解的假設，也未查證。
+- **未實測**：拔掉 DC adapter 後的電流與正負號（遠端登入，沒人能拔）。腳本那一段已寫好，下次在板子旁邊跑 `bash scripts/verify_ina219_sample.sh`（不加參數）補記。adapter 接著時電流 0 是因為電池已充飽（使用者確認，2026-10-11）：不充不放；加上 bus 電壓等於電池電壓，推論 INA219 量的是電池側（未查證）。電池沒滿時，adapter 接著也該看到充電電流，可以順便驗方向；shunt 0.01 Ω 是範例註解的假設，也未查證。
 - 自動測試：`tests/test_ina219_sample.py` 21 個案例（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 2、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：148 個，`OK (skipped=39)`。
 - 紅燈紀錄：範例複製進 repo 前 19 個案例 1 failure + 13 errors（實機模式 14 errors）；「Config 逐欄拆解」「讀不存在的位址」兩條不依賴範例，先就會過，是守門測試。驗收腳本的兩條測試在腳本寫好前 1 failure + 1 error。
 - 規模：新增程式約 400 行（測試 260、驗收腳本 120、README 15）；範例本身 175 行是第三方原檔，不計。
