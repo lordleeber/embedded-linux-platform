@@ -73,6 +73,7 @@ poll()
 - error/status model
 - mockable interface
 - 最小 `platform-app`
+- 順帶整理（Step 5-a code review 延後）：`edge_gpio_button.cpp` 與 `edge_button_wait.cpp` 的參數解析、signal 設定、印事件迴圈幾乎相同，收進 abstraction；`scripts/verify_edge_*.sh` 裡重複的 `pinconf`、`pin_level`、`check_events`、`held_seconds` 抽成共用的 shell 檔
 
 ### 這一步到底要做什麼
 

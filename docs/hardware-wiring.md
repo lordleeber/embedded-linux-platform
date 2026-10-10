@@ -14,7 +14,7 @@
 | OLED SCL | 待確認 | I2C controller 待確認 | 待確認 | OLED SCL | 未接線 |
 | LED signal（已拆除） | 29（GPIO01） | `gpiochip0`（tegra234-gpio）line 105 = PQ.05；pad `soc_gpio32_pq5`（pinmux 暫存器 `0x02430068`）；DT cell `TEGRA234_MAIN_GPIO(Q, 5)` = 125 | 3.3 V | 330 Ω → 紅色 LED 正極（長腳） | 已接線，active-high。Step 4-a 實測：JP6 開機 pad 為 tristate，LED 不亮；pad 開啟後 `edge_gpio_blink` 可閃爍（人眼確認） |
 | LED GND | 30 | GND，非 bus | 0 V | 紅色 LED 負極（短腳） | 已拆除（Step 5-b） |
-| Button signal | 33（GPIO13） | `gpiochip0` line 43 = PH.00；pad `soc_gpio21_ph0`；DT cell `TEGRA234_MAIN_GPIO(H, 0)` = 56；載板上經 TI TXB0108 電平轉換（規格書 SP-11324-001 Table 3-3 Note 3） | 3.3 V | 按鍵一腳；同一點經 330 Ω 上拉到 pin 1 | 已接線，active-low。只靠 SoC 內部上拉時恆讀 0（TXB0108 的 ~4 kΩ buffer 保持電位）；加 330 Ω 上拉後放開 1、按下 0（`gpioget` 實測）。Step 5-a 補充：請求 line 後約 20 ms 內 pin 讀到 0，所以單次 `gpioget` 可能在放開時讀到 0，要讀兩次或等程式持有 line 後再看；開機預設 pad 是 `pull=1`（下拉）`tristate=1 enable-input=1`，外接上拉蓋過下拉 |
+| Button signal | 33（GPIO13） | `gpiochip0` line 43 = PH.00；pad `soc_gpio21_ph0`；DT cell `TEGRA234_MAIN_GPIO(H, 0)` = 56；載板上經 TI TXB0108 電平轉換（規格書 SP-11324-001 Table 3-3 Note 3） | 3.3 V | 按鍵一腳；同一點經 330 Ω 上拉到 pin 1 | 已接線，active-low。只靠 SoC 內部上拉時恆讀 0（TXB0108 的 ~4 kΩ buffer 保持電位）；加 330 Ω 上拉後，Step 5-b / 5-a 的驗收都通過（按一下 pressed + released、長按、快速連按）。確認接線請用 `build/edge_gpio_button 4` 按兩下，**不要用單次 `gpioget`**：請求 line 後約 20 ms 內 pin 一律讀到 0（Step 5-a 實測），放開時也可能讀到 0；開機預設 pad 是 `pull=1`（下拉）`tristate=1 enable-input=1`，外接上拉蓋過下拉 |
 | Button 上拉電源 | 1（3.3 V） | 電源，非 bus | 3.3 V | 330 Ω → pin 33 | 已接線 |
 | Button GND | 34 | GND，非 bus | 0 V | 按鍵另一腳（四腳按鍵用對角兩腳） | 已接線 |
 | STM32F103 GND | 待確認 | GND，非 bus | 0 V | STM32 GND | 未接線 |

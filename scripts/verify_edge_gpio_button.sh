@@ -87,7 +87,8 @@ echo "    $conf"
 if dmesg | grep -q 'edge_button edge-button: probed'; then
     echo "    note: edge_button probed earlier in this boot, so its pinctrl state may still be set; reboot to see the boot default"
 else
-    echo "    no edge_button probe in this boot: this is the boot-default pad"
+    echo "    no edge_button probe in this boot: pull / tristate / enable-input are the boot default"
+    echo "    (gpio-mode is not: it turns 1 once line $LINE has been requested and released, as in Step 4-b)"
 fi
 if [[ $conf == *enable-input=1* ]]; then pass "PH.00 pad: input enabled"; else fail "PH.00 pad: input disabled, the pin cannot be read"; fi
 
@@ -103,14 +104,19 @@ else
     echo "    pin 33 needs 330 Ohm..1 kOhm to 3.3 V (pin 1): see Step 5-b. Skipping presses."
     PRESS=0
 fi
-read -r -a st <"/proc/$pid/stat"
-ticks=$((st[13] + st[14]))   # utime + stime
-if [[ ${st[2]} == S && $ticks -le 1 ]]; then
-    pass "reader asleep after 3 s (state S, $ticks CPU ticks, wchan $(cat /proc/$pid/wchan))"
+# The reader may already be gone (someone pressed): /proc/$pid then no longer exists.
+if read -r -a st 2>/dev/null <"/proc/$pid/stat" && ((${#st[@]} > 14)); then
+    ticks=$((st[13] + st[14]))   # utime + stime
+    if [[ ${st[2]} == S && $ticks -le 1 ]]; then
+        pass "reader asleep after 3 s (state S, $ticks CPU ticks, wchan $(cat /proc/$pid/wchan))"
+    else
+        fail "reader state ${st[2]}, $ticks CPU ticks in 3 s"
+    fi
 else
-    fail "reader state ${st[2]}, $ticks CPU ticks in 3 s"
+    fail "reader exited within 3 s: $(cat "$tmpdir/blocked" "$tmpdir/blocked.err")"
 fi
-busy="$("$APP" 1 2>&1)"; rc=$?
+# timeout: if the first reader is gone, this one gets the line and would wait forever.
+busy="$(timeout -k 1 2 "$APP" 1 2>&1)"; rc=$?
 if [[ $rc -eq 1 && $busy == *busy* ]]; then pass "second reader gets EBUSY: $busy"; else fail "second reader: exit $rc, '$busy'"; fi
 kill -TERM "$pid"
 if timeout 2 tail --pid="$pid" -f /dev/null; then
@@ -161,9 +167,10 @@ if ((PRESS)); then
     echo ">>> stop"
     n=$(grep -c . "$tmpdir/rapid")
     echo "    $n events read, $(head -c 300 "$tmpdir/rapid" | tr '\n' ' ')"
-    # Per the gpiolib-cdev source (not checked on this box), a full 16-entry queue drops the oldest
-    # event: that shows as a seq gap.
-    if ((n >= 4)) && check_events "$tmpdir/rapid" >/dev/null; then
+    # seq is the program's own count; kernel-side losses are reported on stderr as "lost".
+    if grep -q lost "$tmpdir/rapid.err"; then
+        fail "rapid presses: kernel dropped events: $(grep lost "$tmpdir/rapid.err" | tr '\n' ' ')"
+    elif ((n >= 4)) && check_events "$tmpdir/rapid" >/dev/null; then
         pass "rapid presses: $n events, alternating, no seq gap"
     else
         fail "rapid presses: $n events"; check_events "$tmpdir/rapid"

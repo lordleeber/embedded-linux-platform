@@ -67,6 +67,19 @@ class SourceContractTest(unittest.TestCase):
         self.assertIn("gpio_v2_line_event", self.src)
         self.assertRegex(self.src, r"read\(\s*req\.fd\s*,")
 
+    def test_printed_seq_is_our_own_count(self):
+        # Events that do not change the state are skipped; printing the kernel's seqno
+        # would turn every skip into a "seq gap" (code review, PR #8).
+        m = re.search(r'printf\("seq=%[^;]*;', self.src, re.S)
+        self.assertIsNotNone(m)
+        self.assertNotIn("ev.seqno", m.group(0))
+
+    def test_kernel_seqno_gap_is_reported_as_lost(self):
+        # A real overflow (gpiolib-cdev drops events) still has to be visible: compare the
+        # kernel's seqno with the previous one, on every event read, skipped or not.
+        self.assertRegex(self.src, r"ev\.seqno\s*!=\s*\w+\s*\+\s*1")
+        self.assertIn("lost", self.src)
+
     def test_signal_handler_only_sets_a_flag(self):
         # Step 5-b's review lesson: a signal between reads must not be lost.
         self.assertIn("volatile std::sig_atomic_t", self.src)

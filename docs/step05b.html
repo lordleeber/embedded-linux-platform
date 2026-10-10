@@ -310,11 +310,11 @@ TXB 要認成「高」：  &gt; 0.65 × 3.3 V ≈ 2.15 V</pre>
       <p>接好之後用 <a href="step05a.html">Step 5-a</a> 的 userspace 程式確認，不需要 root（使用者在 <code>gpio</code> 群組即可）、也不需要載入 driver（載入時 line 43 被它佔用，這個程式會拿到 busy）。執行後<b>按兩下按鍵</b>：</p>
 <pre class="cmd">./build/edge_gpio_button 4</pre>
 <pre class="out">ignored 1 edge(s) while the line settled
-seq=2 pressed t=251.928330986
-seq=3 released t=252.110325436
-seq=4 pressed t=253.242332112
-seq=5 released t=253.410331610</pre>
-      <p>（2026-10-10 實測，重開機後、沒有載入 driver。）每按一下要有一筆 pressed、一筆 released；完全沒有輸出，就是上拉不夠，或四腳按鍵接到同一側、內部永遠導通的兩支腳。第一行和 seq 從 2 開始的原因見 5-a。不要用單次 <code>gpioget gpiochip0 43</code> 確認：它在請求 line 後立刻讀，放開時也常常讀到 0（5-a 實測）。</p>
+seq=1 pressed t=1396.230767131
+seq=2 released t=1396.393764653
+seq=3 pressed t=1397.585802443
+seq=4 released t=1397.750802063</pre>
+      <p>（2026-10-10 實測，重開機後、沒有載入 driver。）每按一下要有一筆 pressed、一筆 released；完全沒有輸出，就是上拉不夠，或四腳按鍵接到同一側、內部永遠導通的兩支腳。第一行的原因見 5-a。不要用單次 <code>gpioget gpiochip0 43</code> 確認：它在請求 line 後立刻讀，放開時也常常讀到 0（5-a 實測）。</p>
     </div>
   </section>
 

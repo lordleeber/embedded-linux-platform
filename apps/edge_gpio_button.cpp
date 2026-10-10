@@ -6,7 +6,10 @@
 // both edges and a 20 ms debounce, then read() the line request fd.
 //
 // Usage: edge_gpio_button [count]    count >= 1, default 1
-// Same output as edge_button_wait: "seq=3 pressed t=1234.567890123".
+// Same output as edge_button_wait: "seq=3 pressed t=1234.567890123", where seq counts
+// the presses/releases printed. A gap in the kernel's own seqno (gpiolib-cdev dropped
+// events) is reported on stderr as "lost". A press that starts during the 50 ms settle
+// is taken as the initial state, so the first event printed is then its release.
 // EDGE_GPIO_CHIP overrides the chip path (tests).
 // Exit status: 0 = COUNT events read, 1 = chip/line error or interrupted, 2 = usage.
 #include <cerrno>
@@ -84,13 +87,16 @@ int main(int argc, char **argv)
     // Measured on this board: for ~20 ms after the request the line reads "pressed",
     // then settles, and gpiolib reports that as an edge nobody made. Let it settle,
     // drop what arrived meanwhile, and start from the level read afterwards.
+    // 30 starts in a row: every one had that edge, none arrived after 50 ms.
     usleep(50000);
     int ignored = 0;
+    unsigned int seqno = 0;                                // kernel's, last one read
     pollfd pfd{req.fd, POLLIN, 0};
     while (poll(&pfd, 1, 0) > 0) {
         gpio_v2_line_event junk{};
         if (read(req.fd, &junk, sizeof(junk)) != static_cast<ssize_t>(sizeof(junk)))
             break;
+        seqno = junk.seqno;
         ignored++;
     }
     gpio_v2_line_values val{};
@@ -117,13 +123,17 @@ int main(int argc, char **argv)
             rc = 1;
             break;
         }
+        if (ev.seqno != seqno + 1)                         // the kernel queue overflowed
+            std::fprintf(stderr, "lost %u event(s) (kernel seqno %u -> %u)\n",
+                         ev.seqno - seqno - 1, seqno, ev.seqno);
+        seqno = ev.seqno;
         // Rising = inactive to active; with ACTIVE_LOW that is the press.
         int pressed = ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE;
         if (pressed == last)                               // no state change: not a press or release
             continue;
         last = pressed;
         printed++;
-        std::printf("seq=%u %s t=%llu.%09llu\n", ev.seqno, pressed ? "pressed" : "released",
+        std::printf("seq=%ld %s t=%llu.%09llu\n", printed, pressed ? "pressed" : "released",
                     static_cast<unsigned long long>(ev.timestamp_ns / 1000000000ULL),
                     static_cast<unsigned long long>(ev.timestamp_ns % 1000000000ULL));
         std::fflush(stdout);

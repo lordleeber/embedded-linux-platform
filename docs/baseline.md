@@ -154,7 +154,7 @@
   - 實機 unittest（gpio 群組使用者）通過。
   - 按一下：`seq=2 pressed` → 0.167 s 後 `seq=3 released`（seq=1 是被丟掉的啟動假事件）；之後沒有多餘事件。長按 1.90 s。快速連按 6 秒讀到 24 筆，交替、連號。
   - 與 5-b 對照：同樣的檢查、同樣的輸出格式都通過；差在 5-b 有 `irq_count` / `dropped` 計數可看，5-a 只看得到 kernel 的 `seqno`。
-- 自動測試：`tests/test_edge_gpio_button.py` 13 個案例（原始碼契約 6：v2 uAPI、line 43、不用 libgpiod、`INPUT | ACTIVE_LOW | EDGE_RISING | EDGE_FALLING`、debounce 20000 µs、rising → pressed、整筆讀 `gpio_v2_line_event`、signal 旗標且不設 `SA_RESTART`；CLI 2：用法錯誤回 2、chip 不存在回 1；實機 5，`EDGE_GPIO_HW=1` 才跑，不需要按：持有 line 時 gpioinfo 顯示 active-low input、**沒人按時 0.5 秒內不能有事件**、第二個實例 busy、等待時 0 CPU、SIGTERM / SIGINT 結束並釋放 line）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=35)`。
+- 自動測試：`tests/test_edge_gpio_button.py` 13 個案例，code review 後 15 個（加了「印出的 seq 是自己的計數」「kernel seqno 缺口要報 lost」）（原始碼契約 6：v2 uAPI、line 43、不用 libgpiod、`INPUT | ACTIVE_LOW | EDGE_RISING | EDGE_FALLING`、debounce 20000 µs、rising → pressed、整筆讀 `gpio_v2_line_event`、signal 旗標且不設 `SA_RESTART`；CLI 2：用法錯誤回 2、chip 不存在回 1；實機 5，`EDGE_GPIO_HW=1` 才跑，不需要按：持有 line 時 gpioinfo 顯示 active-low input、**沒人按時 0.5 秒內不能有事件**、第二個實例 busy、等待時 0 CPU、SIGTERM / SIGINT 結束並釋放 line）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=35)`。
 - 紅燈紀錄：程式不存在時原始碼 6 failures、CLI 與實機兩組 error；寫好第一版後實機 3 個 failure，追出啟動假事件；補「沒人按不能有事件」先紅，加穩定期後轉綠。`SA_RESTART` 那條第一版比對到自己的註解（測試寫錯），改成只檢查 `sa_flags`。
 - 時間戳：同一次執行中，毫秒的小數部分幾乎固定（0.10～0.18 ms，另一次 0.33 ms），也就是落在 1 ms 的格點上；5-b 修正後是隨機分布、修正前是 4 ms 格點。推測是 Tegra GPIO 的硬體 debounce 以 1 ms 為單位計數、debounce 結束才發中斷，所以時間戳約晚 20 ms（**推論，未查證**）。
 - 規模：新增程式約 482 行（C++ 132、驗收腳本約 200、測試約 160），在上限內；實作前估約 430 行。
@@ -165,4 +165,12 @@
 - 同一個現象讓 `gpioget gpiochip0 43` 在放開時也讀到 0（隔 1 秒連跑 4 次都是 0）。Step 5-b 的章（5b.3）和 hardware-wiring.md 寫「放開時 `gpioget` 應該讀到 1」，那次讀到 1 是因為剛好緊接在別的請求之後；本步一併更正。
 - 寫測試時把 `proc.communicate()` 放在斷言的訊息參數裡，訊息在斷言前就會先求值，而 `communicate()` 會等程式結束；程式正確地睡著等按鍵，測試就卡住，直到被 120 秒的指令時限打斷。訊息要在確定失敗之後才組。
 - 開機預設 pad 是內部**下拉**（`pull=1`），和 5-b pinctrl 設的上拉相反；兩者都被外接 330 Ω 蓋過，所以這個差異在有外接上拉時看不出來。
+- code review（PR #8）：
+  - 原本以為印 kernel 的 `seqno` 最直接；但程式會略過不改變狀態的事件，每略過一筆就變成 seq 跳號，驗收腳本會誤判成遺失，真正的佇列溢位也分不出來。改成印自己的計數，kernel 的 `seqno` 只用來偵測缺口，有缺口就在 stderr 印 `lost`，快速連按段檢查它。
+  - 原本以為驗收腳本的「第二個 reader 拿到 busy」一定會立刻結束；第一個 reader 如果已經因為有人按而結束，第二個就會拿到 line 並永遠等下去。加 `timeout -k 1 2`。
+  - 原本以為 reader 一定還活著；它已經結束時讀 `/proc/$pid/stat` 失敗，`set -u` 下 `st[13]` 會讓腳本直接中止、不記 FAIL 也不印總結。現在先確認讀得到，否則記一筆 FAIL（用已結束的 PID 驗過）。
+  - 50 ms 穩定期的餘裕：連續啟動 30 次（每次間隔 0.5 s），30 次都有那筆啟動假事件、0 次漏過 50 ms；先前量到的到達時間是請求後 20.1～21.0 ms。review 擔心「晚到會偶發失敗」，這組數據支持維持 50 ms。
+  - 50 ms 內開始的按壓會被當成初始狀態，第一筆印出 released：行為已寫進程式開頭的註解與章，腳本在穩定之後才提示。
+  - review 修正後重跑（2026-10-10，同一次開機、沒有載入 driver）：`=== 0 failure(s)`；按一下 `seq=1` / `seq=2`、長按 2.10 s、快速連按 44 筆、無 `lost`。pinconf 的 `gpio-mode` 這次是 1（第一次是 0）：這次開機 line 43 已被 userspace 請求、釋放過很多次，和 4-b「釋放後變 1」相同。腳本原本說「this is the boot-default pad」太絕對，改成只有 pull / tristate / enable-input 是開機預設值。
+  - 延後：signal 旗標與 `read()` 之間的競態（兩支程式都有）排進 Phase 8 Step 19，用 `ppoll()` 根治；兩支程式和驗收腳本的重複程式碼排進 Phase 9 Step 21。hardware-wiring.md 不再以 `gpioget` 讀值當接線證據。
 

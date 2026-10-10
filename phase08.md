@@ -80,6 +80,7 @@ Linux asynchronous I/O
 - event flag / event queue
 - C++ `poll()` client
 - timeout/error handling
+- 順帶修正（Step 5-a code review 延後）：`apps/edge_button_wait.cpp`、`apps/edge_gpio_button.cpp` 在「檢查 signal 旗標」和「進入 `read()`」之間有競態，signal 剛好落在中間時要等到下一個事件才醒；改用 `ppoll()` 搭配 signal mask 根治（驗收腳本目前靠 `timeout -k` 兜底）
 
 
 <!-- STEP_DETAIL_START -->

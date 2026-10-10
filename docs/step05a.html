@@ -193,7 +193,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <text class="s-mono" x="14" y="412">USERSPACE</text>
           <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--user)"/>
           <text class="s-key" x="350" y="405" text-anchor="middle">edge_gpio_button：rising → pressed</text>
-          <text class="s-sm" x="350" y="426" text-anchor="middle">略過不改變狀態的事件，印出 seq=2 pressed t=…</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">略過不改變狀態的事件，印出 seq=1 pressed t=…</text>
           <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m5aDown)"/>
           <line class="sv-down" x1="200" y1="169" x2="200" y2="196" marker-end="url(#m5aDown)"/>
           <line class="sv-down" x1="200" y1="259" x2="200" y2="286" marker-end="url(#m5aDown)"/>
@@ -221,7 +221,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <tr><td>事件格式</td><td><code>struct gpio_v2_line_event</code>（48 bytes，kernel 定義）</td><td><code>struct edge_button_event</code>（16 bytes，自己定義）</td></tr>
           <tr><td>權限</td><td><code>/dev/gpiochip0</code> 是 <code>root:gpio 0660</code>，gpio 群組才能用</td><td><code>/dev/edge_button</code> 0444，任何人都能開（已知限制）</td></tr>
           <tr><td>同時兩個 reader</td><td>同一條 line 只能請求一次，第二個拿到 <code>EBUSY</code></td><td>獨占 open，第二個拿到 <code>EBUSY</code></td></tr>
-          <tr><td>計數器</td><td>只有事件裡的 <code>seqno</code></td><td>sysfs 的 <code>irq_count</code>、<code>event_count</code>、<code>dropped</code></td></tr>
+          <tr><td>計數器</td><td>只有事件裡 kernel 的 <code>seqno</code>（程式用它偵測遺失；印出的 seq 是自己的計數）</td><td>sysfs 的 <code>irq_count</code>、<code>event_count</code>、<code>dropped</code></td></tr>
         </tbody>
       </table>
       <p>只是要在應用程式裡等按鍵，5-a 的做法就夠了，而且不必編譯、載入 kernel module。要做成 kernel driver，通常是因為事件得交給其他 kernel 子系統（例如 <code>gpio-keys</code> 把按鍵變成鍵盤輸入），或硬體描述要放在 Device Tree、讓同一份程式在不同板子上都能用。</p>
@@ -232,8 +232,8 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">5a.4</span><b>請求</b><span class="dot" style="background: var(--user)"></span>ioctl</div>
     <div class="content">
       <h2>請求 line：輸入、低電位有效、雙邊緣、20 ms debounce</h2>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:67–82 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
-<pre data-start="67" data-hot="68,70,71,72,73,74,75,77">    gpio_v2_line_request req{};
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:70–85 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
+<pre data-start="70" data-hot="71,73,74,75,76,77,78,80">    gpio_v2_line_request req{};
     req.offsets[0] = 43;                                   // PH.00 = header pin 33
     req.num_lines = 1;
     req.config.flags = GPIO_V2_LINE_FLAG_INPUT | GPIO_V2_LINE_FLAG_ACTIVE_LOW |
@@ -291,18 +291,20 @@ event falling(released) seq=1 at request+20884 us «2»</pre>
         <figcaption>圖 5.2 — 請求後的前 20 ms，pin 讀到的不是真實電位，kernel 還把恢復的那一下報成事件。程式等 50 ms（量到約 20 ms，留 2.5 倍餘裕），把這段時間的事件丟掉，再用之後讀到的電位當起點。</figcaption>
       </figure>
       <p>這個現象還有一個規律：line 剛被釋放不久（不到約 0.3 秒）再請求時<b>不會</b>發生，所以連續重跑時看不到，隔一下就看得到。為什麼要 20 ms，我沒有查到原因，這裡只記實測事實。</p>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:83–104 — 啟動後先等 50 ms：丟掉期間的事件，讀穩定後的電位</figcaption>
-<pre data-start="83" data-hot="86,89,91,93,97,102,104">
-    // Measured on this board: for ~20 ms after the request the line reads "pressed",
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:87–111 — 啟動後先等 50 ms：丟掉期間的事件，讀穩定後的電位</figcaption>
+<pre data-start="87" data-hot="91,93,95,97,99,100,104,109,111">    // Measured on this board: for ~20 ms after the request the line reads "pressed",
     // then settles, and gpiolib reports that as an edge nobody made. Let it settle,
     // drop what arrived meanwhile, and start from the level read afterwards.
+    // 30 starts in a row: every one had that edge, none arrived after 50 ms.
     usleep(50000);
     int ignored = 0;
+    unsigned int seqno = 0;                                // kernel's, last one read
     pollfd pfd{req.fd, POLLIN, 0};
     while (poll(&amp;pfd, 1, 0) &gt; 0) {
         gpio_v2_line_event junk{};
         if (read(req.fd, &amp;junk, sizeof(junk)) != static_cast&lt;ssize_t&gt;(sizeof(junk)))
             break;
+        seqno = junk.seqno;
         ignored++;
     }
     gpio_v2_line_values val{};
@@ -313,15 +315,22 @@ event falling(released) seq=1 at request+20884 us «2»</pre>
         return 1;
     }
     int last = val.bits &amp; 1;                               // logical: 1 = pressed
-    if (ignored)</pre></figure>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:119–124 — 之後只印改變狀態的事件</figcaption>
-<pre data-start="119" data-hot="120,121,122,123">        }
+    if (ignored)
+        std::fprintf(stderr, "ignored %d edge(s) while the line settled\n", ignored);</pre></figure>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:126–135 — 之後：kernel seqno 有缺口就報 lost，只印改變狀態的事件</figcaption>
+<pre data-start="126" data-hot="126,127,129,131,132,133,135">        if (ev.seqno != seqno + 1)                         // the kernel queue overflowed
+            std::fprintf(stderr, "lost %u event(s) (kernel seqno %u -&gt; %u)\n",
+                         ev.seqno - seqno - 1, seqno, ev.seqno);
+        seqno = ev.seqno;
         // Rising = inactive to active; with ACTIVE_LOW that is the press.
         int pressed = ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE;
         if (pressed == last)                               // no state change: not a press or release
             continue;
-        last = pressed;</pre></figure>
-      <p>這和 5-b driver 的 <code>if (val == eb-&gt;last) return;</code> 是同一個想法：只有狀態真的改變才算一次按下或放開。kernel 的 <code>seqno</code> 會把被丟掉的那筆也算進去，所以程式印出的第一筆通常是 <code>seq=2</code>。</p>
+        last = pressed;
+        printed++;</pre></figure>
+      <p>這和 5-b driver 的 <code>if (val == eb-&gt;last) return;</code> 是同一個想法：只有狀態真的改變才算一次按下或放開。</p>
+      <p>印出的 <code>seq</code> 是程式<b>自己的計數</b>，只算印出來的 pressed / released。第一版直接印 kernel 的 <code>seqno</code>：kernel 把被丟掉的啟動假事件也算進去，第一筆就是 <code>seq=2</code>；更麻煩的是每略過一筆事件都會變成跳號，驗收腳本會誤判成遺失，真正的佇列溢位也分不出來（code review 指出）。現在 kernel 的 <code>seqno</code> 只拿來檢查有沒有缺口：每讀一筆（不管有沒有略過）就和上一筆比，缺了就在 stderr 印 <code>lost</code>。</p>
+      <p>50 ms 夠不夠？連續啟動 30 次（每次間隔 0.5 秒）：30 次都出現那筆假事件，0 次在 50 ms 之後才到，和量到的 20.1～21.0 ms 一致。另外，如果按壓剛好在這 50 ms 內開始，穩定後讀到的就是「按下」，程式把它當成初始狀態，第一筆印出的會是它的 released。驗收腳本等穩定之後才提示人按，所以不會碰到。</p>
       <div class="callout"><p>同一個現象也會讓 <code>gpioget</code> 讀錯：它請求 line 之後立刻讀，放開時也讀到 0。這台板子上實測（不需要 root）：</p></div>
 <pre class="cmd">for i in 1 2 3 4; do sleep 1; gpioget gpiochip0 43; done</pre>
 <pre class="out">0
@@ -347,9 +356,8 @@ interrupted
     <div class="rail"><span class="no">5a.6</span><b>read()</b><span class="dot" style="background: var(--user)"></span>事件迴圈</div>
     <div class="content">
       <h2>讀事件：一次一筆 gpio_v2_line_event</h2>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:106–129 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
-<pre data-start="106" data-hot="110,112,113,120,125">
-    int rc = 0;
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:113–140 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
+<pre data-start="113" data-hot="117,119,120,131,136">    int rc = 0;
     long printed = 0;
     while (printed &lt; count) {
         gpio_v2_line_event ev{};
@@ -362,19 +370,24 @@ interrupted
             rc = 1;
             break;
         }
+        if (ev.seqno != seqno + 1)                         // the kernel queue overflowed
+            std::fprintf(stderr, "lost %u event(s) (kernel seqno %u -&gt; %u)\n",
+                         ev.seqno - seqno - 1, seqno, ev.seqno);
+        seqno = ev.seqno;
         // Rising = inactive to active; with ACTIVE_LOW that is the press.
         int pressed = ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE;
         if (pressed == last)                               // no state change: not a press or release
             continue;
         last = pressed;
         printed++;
-        std::printf("seq=%u %s t=%llu.%09llu\n", ev.seqno, pressed ? "pressed" : "released",
+        std::printf("seq=%ld %s t=%llu.%09llu\n", printed, pressed ? "pressed" : "released",
                     static_cast&lt;unsigned long long&gt;(ev.timestamp_ns / 1000000000ULL),
                     static_cast&lt;unsigned long long&gt;(ev.timestamp_ns % 1000000000ULL));
-        std::fflush(stdout);</pre></figure>
+        std::fflush(stdout);
+    }</pre></figure>
       <ul>
         <li><code>read()</code> 要一次讀一整筆 <code>gpio_v2_line_event</code>（48 bytes）；也可以給更大的 buffer 一次讀好幾筆，這裡一次一筆，和 5-b 的程式一樣。</li>
-        <li>signal 的處理照 5-b code review 的教訓：handler 只設旗標、不設 <code>SA_RESTART</code>，每次 <code>read()</code> 前檢查旗標。</li>
+        <li>signal 的處理照 5-b code review 的教訓：handler 只設旗標、不設 <code>SA_RESTART</code>，每次 <code>read()</code> 前檢查旗標。已知限制：檢查旗標和進入 <code>read()</code> 之間有極小的空隙，signal 剛好落在中間時，要等到下一個事件才會醒。根治要用 <code>ppoll()</code> 搭配 signal mask，排進 Phase 8 的 Step 19（那一步本來就要寫 <code>poll()</code> client）；驗收腳本目前靠 <code>timeout -k</code> 兜底。</li>
         <li><b>輸出格式和 5-b 的 <code>edge_button_wait</code> 完全相同</b>，兩支驗收腳本用同一套檢查（pressed / released 交替、seq 連號）。</li>
       </ul>
       <p>時間戳有一個觀察：同一次執行中，毫秒的小數部分幾乎固定（例如 <code>213.055104920</code>、<code>213.222101615</code>，都是 x.10 ms），也就是落在 1 ms 的格點上。5-b 修正後在 IRQ 取時間，數字是隨機的；5-b 修正前在 work 取時間，落在 4 ms 的格點上（<code>CONFIG_HZ=250</code>）。我的推測是 Tegra 的 GPIO controller 支援硬體 debounce、以 1 ms 為單位計數，訊號穩定 20 ms 之後才發中斷，所以 5-a 的時間戳大約比按下晚 20 ms。<b>這是推論，沒有查證</b>（沒有讀 tegra186 GPIO driver 的原始碼，這台也沒有附）。</p>
@@ -392,7 +405,7 @@ interrupted
         <li><span class="mk">1</span><span><code>enable-input=1</code>：輸入有開，所以不需要任何 pad 設定就能讀。<code>tristate=1</code> 只關掉輸出，對輸入沒有影響。<code>pull=1</code> 是內部<b>下拉</b>（5-b 的 pinctrl 設的是上拉 <code>pull=2</code>）；外接的 330 Ω 上拉比它強很多，所以放開時還是 1。</span></li>
         <li><span class="mk">2</span><span>腳本用 <code>dmesg</code> 找這次開機有沒有 <code>edge_button</code> probe 過：pinctrl 狀態在 driver 卸載後不會還原，probe 過的話看到的就不是開機預設值了。</span></li>
       </ol>
-      <p>這個輸出來自下一節的驗收腳本（要 root 才能讀 debugfs 的 pinconf）。</p>
+      <p>這個輸出來自下一節的驗收腳本（要 root 才能讀 debugfs 的 pinconf）。注意最後的 <code>gpio-mode=0</code>：同一次開機裡，line 43 被請求、釋放過之後它會變成 1（5a.9 的重跑就是），所以只有 pull、tristate、enable-input 三項算開機預設值，腳本的訊息後來也改成這樣。</p>
     </div>
   </section>
 
@@ -400,16 +413,16 @@ interrupted
     <div class="rail"><span class="no">5a.8</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>不按按鍵能測的，先寫成測試</h2>
-      <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py">13</span> 個案例。</p>
+      <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py">15</span> 個案例。</p>
       <ul>
-        <li><b>原始碼契約（6）</b>：期望值照 <code>&lt;linux/gpio.h&gt;</code> 的定義寫，不是從程式抄的。用 v2 uAPI、line 43、不依賴 libgpiod；四個旗標都在；debounce 20000 µs；rising 印成 pressed；整筆讀 <code>gpio_v2_line_event</code>；signal 只設旗標、<code>sa_flags</code> 沒有 <code>SA_RESTART</code>。</li>
+        <li><b>原始碼契約（8）</b>：期望值照 <code>&lt;linux/gpio.h&gt;</code> 的定義寫，不是從程式抄的。用 v2 uAPI、line 43、不依賴 libgpiod；四個旗標都在；debounce 20000 µs；rising 印成 pressed；整筆讀 <code>gpio_v2_line_event</code>；signal 只設旗標、<code>sa_flags</code> 沒有 <code>SA_RESTART</code>；印出的 seq 不是 kernel 的 <code>seqno</code>、kernel <code>seqno</code> 有缺口要報 <code>lost</code>（code review 後補，先紅再修）。</li>
         <li><b>CLI（2）</b>：參數錯誤回 2；chip 不存在（<code>EDGE_GPIO_CHIP</code> 指到不存在的路徑）回 1。</li>
         <li><b>實機（5）</b>：<code>EDGE_GPIO_HW=1</code> 才跑，只要 gpio 群組、<b>不需要按</b>。持有 line 時 <code>gpioinfo</code> 顯示 active-low input；<b>沒人按時 0.5 秒內不能有任何事件</b>；第二個實例拿到 busy；等待時 0 CPU；SIGTERM、SIGINT 都讓程式結束並釋放 line。</li>
       </ul>
       <p>紅燈紀錄：程式不存在時原始碼 6 個 failure、另外兩組 error。第一版程式寫好後，實機有 3 個 failure（程式一啟動就讀到假事件結束了），這就是 5a.5 的起點；補上「沒人按不能有事件」這條，先看它紅，加了穩定期才轉綠。<code>SA_RESTART</code> 那條第一版寫成「原始碼不能出現這個字」，結果比對到我自己寫的註解，改成只檢查 <code>sa_flags</code>。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v
 EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v</pre>
-      <p>第一行只跑不需要硬體的 8 個（實機那組 skip）；第二行要求 line 43 沒被佔用（<code>edge_button.ko</code> 沒載入），使用者在 gpio 群組。</p>
+      <p>第一行只跑不需要硬體的 10 個（實機那組 skip）；第二行要求 line 43 沒被佔用（<code>edge_button.ko</code> 沒載入），使用者在 gpio 群組。</p>
     </div>
   </section>
 
@@ -419,50 +432,52 @@ EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_button.p
       <h2>驗收：和 5-b 同一套按鍵檢查</h2>
       <p><code>scripts/verify_edge_gpio_button.sh</code> 的按鍵段和 5-b 的腳本一樣（按一下、長按、快速連按），前面換成 5-a 的檢查：<code>edge_button.ko</code> 不能載入、pad 設定與來源、程式持有 line 並穩定後讀 debugfs 確認放開時是 <code>hi</code>、reader 睡著不吃 CPU、第二個 reader busy、SIGTERM 結束並釋放 line、實機 unittest。在 repo 根目錄執行（整支要 root；要有人照提示按，沒辦法按時加 <code>--no-press</code>）：</p>
 <pre class="cmd">sudo bash scripts/verify_edge_gpio_button.sh</pre>
-      <p>2026-10-10 的實測輸出（重開機後、沒有載入 driver；快速連按那行的事件列表很長，略）：</p>
+      <p>2026-10-10 的實測輸出（code review 修正後重跑；同一次開機，沒有載入過 driver；快速連按那行的事件列表很長，略）：</p>
 <pre class="out" data-marks>PASS build edge_gpio_button (CMake)
 PASS line 43 (PH.00) unused
-    132 (soc_gpio21_ph0): pull=1 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=0 function=rsvd0
+    132 (soc_gpio21_ph0): pull=1 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=1 function=rsvd0 «1»
     no edge_button probe in this boot: this is the boot-default pad
 PASS PH.00 pad: input enabled
-PASS line 43 held:   "PH.00" "edge_gpio_button" input active-low [used] «1»
+PASS line 43 held:   "PH.00" "edge_gpio_button" input active-low [used] «2»
 PASS pin idles high (released) once settled
-PASS reader asleep after 3 s (state S, 0 CPU ticks, wchan do_wait_intr) «2»
+PASS reader asleep after 3 s (state S, 0 CPU ticks, wchan do_wait_intr) «3»
 PASS second reader gets EBUSY: request line 43: Device or resource busy
 PASS SIGTERM ends the wait: exit 1, 'interrupted'
+    startup: ignored 1 edge(s) while the line settled «4»
 PASS line 43 released
     do NOT touch the button until asked
 PASS unittest (hardware cases) as nvidia
 &gt;&gt;&gt; press the button ONCE and release it (15 s)
-    seq=2 pressed t=213.055104920 «3»
-    seq=3 released t=213.222101615
+    seq=1 pressed t=1313.865417128 «5»
+    seq=2 released t=1314.009418247
 PASS one press -&gt; pressed + released
 PASS no extra event after the release
 &gt;&gt;&gt; press and HOLD the button about 2 s, then release (15 s)
-    seq=1 pressed t=217.798140783 «4»
-    seq=2 released t=219.701153742
-PASS long press -&gt; one pressed, one released 1.90 s later, nothing in between
+    seq=1 pressed t=1317.469521925
+    seq=2 released t=1319.569585375
+PASS long press -&gt; one pressed, one released 2.10 s later, nothing in between
 &gt;&gt;&gt; press the button over and over, about 10 times, as fast as you can, until '&gt;&gt;&gt; stop' (6 s)
 &gt;&gt;&gt; stop
-    24 events read, seq=1 pressed t=222.662174523 seq=2 released t=222.748170416 …
-PASS rapid presses: 24 events, alternating, no seq gap «5»
+    44 events read, seq=1 pressed t=1321.141633076 seq=2 released t=1321.187630570 …
+PASS rapid presses: 44 events, alternating, no seq gap «6»
 PASS dmesg free of Oops/BUG/WARNING
 === 0 failure(s)</pre>
       <ol class="notes">
-        <li><span class="mk">1</span><span>consumer 是程式裡填的 <code>"edge_gpio_button"</code>；<code>active-low</code> 是請求時的旗標。5-b 這一行是 <code>"button"</code>，來自 DT。</span></li>
-        <li><span class="mk">2</span><span>3 秒 <b class="hl-ok">0 個 CPU tick</b>：blocking <code>read()</code> 真的在睡。這是 kernel 內建的 wait queue（<code>do_wait_intr</code>），我們沒寫任何 kernel code。</span></li>
-        <li><span class="mk">3</span><span>從 seq=2 開始：seq=1 是被丟掉的啟動假事件（5a.5）。</span></li>
-        <li><span class="mk">4</span><span>這一段從 seq=1 開始：前一個 reader 剛釋放 line，間隔很短，所以沒有假事件。每次請求 line，kernel 的 seqno 都從 1 重新算。</span></li>
-        <li><span class="mk">5</span><span>6 秒讀到 24 筆，交替、連號。依 gpiolib-cdev 的原始碼，預設佇列是每條 line 16 筆、滿了丟掉<b>最舊</b>的事件，那會顯示成 seq 跳號（這台沒有附 kernel 原始碼，我沒在本機核對）；這次沒有發生，佇列滿的情況沒有實測。</span></li>
+        <li><span class="mk">1</span><span>這次 <code>gpio-mode=1</code>，剛開機的第一次是 0（5a.7）：這次開機 line 43 已經被 userspace 請求、釋放過很多次，和 4-b 觀察到的「釋放後變 1」一樣。下一行的訊息因此太絕對，腳本已經改成「pull / tristate / enable-input 是開機預設值，gpio-mode 不是」。</span></li>
+        <li><span class="mk">2</span><span>consumer 是程式裡填的 <code>"edge_gpio_button"</code>；<code>active-low</code> 是請求時的旗標。5-b 這一行是 <code>"button"</code>，來自 DT。</span></li>
+        <li><span class="mk">3</span><span>3 秒 <b class="hl-ok">0 個 CPU tick</b>：blocking <code>read()</code> 真的在睡。這是 kernel 內建的 wait queue（<code>do_wait_intr</code>），我們沒寫任何 kernel code。</span></li>
+        <li><span class="mk">4</span><span>被 SIGTERM 結束的那個 reader 啟動時丟掉了一筆假事件（5a.5）。</span></li>
+        <li><span class="mk">5</span><span>每一段都從 <code>seq=1</code> 開始、連號：印的是程式自己的計數。修正前這裡是 <code>seq=2</code>（kernel 的 seqno 把丟掉的假事件也算進去）。</span></li>
+        <li><span class="mk">6</span><span>6 秒讀到 44 筆，交替、連號，stderr 沒有 <code>lost</code>（kernel 的 seqno 沒有缺口）。依 gpiolib-cdev 的原始碼，預設佇列是每條 line 16 筆、滿了丟掉<b>最舊</b>的事件（這台沒有附 kernel 原始碼，我沒在本機核對）；這次沒有發生，佇列滿的情況沒有實測。</span></li>
       </ol>
       <p>手動跑一次（不需要 root）：程式會停住，<b>按兩下按鍵</b>它才會結束。</p>
 <pre class="cmd">./build/edge_gpio_button 4</pre>
 <pre class="out">ignored 1 edge(s) while the line settled
-seq=2 pressed t=251.928330986
-seq=3 released t=252.110325436
-seq=4 pressed t=253.242332112
-seq=5 released t=253.410331610</pre>
-      <p>時間戳、seq 起點每次都不一樣；如果完全沒有輸出、按了也沒反應，回 5-b 的 5b.3 檢查上拉電阻（5-b 的章有完整的接線說明）。</p>
+seq=1 pressed t=1396.230767131
+seq=2 released t=1396.393764653
+seq=3 pressed t=1397.585802443
+seq=4 released t=1397.750802063</pre>
+      <p>時間戳每次都不一樣；如果完全沒有輸出、按了也沒反應，回 5-b 的 5b.3 檢查上拉電阻（5-b 的章有完整的接線說明）。</p>
     </div>
   </section>
 
@@ -473,7 +488,7 @@ seq=5 released t=253.410331610</pre>
       <div class="pitfalls">
         <div class="pit"><h4>以為請求後立刻讀到的就是真實電位</h4><dl><dt>症狀</dt><dd>沒人按，程式一啟動就收到 released。</dd><dt>後果</dt><dd>第一筆事件是假的；只讀一筆的程式直接結束。</dd><dt>正解</dt><dd class="fix">請求後先等穩定（50 ms），丟掉期間的事件，只認改變狀態的事件。</dd></dl></div>
         <div class="pit"><h4>用單次 gpioget 確認接線</h4><dl><dt>症狀</dt><dd>按鍵放開，<code>gpioget</code> 讀到 0。</dd><dt>後果</dt><dd>以為上拉沒接好或按鍵卡住。</dd><dt>正解</dt><dd class="fix">用會持有 line 的程式（本章的程式、debugfs）確認；單次讀值落在請求後的 20 ms 內。</dd></dl></div>
-        <div class="pit"><h4>以為 rising 一定是電壓上升</h4><dl><dt>症狀</dt><dd>按下（電壓變低）卻收到 rising。</dd><dt>後果</dt><dd>pressed / released 顛倒。</dd><dt>正解</dt><dd class="fix">uAPI 的 rising 是邏輯上的 inactive → active；加了 <code>ACTIVE_LOW</code> 後按下就是 rising。</dd></dl></div>
+        <div class="pit"><h4>直接印 kernel 的 seqno</h4><dl><dt>症狀</dt><dd>程式略過一筆事件，印出的 seq 就跳號。</dd><dt>後果</dt><dd>驗收腳本誤判成遺失；真的溢位反而分不出來。</dd><dt>正解</dt><dd class="fix">印自己的計數；kernel seqno 只用來檢查缺口，缺了報 <code>lost</code>。</dd></dl></div>
         <div class="pit"><h4>測試把等待寫進斷言訊息</h4><dl><dt>症狀</dt><dd><code>assertIsNone(p.poll(), "..." + p.communicate()[0])</code> 卡住。</dd><dt>後果</dt><dd>訊息先求值，<code>communicate()</code> 等一個正確睡著的程式，測試永遠不結束。</dd><dt>正解</dt><dd class="fix">確定失敗之後才組訊息：<code>if p.poll() is not None: self.fail(...)</code>。</dd></dl></div>
         <div class="pit"><h4>以為開機預設 pad 是上拉</h4><dl><dt>症狀</dt><dd>pinconf 顯示 <code>pull=1</code>。</dd><dt>後果</dt><dd>沒有外接上拉時，放開會被拉成低電位（還要加上 TXB0108 的問題）。</dd><dt>正解</dt><dd class="fix">外接 330 Ω～1 kΩ 上拉，蓋過內部的下拉。</dd></dl></div>
         <div class="pit"><h4>以為 driver 卸載後 pad 會還原</h4><dl><dt>症狀</dt><dd>載入過 <code>edge_button.ko</code> 之後，pinconf 變成 <code>pull=2</code>。</dd><dt>後果</dt><dd>誤把上一個 driver 留下的設定當成開機預設值。</dd><dt>正解</dt><dd class="fix">要看預設值就重開機；腳本會檢查這次開機有沒有 probe 過。</dd></dl></div>
