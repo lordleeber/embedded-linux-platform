@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案現況
 
-這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本與版本快照；Step 2 新增 `kernel/edge_test` character device 與驗收腳本 `scripts/verify_edge_test.sh`；Step 3 新增 ioctl 控制通道、共用 header `include/edge_test_ioctl.h` 與 C++ CLI（`apps/`，CMake 建置）；Step 4-a 新增 userspace GPIO 程式 `apps/edge_gpio_blink.cpp` 與 pad 設定腳本 `scripts/pad_pin29.py`（Step 4 拆成 4-a userspace / 4-b kernel driver）；Step 4-b 新增 platform driver `kernel/edge_gpio`（`/dev/edge_gpio`）與 DT overlay `dts/edge-gpio-overlay.dts`（含 pad 的 pinctrl 狀態）；Step 5 拆成 5-a userspace / 5-b kernel driver，5-b 新增按鍵 driver `kernel/edge_button`（`/dev/edge_button`，GPIO IRQ + debounce + blocking read）、事件格式 `include/edge_button.h` 與 C++ `apps/edge_button_wait.cpp`，按鍵節點加在同一份 overlay。每個 Step 都有一章教材 `docs/stepNN.html`：
+這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本與版本快照；Step 2 新增 `kernel/edge_test` character device 與驗收腳本 `scripts/verify_edge_test.sh`；Step 3 新增 ioctl 控制通道、共用 header `include/edge_test_ioctl.h` 與 C++ CLI（`apps/`，CMake 建置）；Step 4-a 新增 userspace GPIO 程式 `apps/edge_gpio_blink.cpp` 與 pad 設定腳本 `scripts/pad_pin29.py`（Step 4 拆成 4-a userspace / 4-b kernel driver）；Step 4-b 新增 platform driver `kernel/edge_gpio`（`/dev/edge_gpio`）與 DT overlay `dts/edge-gpio-overlay.dts`（含 pad 的 pinctrl 狀態）；Step 5 拆成 5-a userspace / 5-b kernel driver：5-a 新增 `apps/edge_gpio_button.cpp`（gpiolib-cdev 的 edge event，不寫 driver），5-b 新增按鍵 driver `kernel/edge_button`（`/dev/edge_button`，GPIO IRQ + debounce + blocking read）、事件格式 `include/edge_button.h` 與 C++ `apps/edge_button_wait.cpp`，按鍵節點加在同一份 overlay。每個 Step 都有一章教材 `docs/stepNN.html`：
 
 - `ROADMAP.md` — 總覽、Phase 索引、共通 Step 規則（先讀這份）
 - `phase00.md` … `phase12.md` — 每個 Phase 的目的與 Step 詳細規劃
@@ -79,7 +79,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 
 ## 指令
 
-目前已實作 Step 1–3、4-a、4-b、5-b 的指令，其餘功能尚未建立：
+目前已實作 Step 1–3、4-a、4-b、5-a、5-b 的指令，其餘功能尚未建立：
 
 - Jetson target 環境檢查：`bash scripts/check_host_env.sh`（Step 1）；更新快照用 `bash scripts/check_host_env.sh --record docs/jetson-version.txt`
 - 全部 userspace 測試：`python3 -m unittest discover -s tests -v`
@@ -91,6 +91,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 - Step 3 ioctl 驗收併在同一支 `sudo bash scripts/verify_edge_test.sh 3` 裡（每輪多跑 C++ ioctl 測試、CLI 測試、reload 後 value 歸零）
 - Step 4-a userspace GPIO（LED 接 header pin 29 → 330 Ω → LED → pin 30）：`build/edge_gpio_blink`（CMake 產出，無參數，固定 gpiochip0 line 105 閃 5 次）。JP6 開機 pad 是 tristate，要先 `sudo python3 scripts/pad_pin29.py open`（`show` / `close`；重開機即失效）。驗收（需 root，請使用者執行並看 LED）：`sudo bash scripts/verify_edge_gpio_blink.sh`；實機測試單獨跑：`EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p test_edge_gpio_blink.py -v`
 - Step 4-b kernel GPIO driver：`make -C dts`（cpp + dtc 編 overlay，產出 active-high / active-low 兩個 dtbo；`*.dtbo` 不入庫）；安裝到 extlinux.conf 的 DEFAULT label：`sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo`（`remove` 移除；兩者都要重開機才生效，這台沒有 runtime overlay）。module 在 `kernel/edge_gpio/` 下 `make`。驗收（需 root，請使用者執行並看 LED）：`sudo bash scripts/verify_edge_gpio.sh [--blink] [cycles]`，會依 `/proc/device-tree/edge-led` 是否存在自動切換「不 probe」或「完整驗收」模式。device 測試：`python3 -m unittest discover -s tests -p test_edge_gpio_device.py -v`（module 未載入時 skip；`EDGE_GPIO_REQUIRE=1` 時改為 fail）
+- Step 5-a userspace 按鍵（接線同 5-b）：`build/edge_gpio_button [count]`（CMake 產出，固定 gpiochip0 line 43，edge event + 20 ms debounce，輸出格式同 `edge_button_wait`，結束碼 0/1/2；`edge_button.ko` 載入時 line 被佔用）。請求 line 後約 20 ms 內 pin 讀到 0，程式會先等 50 ms 再開始，`gpioget` 單次讀值因此不可靠。驗收（需 root，要有人按按鍵，請使用者執行）：`sudo bash scripts/verify_edge_gpio_button.sh [--no-press]`；實機測試（不按按鍵，gpio 群組即可）：`EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p test_edge_gpio_button.py -v`
 - Step 5-b kernel GPIO 按鍵 IRQ（按鍵接 header pin 33 → 按鍵 → pin 34 GND，pin 33 另經 330 Ω 上拉到 pin 1（3.3 V）；header GPIO 經 TXB0108，SoC 內部上拉無效）：overlay 同 4-b（改完要重新 `make -C dts`、install、重開機）。module 在 `kernel/edge_button/` 下 `make`；`build/edge_button_wait [count]`（CMake 產出，blocking read 印 N 筆事件，結束碼 0/1/2）。驗收（需 root，要有人按按鍵，請使用者執行）：`sudo bash scripts/verify_edge_button.sh [--no-press]`，依 `/proc/device-tree/edge-button` 是否存在切換「不 probe」或「完整驗收」。device 測試（不按按鍵）：`python3 -m unittest discover -s tests -p test_edge_button_device.py -v`（module 未載入時 skip；`EDGE_BUTTON_REQUIRE=1` 時改為 fail）
 - 教材程式碼節錄比對：`python3 scripts/check_listings.py docs`（0/1/2）。改到教材有引用的原始檔後一定要跑
 - Yocto：kas + BitBake（Phase 10）

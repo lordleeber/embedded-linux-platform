@@ -127,7 +127,7 @@
 
 ### 踩坑
 
-- 原本以為 SoC pad 的內部上拉（DT 的 `nvidia,pull = <TEGRA_PIN_PULL_UP>`）就夠了，像 STM32 的 `GPIO_PULLUP` 一樣；pinconf 確實顯示 `pull=2`，但 pin 33 什麼都不接時讀到 0，第一次驗收按鍵全部沒有反應（`irq_count=0`）。Orin Nano devkit 載板規格書（SP-11324-001 v1.3，Table 3-3）寫明：除了 I2C 的 pin 3/5/27/28，40-pin header 的 GPIO 都經過 **TI TXB0108** 電平轉換（1.8 V ↔ 3.3 V，Note 3）。TXB 兩側的 buffer 約 4 kΩ（TI 典型值），會「保持」上一次的電位，SoC 的弱上拉在 1.8 V 側拉不動它。
+- 原本以為 SoC pad 的內部上拉（DT 的 `nvidia,pull = <TEGRA_PIN_PULL_UP>`）就夠了，像 STM32 的 `GPIO_PULLUP` 一樣；pinconf 確實顯示 `pull=2`，但 pin 33 什麼都不接時讀到 0，第一次驗收按鍵全部沒有反應（`irq_count=0`）。（**Step 5-a 更正**：「什麼都不接時讀到 0」是單次 `gpioget` 的結果，而請求 line 後約 20 ms 內一律讀到 0，這一條不算證據；結論仍成立，靠的是 driver 持有 line 數秒時 debugfs 一直是 `lo`、按了 30 秒 `irq_count=0`。）Orin Nano devkit 載板規格書（SP-11324-001 v1.3，Table 3-3）寫明：除了 I2C 的 pin 3/5/27/28，40-pin header 的 GPIO 都經過 **TI TXB0108** 電平轉換（1.8 V ↔ 3.3 V，Note 3）。TXB 兩側的 buffer 約 4 kΩ（TI 典型值），會「保持」上一次的電位，SoC 的弱上拉在 1.8 V 側拉不動它。
 - 原本以為照規格書的「上拉要 > 50 kΩ」選 51 kΩ 就好（第二次建議）；用 4 kΩ 的模型算，放開瞬間 pin 電壓 = 3.3 × 4k/(4k+R)，要超過 TXB 的高電位門檻（約 0.65 × 3.3 ≈ 2.15 V）才會翻回 1：51 kΩ 只有 0.24 V、10 kΩ 0.94 V（和論壇回報的「放開後約 1 V、卡低」一致），2.2 kΩ 2.13 V 在邊緣，1.5 kΩ 2.40 V、1 kΩ 2.64 V、330 Ω 3.05 V 才可靠。最後用手邊的 330 Ω，`gpioget` 放開 1、按下 0，驗收全過。「> 50 kΩ」那條是保護 pin 當**輸出**時的電位，按鍵 pin 只當輸入，所以刻意偏離。這個計算是推論（TI 典型值 + 論壇實測），沒有量測 4 kΩ。
 - 原本以為 header 上直接接 SoC 的 I2C pin 可以拿來接按鍵（模組上已有 1.5 k / 2.2 kΩ 上拉）；pin 27/28 是 `i2c-1`（`c240000.i2c`），上面有板上的 `ina3221`（0x40）和 `fusb301`（0x25），不能挪用；pin 3/5 是 `i2c-7`（`c250000.i2c`），目前空著，但 Phase 3 起 INA219、OLED、STM32 都要用它。
 - 原本以為挑 pin 看 GPIO 編號就好（第一版選 pin 31 = PQ.06，和 LED 的 PQ.05 同一個 port）；實體上 pin 31 和最近的 GND（pin 34）是斜對角，按鍵沒辦法直接跨上去，使用者提出改成相鄰的 pin 33/34。之後挑 pin 先看實體 header 上旁邊有沒有 GND / 3.3 V。
@@ -143,3 +143,26 @@
 - review 修正後重跑 `sudo bash scripts/verify_edge_button.sh`（2026-10-10）：`=== 0 failure(s)`；按一下 2 IRQ / 2 事件、長按 2.19 s、快速連按讀到 39 筆（交替、連號、dropped 0，event_count 多 42，差的 3 筆在 reader 結束後）、全程 `irq_count=52 event_count=46 dropped=0`。手動操作（章 5b.10）同樣重跑。
 - review 另外指出：0444 加獨占 open 讓任何使用者都能霸佔裝置。kernel 的 misc device 不能設群組，比照 `/dev/gpiochip0`（`root:gpio 0660`）要用 udev rule，已排進 Phase 10 Step 26。seq 在關檔時照算、按住時開檔第一筆是 released，這兩點是設計，已寫進 header 與章。測試裡 `KDIR` / `decompile()` 和 4-b 的靜態測試重複，tests/ 不是 package，這次不抽共用 helper。
 - 寫變異測試的輔助函式時用 `git checkout -- <file>` 還原檔案，把**還沒 commit 的** overlay 修改一起洗掉，最後的 `git stash -u` 又把新 driver 收進 stash（已救回）。還原請從自己備份的複本複製，不要用 git 對工作中的檔案做還原。
+
+## Step 5-a：userspace GPIO input + edge event（gpiolib-cdev，不寫 driver）
+
+- 驗收主機與接線：同 5-b（pin 33 → 按鍵 → pin 34，330 Ω 上拉到 pin 1）。這次開機**沒有載入過** `edge_button.ko`（重開機後直接驗收），所以看到的是開機預設 pad。
+- 對照方法：`sudo bash scripts/verify_edge_gpio_button.sh`。實測（2026-10-10）`=== 0 failure(s)`：
+  - 開機預設 pad：`pull=1 tristate=1 enable-input=1 … gpio-mode=0`（`pull=1` 是下拉；5-b 的 pinctrl 狀態是 `pull=2` 上拉）。輸入有開，不需要 pad 設定。
+  - line 43 由 `"edge_gpio_button" input active-low [used]` 持有；穩定後 debugfs 讀到 `hi`（放開）。
+  - reader 睡 3 秒 **0 個 CPU tick**，wchan `do_wait_intr`（gpiolib-cdev 的 wait queue；5-b 是 `edge_button_read`）；第二個 reader `Device or resource busy`；SIGTERM 印 `interrupted` 結束碼 1；line 釋放。
+  - 實機 unittest（gpio 群組使用者）通過。
+  - 按一下：`seq=2 pressed` → 0.167 s 後 `seq=3 released`（seq=1 是被丟掉的啟動假事件）；之後沒有多餘事件。長按 1.90 s。快速連按 6 秒讀到 24 筆，交替、連號。
+  - 與 5-b 對照：同樣的檢查、同樣的輸出格式都通過；差在 5-b 有 `irq_count` / `dropped` 計數可看，5-a 只看得到 kernel 的 `seqno`。
+- 自動測試：`tests/test_edge_gpio_button.py` 13 個案例（原始碼契約 6：v2 uAPI、line 43、不用 libgpiod、`INPUT | ACTIVE_LOW | EDGE_RISING | EDGE_FALLING`、debounce 20000 µs、rising → pressed、整筆讀 `gpio_v2_line_event`、signal 旗標且不設 `SA_RESTART`；CLI 2：用法錯誤回 2、chip 不存在回 1；實機 5，`EDGE_GPIO_HW=1` 才跑，不需要按：持有 line 時 gpioinfo 顯示 active-low input、**沒人按時 0.5 秒內不能有事件**、第二個實例 busy、等待時 0 CPU、SIGTERM / SIGINT 結束並釋放 line）。沒有 `EDGE_GPIO_HW` 時全套 `OK (skipped=35)`。
+- 紅燈紀錄：程式不存在時原始碼 6 failures、CLI 與實機兩組 error；寫好第一版後實機 3 個 failure，追出啟動假事件；補「沒人按不能有事件」先紅，加穩定期後轉綠。`SA_RESTART` 那條第一版比對到自己的註解（測試寫錯），改成只檢查 `sa_flags`。
+- 時間戳：同一次執行中，毫秒的小數部分幾乎固定（0.10～0.18 ms，另一次 0.33 ms），也就是落在 1 ms 的格點上；5-b 修正後是隨機分布、修正前是 4 ms 格點。推測是 Tegra GPIO 的硬體 debounce 以 1 ms 為單位計數、debounce 結束才發中斷，所以時間戳約晚 20 ms（**推論，未查證**）。
+- 規模：新增程式約 482 行（C++ 132、驗收腳本約 200、測試約 160），在上限內；實作前估約 430 行。
+
+### 踩坑
+
+- 原本以為請求 line 之後立刻讀到的就是腳位的真實電位；實測（每 2 ms 取樣）前約 20 ms 都是 0，之後才是 1，不管有沒有開 edge detection。開了 edge detection 時，這次上升會被報成一筆 released 事件（請求後約 20.1～21.0 ms）。line 剛被釋放不到約 0.3 s 再請求時不會發生，所以連續重跑時看不到、隔一下就看得到。原因沒有查到，只記事實。
+- 同一個現象讓 `gpioget gpiochip0 43` 在放開時也讀到 0（隔 1 秒連跑 4 次都是 0）。Step 5-b 的章（5b.3）和 hardware-wiring.md 寫「放開時 `gpioget` 應該讀到 1」，那次讀到 1 是因為剛好緊接在別的請求之後；本步一併更正。
+- 寫測試時把 `proc.communicate()` 放在斷言的訊息參數裡，訊息在斷言前就會先求值，而 `communicate()` 會等程式結束；程式正確地睡著等按鍵，測試就卡住，直到被 120 秒的指令時限打斷。訊息要在確定失敗之後才組。
+- 開機預設 pad 是內部**下拉**（`pull=1`），和 5-b pinctrl 設的上拉相反；兩者都被外接 330 Ω 蓋過，所以這個差異在有外接上拉時看不出來。
+

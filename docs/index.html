@@ -594,6 +594,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step03.html">Step 3 · ioctl 控制通道</a><p class="toc-desc">共用 header、兩個 ioctl 命令與第一支 C++ CLI；ioctl 號碼為什麼是 ABI。</p></li>
     <li><a class="toc-title" href="step04a.html">Step 4-a · userspace GPIO：先點亮 pin 29</a><p class="toc-desc">第一次接上 LED：用 GPIO v2 uAPI 的 C++ 程式控制 line 105，並找出 JP6 開機時 pad 被 tristate 的坑。</p></li>
     <li><a class="toc-title" href="step04b.html">Step 4-b · platform driver + Device Tree</a><p class="toc-desc">用 overlay 描述 LED 與 pad 的 pinctrl 狀態，<code>compatible</code> 配對觸發 <code>probe()</code>，以 <code>devm_gpiod_get()</code> 控制 GPIO。</p></li>
+    <li><a class="toc-title" href="step05a.html">Step 5-a · userspace 按鍵事件（gpiolib-cdev）</a><p class="toc-desc">不寫 driver：用 GPIO v2 uAPI 請求雙邊緣事件與 debounce，blocking <code>read()</code> 等按鍵；處理請求 line 後約 20 ms 的假事件。</p></li>
     <li><a class="toc-title" href="step05b.html">Step 5-b · GPIO IRQ + blocking read（kernel driver）</a><p class="toc-desc">按鍵經 TXB0108 接到 pin 33：IRQ handler 排 debounce work，事件進 kfifo，<code>wake_up_interruptible()</code> 叫醒睡在 <code>read()</code> 的 userspace。</p></li>
   </ol>
 </main>

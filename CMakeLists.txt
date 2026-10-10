@@ -21,3 +21,6 @@ add_executable(edge_gpio_blink apps/edge_gpio_blink.cpp)
 # Step 5-b: blocking read() of button events from /dev/edge_button (kernel/edge_button).
 add_executable(edge_button_wait apps/edge_button_wait.cpp)
 target_include_directories(edge_button_wait PRIVATE include)
+
+# Step 5-a: the same button through gpiolib-cdev edge events (GPIO v2 uAPI, no driver).
+add_executable(edge_gpio_button apps/edge_gpio_button.cpp)

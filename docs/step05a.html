@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 5-a　userspace 按鍵事件 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step05b). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+table.num td, table.num th { font-family: var(--font-mono); font-size: 0.85rem; text-align: right; width: auto; }
+table.num td:first-child, table.num th:first-child { text-align: left; }
+table.num tr.hit td { color: var(--hw); font-weight: 600; }
+table.num tr.ok td:last-child { color: var(--ok); } table.num tr.bad td:last-child { color: var(--bad); }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+/* Timing diagrams (Step 5-b, reused in 5-a). */
+.wave { stroke: var(--hw); stroke-width: 2; fill: none; }
+.tick { stroke: var(--kern); stroke-width: 2; }
+.evt { fill: var(--accent); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><a href="step05b.html">Step 5-b →</a></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 5-a · GPIO edge event（userspace）</div>
+    <h1>按鍵事件不一定要寫 driver</h1>
+    <p class="lede">Step 4 先在 userspace 點亮 LED（4-a），再寫 kernel driver（4-b）。按鍵也照這個順序：這一章不寫任何 kernel code，只用 kernel 本來就有的 GPIO character device，請它在按鍵的邊緣上產生事件。程式呼叫 <code>read()</code> 之後一樣會睡著、一樣不吃 CPU、一樣有 debounce。中斷、佇列、wait queue 都由 kernel 的 <b class="hl-key">gpiolib-cdev</b> 處理；下一章 5-b 再把這些在自己的 driver 裡親手寫一遍。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_button.cpp</span>、<span class="new">scripts/verify_edge_gpio_button.sh</span>、<span class="new">tests/test_edge_gpio_button.py</span>；修改 CMakeLists.txt、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, step05b.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（gpiolib、gpiolib-cdev、IRQ 子系統、VFS）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（這一章沒有）</span>
+      <span style="--c: var(--hw)">硬體（SoC、載板、麵包板）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">5a.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>同一顆按鍵，先不寫 driver</h2>
+      <p>4-a 的 <code>edge_gpio_blink</code> 透過 <code>/dev/gpiochip0</code> 請求一條 line 當輸出。同一個介面也能請求輸入，而且可以要求 kernel 在電位變化時通知：請求時加上「偵測上升、下降邊緣」的旗標，kernel 就會替這條 line 登記中斷；中斷進來時，它把一筆事件放進這次請求自己的佇列。程式對請求拿到的 fd 呼叫 <code>read()</code>，沒有事件就睡著。</p>
+      <p><b>互動雙方</b>：硬體端是按鍵和 GPIO controller（中斷來源）；kernel 裡處理中斷和佇列的是 gpiolib 的 character device 部分（<code>gpiolib-cdev</code>），不是我們寫的；userspace 是 <code>edge_gpio_button</code>，它透過 ioctl 請求 line，再對 line 的 fd 做 blocking <code>read()</code>。<b>這一步不做</b>：kernel driver、Device Tree 的修改、<code>poll()</code>（Phase 8）。</p>
+      <dl class="terms">
+        <dt>gpiolib-cdev</dt><dd>kernel 裡實作 <code>/dev/gpiochipN</code> 的那部分 gpiolib。4-a 用它設定輸出值，這一章用它的邊緣事件功能。</dd>
+        <dt>line request</dt><dd>用 <code>GPIO_V2_GET_LINE_IOCTL</code> 向 chip 請求一或多條 line，成功後拿到一個新的 fd（<code>req.fd</code>）。之後的讀寫、設定都對這個 fd 做；關掉它就釋放 line。</dd>
+        <dt>edge event</dt><dd>請求時加 <code>GPIO_V2_LINE_FLAG_EDGE_RISING</code> / <code>_FALLING</code>，每次邊緣都會在 <code>req.fd</code> 上產生一筆 <code>struct gpio_v2_line_event</code>（時間戳、上升或下降、序號）。</dd>
+        <dt>rising / falling</dt><dd>uAPI header 的定義是「inactive → active」/「active → inactive」，看的是<b>邏輯值</b>。加了 <code>ACTIVE_LOW</code> 之後，按下（實體低電位）就是 rising。</dd>
+        <dt>debounce 屬性</dt><dd><code>GPIO_V2_LINE_ATTR_ID_DEBOUNCE</code> 加上 <code>debounce_period_us</code>，請 kernel 過濾短於這個時間的變化（kernel 5.10 起支援）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">5a.2</span><b>路徑</b>按下 → read()</div>
+    <div class="content">
+      <h2>一次按壓經過哪些站</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 470" role="img" aria-label="按鍵把 pin 33 拉到 GND；GPIO controller 偵測到邊緣發出中斷；kernel 的 gpiolib-cdev 做 debounce、把 gpio_v2_line_event 放進這次請求的佇列並叫醒 reader；userspace 的 edge_gpio_button 從 read(req.fd) 返回並印出事件；整條路上沒有我們寫的 kernel code">
+          <defs>
+            <marker id="m5aDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">HARDWARE</text>
+          <rect class="s-box" x="130" y="20" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="45" text-anchor="middle">按鍵把 pin 33 拉到 GND</text>
+          <text class="s-sm" x="350" y="66" text-anchor="middle">330 Ω 上拉；經載板的 TXB0108 → SoC pad PH.00</text>
+          <text class="s-mono" x="14" y="142">GPIO / IRQ</text>
+          <rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="135" text-anchor="middle">GPIO controller 偵測到邊緣 → 中斷</text>
+          <text class="s-sm" x="350" y="156" text-anchor="middle">中斷是 gpiolib-cdev 在請求時替我們登記的</text>
+          <text class="s-mono" x="14" y="232">GPIOLIB-CDEV</text>
+          <rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="225" text-anchor="middle">debounce → gpio_v2_line_event 進佇列</text>
+          <text class="s-sm" x="350" y="246" text-anchor="middle">每個請求一個佇列；叫醒睡在 read 的人</text>
+          <text class="s-mono" x="14" y="322">READ</text>
+          <rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="315" text-anchor="middle">read(req.fd) 醒來，複製一筆事件</text>
+          <text class="s-sm" x="350" y="336" text-anchor="middle">wchan：do_wait_intr（kernel 的 wait queue）</text>
+          <text class="s-mono" x="14" y="412">USERSPACE</text>
+          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="350" y="405" text-anchor="middle">edge_gpio_button：rising → pressed</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">略過不改變狀態的事件，印出 seq=2 pressed t=…</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="169" x2="200" y2="196" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="259" x2="200" y2="286" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="349" x2="200" y2="376" marker-end="url(#m5aDown)"/>
+          <text class="s-sm" x="590" y="226">5-b 這裡是</text>
+          <text class="s-sm" x="590" y="244">我們的 driver</text>
+          <text class="s-sm" x="590" y="316">5-b：睡在</text>
+          <text class="s-sm" x="590" y="334">edge_button_read</text>
+        </svg>
+        <figcaption>圖 5.1 — 圖裡沒有任何「我們寫的 driver」顏色的方框：IRQ、debounce、佇列、wait queue 都是 kernel 內建的。5-b 會把中間兩站換成自己寫的 <code>edge_button.ko</code>。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="rail"><span class="no">5a.3</span><b>對照</b>5-a / 5-b</div>
+    <div class="content">
+      <h2>兩種做法，各自負責什麼</h2>
+      <table>
+        <thead><tr><th>項目</th><th>5-a：gpiolib-cdev（這章）</th><th>5-b：自己的 driver</th></tr></thead>
+        <tbody>
+          <tr><td>中斷、debounce、佇列、wait queue</td><td>kernel 內建，請求時用旗標和屬性指定</td><td>自己寫：<code>devm_request_irq</code>、delayed work、kfifo、<code>wait_event_interruptible</code></td></tr>
+          <tr><td>GPIO 接在哪裡</td><td>程式裡寫死 gpiochip0 line 43</td><td>Device Tree 描述，driver 不知道腳位</td></tr>
+          <tr><td>pad 設定</td><td>開機預設值（5a.7）</td><td>DT 的 pinctrl 狀態，probe 前套用</td></tr>
+          <tr><td>事件格式</td><td><code>struct gpio_v2_line_event</code>（48 bytes，kernel 定義）</td><td><code>struct edge_button_event</code>（16 bytes，自己定義）</td></tr>
+          <tr><td>權限</td><td><code>/dev/gpiochip0</code> 是 <code>root:gpio 0660</code>，gpio 群組才能用</td><td><code>/dev/edge_button</code> 0444，任何人都能開（已知限制）</td></tr>
+          <tr><td>同時兩個 reader</td><td>同一條 line 只能請求一次，第二個拿到 <code>EBUSY</code></td><td>獨占 open，第二個拿到 <code>EBUSY</code></td></tr>
+          <tr><td>計數器</td><td>只有事件裡的 <code>seqno</code></td><td>sysfs 的 <code>irq_count</code>、<code>event_count</code>、<code>dropped</code></td></tr>
+        </tbody>
+      </table>
+      <p>只是要在應用程式裡等按鍵，5-a 的做法就夠了，而且不必編譯、載入 kernel module。要做成 kernel driver，通常是因為事件得交給其他 kernel 子系統（例如 <code>gpio-keys</code> 把按鍵變成鍵盤輸入），或硬體描述要放在 Device Tree、讓同一份程式在不同板子上都能用。</p>
+    </div>
+  </section>
+
+  <section id="request">
+    <div class="rail"><span class="no">5a.4</span><b>請求</b><span class="dot" style="background: var(--user)"></span>ioctl</div>
+    <div class="content">
+      <h2>請求 line：輸入、低電位有效、雙邊緣、20 ms debounce</h2>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:67–82 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
+<pre data-start="67" data-hot="68,70,71,72,73,74,75,77">    gpio_v2_line_request req{};
+    req.offsets[0] = 43;                                   // PH.00 = header pin 33
+    req.num_lines = 1;
+    req.config.flags = GPIO_V2_LINE_FLAG_INPUT | GPIO_V2_LINE_FLAG_ACTIVE_LOW |
+                       GPIO_V2_LINE_FLAG_EDGE_RISING | GPIO_V2_LINE_FLAG_EDGE_FALLING;
+    req.config.num_attrs = 1;                              // the debounce applies to line 0
+    req.config.attrs[0].mask = 1;
+    req.config.attrs[0].attr.id = GPIO_V2_LINE_ATTR_ID_DEBOUNCE;
+    req.config.attrs[0].attr.debounce_period_us = 20000;  // same 20 ms as edge_button.c
+    std::strcpy(req.consumer, "edge_gpio_button");         // shown by gpioinfo
+    if (ioctl(chip, GPIO_V2_GET_LINE_IOCTL, &amp;req) &lt; 0) {
+        std::fprintf(stderr, "request line 43: %s\n", std::strerror(errno));  // EBUSY: edge_button.ko
+        close(chip);
+        return 1;
+    }
+    close(chip);                                           // the request fd lives on its own</pre></figure>
+      <ul>
+        <li><b><code>INPUT | ACTIVE_LOW</code></b>：和 5-b 的 DT 寫 <code>GPIO_ACTIVE_LOW</code> 是同一件事。之後 kernel 回報的電位和邊緣都是邏輯值：按下 = 1 = rising。</li>
+        <li><b><code>EDGE_RISING | EDGE_FALLING</code></b>：兩種邊緣都要，按下、放開各一筆。只要其中一個旗標，kernel 就會替這條 line 登記中斷。</li>
+        <li><b>屬性</b>：<code>attrs[0].mask = 1</code> 的意思是「這個屬性套用到這次請求的第 0 條 line」（bit 0），一次請求多條 line 時可以分別設定。<code>debounce_period_us = 20000</code> 和 5-b 的 <code>EDGE_BUTTON_DEBOUNCE_MS</code> 一樣，方便對照。</li>
+        <li><b><code>consumer</code></b>：<code>gpioinfo</code> 會顯示這個名字，驗收腳本靠它確認 line 被誰持有。</li>
+        <li>請求成功後就把 chip 的 fd 關掉：line 由 <code>req.fd</code> 持有，和 chip 的 fd 無關。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="settle">
+    <div class="rail"><span class="no">5a.5</span><b>啟動</b><span class="dot" style="background: var(--bad)"></span>假事件</div>
+    <div class="content">
+      <h2>沒人按，卻先收到一筆 released</h2>
+      <p>第一版程式寫完，實機測試卻紅了：沒有人碰按鍵，程式一啟動就讀到 <code>seq=1 released</code>，正常結束。用一支只在 scratchpad 裡的實驗程式（不入庫）量了兩件事：請求後每 2 ms 讀一次實體電位，以及第一筆事件距離請求多久。</p>
+<pre class="out" data-marks>000000000011111111111  (raw, one digit per ~2 ms) «1»
+event falling(released) seq=1 at request+20884 us «2»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>按鍵是放開的（真實電位是 1），但請求之後大約 20 ms 都讀到 0，之後才是 1。三次都一樣；不開 edge detection 也一樣。</span></li>
+        <li><span class="mk">2</span><span>開了 edge detection 時，這次 0 → 1 被當成一個邊緣：實體上升 = 邏輯下降 = released，約在請求後 20.1～21.0 ms。不設 debounce 也一樣，所以不是 debounce 造成的。</span></li>
+      </ol>
+      <figure class="figure">
+        <svg viewBox="0 0 760 230" role="img" aria-label="時序圖：請求 line 之後實體電位前約 20 毫秒讀到 0，接著回到 1，kernel 在約 20.8 毫秒時報一筆 released；程式等到 50 毫秒，丟掉這段時間的事件，再讀電位當初始狀態，之後才開始等按鍵">
+          <text class="s-mono" x="14" y="56">實體電位</text>
+          <text class="s-sm" x="14" y="72">放開 = 1</text>
+          <path class="wave" d="M130,80 L270,80 L270,40 L740,40"/>
+          <line class="tick" x1="130" y1="30" x2="130" y2="200"/>
+          <text class="s-sm" x="134" y="200">請求 line（t=0）</text>
+          <text class="s-sm" x="160" y="100">讀到 0（約 20 ms）</text>
+          <text class="s-mono" x="14" y="136">kernel 事件</text>
+          <circle class="evt" cx="276" cy="132" r="7"/>
+          <text class="s-lbl" x="288" y="137">released（+20.8 ms，沒人按）</text>
+          <line class="tick" x1="480" y1="30" x2="480" y2="200"/>
+          <text class="s-sm" x="484" y="200">t=50 ms</text>
+          <text class="s-mono" x="14" y="176">程式</text>
+          <text class="s-sm" x="140" y="176">usleep(50 ms)</text>
+          <text class="s-sm" x="490" y="164">丟掉佇列裡的事件、讀電位 = 放開</text>
+          <text class="s-sm" x="490" y="182">→ 開始 read() 等按鍵</text>
+        </svg>
+        <figcaption>圖 5.2 — 請求後的前 20 ms，pin 讀到的不是真實電位，kernel 還把恢復的那一下報成事件。程式等 50 ms（量到約 20 ms，留 2.5 倍餘裕），把這段時間的事件丟掉，再用之後讀到的電位當起點。</figcaption>
+      </figure>
+      <p>這個現象還有一個規律：line 剛被釋放不久（不到約 0.3 秒）再請求時<b>不會</b>發生，所以連續重跑時看不到，隔一下就看得到。為什麼要 20 ms，我沒有查到原因，這裡只記實測事實。</p>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:83–104 — 啟動後先等 50 ms：丟掉期間的事件，讀穩定後的電位</figcaption>
+<pre data-start="83" data-hot="86,89,91,93,97,102,104">
+    // Measured on this board: for ~20 ms after the request the line reads "pressed",
+    // then settles, and gpiolib reports that as an edge nobody made. Let it settle,
+    // drop what arrived meanwhile, and start from the level read afterwards.
+    usleep(50000);
+    int ignored = 0;
+    pollfd pfd{req.fd, POLLIN, 0};
+    while (poll(&amp;pfd, 1, 0) &gt; 0) {
+        gpio_v2_line_event junk{};
+        if (read(req.fd, &amp;junk, sizeof(junk)) != static_cast&lt;ssize_t&gt;(sizeof(junk)))
+            break;
+        ignored++;
+    }
+    gpio_v2_line_values val{};
+    val.mask = 1;
+    if (ioctl(req.fd, GPIO_V2_LINE_GET_VALUES_IOCTL, &amp;val) &lt; 0) {
+        std::fprintf(stderr, "read line 43: %s\n", std::strerror(errno));
+        close(req.fd);
+        return 1;
+    }
+    int last = val.bits &amp; 1;                               // logical: 1 = pressed
+    if (ignored)</pre></figure>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:119–124 — 之後只印改變狀態的事件</figcaption>
+<pre data-start="119" data-hot="120,121,122,123">        }
+        // Rising = inactive to active; with ACTIVE_LOW that is the press.
+        int pressed = ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE;
+        if (pressed == last)                               // no state change: not a press or release
+            continue;
+        last = pressed;</pre></figure>
+      <p>這和 5-b driver 的 <code>if (val == eb-&gt;last) return;</code> 是同一個想法：只有狀態真的改變才算一次按下或放開。kernel 的 <code>seqno</code> 會把被丟掉的那筆也算進去，所以程式印出的第一筆通常是 <code>seq=2</code>。</p>
+      <div class="callout"><p>同一個現象也會讓 <code>gpioget</code> 讀錯：它請求 line 之後立刻讀，放開時也讀到 0。這台板子上實測（不需要 root）：</p></div>
+<pre class="cmd">for i in 1 2 3 4; do sleep 1; gpioget gpiochip0 43; done</pre>
+<pre class="out">0
+0
+0
+0</pre>
+      <p>按鍵全程是放開的。把 <code>sleep 1</code> 拿掉、緊接著連跑，有機會讀到 1（line 剛被釋放）。5-b 的章原本教讀者用單次 <code>gpioget</code> 確認接線，這一步已經更正。</p>
+      <p>想自己看到「丟掉一筆」：先等一秒、再啟動程式，訊息印在 stderr。在 repo 根目錄執行（使用者要在 <code>gpio</code> 群組，<code>edge_button.ko</code> 不能載入）：</p>
+<pre class="cmd">sleep 1; ./build/edge_gpio_button 1 &amp; sleep 1; ps -o stat,wchan:20,cmd -p $!; kill $!; sleep 0.5</pre>
+<pre class="out" data-marks>ignored 1 edge(s) while the line settled «1»
+STAT WCHAN                CMD
+S    do_wait_intr         ./build/edge_gpio_button 1 «2»
+interrupted
+[1]+  Exit 1                  ./build/edge_gpio_button 1</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>那筆啟動假事件被丟掉了。如果前一秒內有別的程式剛用過 line 43，這行可能不會出現。</span></li>
+        <li><span class="mk">2</span><span>程式睡著（<code>S</code>），睡在 kernel 的 <code>do_wait_intr</code>：gpiolib-cdev 的 wait queue。5-b 的 driver 版會顯示 <code>edge_button_read</code>。</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="read">
+    <div class="rail"><span class="no">5a.6</span><b>read()</b><span class="dot" style="background: var(--user)"></span>事件迴圈</div>
+    <div class="content">
+      <h2>讀事件：一次一筆 gpio_v2_line_event</h2>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:106–129 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
+<pre data-start="106" data-hot="110,112,113,120,125">
+    int rc = 0;
+    long printed = 0;
+    while (printed &lt; count) {
+        gpio_v2_line_event ev{};
+        ssize_t n = stop ? -1 : read(req.fd, &amp;ev, sizeof(ev));   // sleeps until an edge
+        if (n != static_cast&lt;ssize_t&gt;(sizeof(ev))) {
+            if (stop || (n &lt; 0 &amp;&amp; errno == EINTR))
+                std::fprintf(stderr, "interrupted\n");
+            else
+                std::fprintf(stderr, "read line 43: %s\n", n &lt; 0 ? std::strerror(errno) : "short read");
+            rc = 1;
+            break;
+        }
+        // Rising = inactive to active; with ACTIVE_LOW that is the press.
+        int pressed = ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE;
+        if (pressed == last)                               // no state change: not a press or release
+            continue;
+        last = pressed;
+        printed++;
+        std::printf("seq=%u %s t=%llu.%09llu\n", ev.seqno, pressed ? "pressed" : "released",
+                    static_cast&lt;unsigned long long&gt;(ev.timestamp_ns / 1000000000ULL),
+                    static_cast&lt;unsigned long long&gt;(ev.timestamp_ns % 1000000000ULL));
+        std::fflush(stdout);</pre></figure>
+      <ul>
+        <li><code>read()</code> 要一次讀一整筆 <code>gpio_v2_line_event</code>（48 bytes）；也可以給更大的 buffer 一次讀好幾筆，這裡一次一筆，和 5-b 的程式一樣。</li>
+        <li>signal 的處理照 5-b code review 的教訓：handler 只設旗標、不設 <code>SA_RESTART</code>，每次 <code>read()</code> 前檢查旗標。</li>
+        <li><b>輸出格式和 5-b 的 <code>edge_button_wait</code> 完全相同</b>，兩支驗收腳本用同一套檢查（pressed / released 交替、seq 連號）。</li>
+      </ul>
+      <p>時間戳有一個觀察：同一次執行中，毫秒的小數部分幾乎固定（例如 <code>213.055104920</code>、<code>213.222101615</code>，都是 x.10 ms），也就是落在 1 ms 的格點上。5-b 修正後在 IRQ 取時間，數字是隨機的；5-b 修正前在 work 取時間，落在 4 ms 的格點上（<code>CONFIG_HZ=250</code>）。我的推測是 Tegra 的 GPIO controller 支援硬體 debounce、以 1 ms 為單位計數，訊號穩定 20 ms 之後才發中斷，所以 5-a 的時間戳大約比按下晚 20 ms。<b>這是推論，沒有查證</b>（沒有讀 tegra186 GPIO driver 的原始碼，這台也沒有附）。</p>
+    </div>
+  </section>
+
+  <section id="pad">
+    <div class="rail"><span class="no">5a.7</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>開機預設</div>
+    <div class="content">
+      <h2>不設 pad 也讀得到嗎？</h2>
+      <p>5-b 的 overlay 有一組 pinctrl 狀態，但它只在 <code>edge_button.ko</code> probe 時才會套用。這一章沒有 driver，pad 就維持開機時的設定。4-a 的 LED 正是卡在這裡：開機時 pad 是 tristate，輸出到不了腳位。輸入的情況呢？驗收前<b>重開機、不載入 driver</b>，讀到的就是開機預設值：</p>
+<pre class="out" data-marks>    132 (soc_gpio21_ph0): pull=1 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=0 function=rsvd0 «1»
+    no edge_button probe in this boot: this is the boot-default pad «2»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>enable-input=1</code>：輸入有開，所以不需要任何 pad 設定就能讀。<code>tristate=1</code> 只關掉輸出，對輸入沒有影響。<code>pull=1</code> 是內部<b>下拉</b>（5-b 的 pinctrl 設的是上拉 <code>pull=2</code>）；外接的 330 Ω 上拉比它強很多，所以放開時還是 1。</span></li>
+        <li><span class="mk">2</span><span>腳本用 <code>dmesg</code> 找這次開機有沒有 <code>edge_button</code> probe 過：pinctrl 狀態在 driver 卸載後不會還原，probe 過的話看到的就不是開機預設值了。</span></li>
+      </ol>
+      <p>這個輸出來自下一節的驗收腳本（要 root 才能讀 debugfs 的 pinconf）。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">5a.8</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="content">
+      <h2>不按按鍵能測的，先寫成測試</h2>
+      <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py">13</span> 個案例。</p>
+      <ul>
+        <li><b>原始碼契約（6）</b>：期望值照 <code>&lt;linux/gpio.h&gt;</code> 的定義寫，不是從程式抄的。用 v2 uAPI、line 43、不依賴 libgpiod；四個旗標都在；debounce 20000 µs；rising 印成 pressed；整筆讀 <code>gpio_v2_line_event</code>；signal 只設旗標、<code>sa_flags</code> 沒有 <code>SA_RESTART</code>。</li>
+        <li><b>CLI（2）</b>：參數錯誤回 2；chip 不存在（<code>EDGE_GPIO_CHIP</code> 指到不存在的路徑）回 1。</li>
+        <li><b>實機（5）</b>：<code>EDGE_GPIO_HW=1</code> 才跑，只要 gpio 群組、<b>不需要按</b>。持有 line 時 <code>gpioinfo</code> 顯示 active-low input；<b>沒人按時 0.5 秒內不能有任何事件</b>；第二個實例拿到 busy；等待時 0 CPU；SIGTERM、SIGINT 都讓程式結束並釋放 line。</li>
+      </ul>
+      <p>紅燈紀錄：程式不存在時原始碼 6 個 failure、另外兩組 error。第一版程式寫好後，實機有 3 個 failure（程式一啟動就讀到假事件結束了），這就是 5a.5 的起點；補上「沒人按不能有事件」這條，先看它紅，加了穩定期才轉綠。<code>SA_RESTART</code> 那條第一版寫成「原始碼不能出現這個字」，結果比對到我自己寫的註解，改成只檢查 <code>sa_flags</code>。</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v
+EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v</pre>
+      <p>第一行只跑不需要硬體的 8 個（實機那組 skip）；第二行要求 line 43 沒被佔用（<code>edge_button.ko</code> 沒載入），使用者在 gpio 群組。</p>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">5a.9</span><b>驗收</b>有人按</div>
+    <div class="content">
+      <h2>驗收：和 5-b 同一套按鍵檢查</h2>
+      <p><code>scripts/verify_edge_gpio_button.sh</code> 的按鍵段和 5-b 的腳本一樣（按一下、長按、快速連按），前面換成 5-a 的檢查：<code>edge_button.ko</code> 不能載入、pad 設定與來源、程式持有 line 並穩定後讀 debugfs 確認放開時是 <code>hi</code>、reader 睡著不吃 CPU、第二個 reader busy、SIGTERM 結束並釋放 line、實機 unittest。在 repo 根目錄執行（整支要 root；要有人照提示按，沒辦法按時加 <code>--no-press</code>）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_gpio_button.sh</pre>
+      <p>2026-10-10 的實測輸出（重開機後、沒有載入 driver；快速連按那行的事件列表很長，略）：</p>
+<pre class="out" data-marks>PASS build edge_gpio_button (CMake)
+PASS line 43 (PH.00) unused
+    132 (soc_gpio21_ph0): pull=1 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=0 function=rsvd0
+    no edge_button probe in this boot: this is the boot-default pad
+PASS PH.00 pad: input enabled
+PASS line 43 held:   "PH.00" "edge_gpio_button" input active-low [used] «1»
+PASS pin idles high (released) once settled
+PASS reader asleep after 3 s (state S, 0 CPU ticks, wchan do_wait_intr) «2»
+PASS second reader gets EBUSY: request line 43: Device or resource busy
+PASS SIGTERM ends the wait: exit 1, 'interrupted'
+PASS line 43 released
+    do NOT touch the button until asked
+PASS unittest (hardware cases) as nvidia
+&gt;&gt;&gt; press the button ONCE and release it (15 s)
+    seq=2 pressed t=213.055104920 «3»
+    seq=3 released t=213.222101615
+PASS one press -&gt; pressed + released
+PASS no extra event after the release
+&gt;&gt;&gt; press and HOLD the button about 2 s, then release (15 s)
+    seq=1 pressed t=217.798140783 «4»
+    seq=2 released t=219.701153742
+PASS long press -&gt; one pressed, one released 1.90 s later, nothing in between
+&gt;&gt;&gt; press the button over and over, about 10 times, as fast as you can, until '&gt;&gt;&gt; stop' (6 s)
+&gt;&gt;&gt; stop
+    24 events read, seq=1 pressed t=222.662174523 seq=2 released t=222.748170416 …
+PASS rapid presses: 24 events, alternating, no seq gap «5»
+PASS dmesg free of Oops/BUG/WARNING
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>consumer 是程式裡填的 <code>"edge_gpio_button"</code>；<code>active-low</code> 是請求時的旗標。5-b 這一行是 <code>"button"</code>，來自 DT。</span></li>
+        <li><span class="mk">2</span><span>3 秒 <b class="hl-ok">0 個 CPU tick</b>：blocking <code>read()</code> 真的在睡。這是 kernel 內建的 wait queue（<code>do_wait_intr</code>），我們沒寫任何 kernel code。</span></li>
+        <li><span class="mk">3</span><span>從 seq=2 開始：seq=1 是被丟掉的啟動假事件（5a.5）。</span></li>
+        <li><span class="mk">4</span><span>這一段從 seq=1 開始：前一個 reader 剛釋放 line，間隔很短，所以沒有假事件。每次請求 line，kernel 的 seqno 都從 1 重新算。</span></li>
+        <li><span class="mk">5</span><span>6 秒讀到 24 筆，交替、連號。依 gpiolib-cdev 的原始碼，預設佇列是每條 line 16 筆、滿了丟掉<b>最舊</b>的事件，那會顯示成 seq 跳號（這台沒有附 kernel 原始碼，我沒在本機核對）；這次沒有發生，佇列滿的情況沒有實測。</span></li>
+      </ol>
+      <p>手動跑一次（不需要 root）：程式會停住，<b>按兩下按鍵</b>它才會結束。</p>
+<pre class="cmd">./build/edge_gpio_button 4</pre>
+<pre class="out">ignored 1 edge(s) while the line settled
+seq=2 pressed t=251.928330986
+seq=3 released t=252.110325436
+seq=4 pressed t=253.242332112
+seq=5 released t=253.410331610</pre>
+      <p>時間戳、seq 起點每次都不一樣；如果完全沒有輸出、按了也沒反應，回 5-b 的 5b.3 檢查上拉電阻（5-b 的章有完整的接線說明）。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">5a.10</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為請求後立刻讀到的就是真實電位</h4><dl><dt>症狀</dt><dd>沒人按，程式一啟動就收到 released。</dd><dt>後果</dt><dd>第一筆事件是假的；只讀一筆的程式直接結束。</dd><dt>正解</dt><dd class="fix">請求後先等穩定（50 ms），丟掉期間的事件，只認改變狀態的事件。</dd></dl></div>
+        <div class="pit"><h4>用單次 gpioget 確認接線</h4><dl><dt>症狀</dt><dd>按鍵放開，<code>gpioget</code> 讀到 0。</dd><dt>後果</dt><dd>以為上拉沒接好或按鍵卡住。</dd><dt>正解</dt><dd class="fix">用會持有 line 的程式（本章的程式、debugfs）確認；單次讀值落在請求後的 20 ms 內。</dd></dl></div>
+        <div class="pit"><h4>以為 rising 一定是電壓上升</h4><dl><dt>症狀</dt><dd>按下（電壓變低）卻收到 rising。</dd><dt>後果</dt><dd>pressed / released 顛倒。</dd><dt>正解</dt><dd class="fix">uAPI 的 rising 是邏輯上的 inactive → active；加了 <code>ACTIVE_LOW</code> 後按下就是 rising。</dd></dl></div>
+        <div class="pit"><h4>測試把等待寫進斷言訊息</h4><dl><dt>症狀</dt><dd><code>assertIsNone(p.poll(), "..." + p.communicate()[0])</code> 卡住。</dd><dt>後果</dt><dd>訊息先求值，<code>communicate()</code> 等一個正確睡著的程式，測試永遠不結束。</dd><dt>正解</dt><dd class="fix">確定失敗之後才組訊息：<code>if p.poll() is not None: self.fail(...)</code>。</dd></dl></div>
+        <div class="pit"><h4>以為開機預設 pad 是上拉</h4><dl><dt>症狀</dt><dd>pinconf 顯示 <code>pull=1</code>。</dd><dt>後果</dt><dd>沒有外接上拉時，放開會被拉成低電位（還要加上 TXB0108 的問題）。</dd><dt>正解</dt><dd class="fix">外接 330 Ω～1 kΩ 上拉，蓋過內部的下拉。</dd></dl></div>
+        <div class="pit"><h4>以為 driver 卸載後 pad 會還原</h4><dl><dt>症狀</dt><dd>載入過 <code>edge_button.ko</code> 之後，pinconf 變成 <code>pull=2</code>。</dd><dt>後果</dt><dd>誤把上一個 driver 留下的設定當成開機預設值。</dd><dt>正解</dt><dd class="fix">要看預設值就重開機；腳本會檢查這次開機有沒有 probe 過。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">5a.11</span><b>收尾</b>5-a → 5-b</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">不寫 kernel code，用 gpiolib-cdev 的 edge event 等按鍵：blocking <code>read()</code>，等待時 0 CPU tick；按一下、長按、快速連按都通過，驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">開機預設 pad（重開機後、沒有載入 driver）就能讀：<code>enable-input=1</code>。</li>
+        <li class="y">找到並處理請求 line 後約 20 ms 的假事件；順帶更正了 5-b 章裡「用 <code>gpioget</code> 確認接線」的說法。</li>
+        <li class="n">沒有實測：佇列滿（依 gpiolib-cdev 原始碼是丟最舊的事件、seq 跳號；未在本機核對）。</li>
+        <li class="n">20 ms 假事件的原因、時間戳落在 1 ms 格點的原因都沒有查證；50 ms 的穩定期是依實測值留的餘裕。</li>
+      </ul>
+      <p>下一章 5-b 做同一件事，但把圖 5.1 中間的 gpiolib-cdev 換成自己寫的 kernel driver：Device Tree 描述按鍵、<code>devm_request_irq()</code>、IRQ handler 只排一個 20 ms 後的 work、自己的 kfifo 和 wait queue。兩章的輸出格式一樣，可以直接對照。</p>
+      <details class="quiz"><summary>1. 這一章的程式沒有 IRQ handler，按下按鍵時是誰處理中斷的？</summary><p>kernel 的 gpiolib-cdev。請求 line 時帶了 <code>EDGE_RISING | EDGE_FALLING</code>，它就替這條 line 登記中斷，中斷進來時做 debounce、把 <code>gpio_v2_line_event</code> 放進這次請求的佇列，再叫醒睡在 <code>read()</code> 的程式。</p></details>
+      <details class="quiz"><summary>2. 按鍵是接地觸發（按下 = 低電位），為什麼程式把 rising 當成按下？</summary><p>請求時加了 <code>GPIO_V2_LINE_FLAG_ACTIVE_LOW</code>，kernel 回報的是邏輯值；uAPI 的 rising 定義是 inactive → active，也就是按下。</p></details>
+      <details class="quiz"><summary>3. 為什麼程式啟動後要先睡 50 ms？拿掉會怎樣？</summary><p>請求 line 後約 20 ms 內 pin 讀到 0，恢復時 kernel 會報一筆 released。拿掉的話，line 閒置一陣子之後啟動，第一筆就是這個假事件；只讀一筆的話程式會直接結束，實機測試「沒人按不能有事件」會失敗。</p></details>
+      <details class="quiz"><summary>4. <code>edge_button.ko</code> 載入時執行這一章的程式，會發生什麼？</summary><p>請求 line 43 失敗，印 <code>request line 43: Device or resource busy</code>，結束碼 1：一條 line 同時只能有一個使用者，driver 先拿走了。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><a href="step05b.html">Step 5-b →</a></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>
