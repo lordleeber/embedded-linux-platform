@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案現況
 
-這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本與版本快照；Step 2 新增 `kernel/edge_test` character device 與驗收腳本 `scripts/verify_edge_test.sh`；Step 3 新增 ioctl 控制通道、共用 header `include/edge_test_ioctl.h` 與 C++ CLI（`apps/`，CMake 建置）。每個 Step 都有一章教材 `docs/stepNN.html`：
+這是一個 Jetson Orin Nano + STM32 + Linux driver + Yocto 的自學實作專案。Step 1 已新增環境檢查腳本與版本快照；Step 2 新增 `kernel/edge_test` character device 與驗收腳本 `scripts/verify_edge_test.sh`；Step 3 新增 ioctl 控制通道、共用 header `include/edge_test_ioctl.h` 與 C++ CLI（`apps/`，CMake 建置）；Step 4-a 新增 userspace GPIO 程式 `apps/edge_gpio_blink.cpp` 與 pad 設定腳本 `scripts/pad_pin29.py`（Step 4 拆成 4-a userspace / 4-b kernel driver）。每個 Step 都有一章教材 `docs/stepNN.html`：
 
 - `ROADMAP.md` — 總覽、Phase 索引、共通 Step 規則（先讀這份）
 - `phase00.md` … `phase12.md` — 每個 Phase 的目的與 Step 詳細規劃
@@ -79,7 +79,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 
 ## 指令
 
-目前已實作 Step 1–3 的指令，其餘功能尚未建立：
+目前已實作 Step 1–3、4-a 的指令，其餘功能尚未建立：
 
 - Jetson target 環境檢查：`bash scripts/check_host_env.sh`（Step 1）；更新快照用 `bash scripts/check_host_env.sh --record docs/jetson-version.txt`
 - 全部 userspace 測試：`python3 -m unittest discover -s tests -v`
@@ -89,5 +89,6 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 - Step 2 `edge_test` 驗收（需 root，sudo 要密碼，請使用者執行）：`sudo bash scripts/verify_edge_test.sh 3`；device 測試單獨跑：`python3 -m unittest discover -s tests -p test_edge_test_device.py -v`（module 未載入時 skip）
 - C++ userspace：在 repo 根目錄 `cmake -S . -B build && cmake --build build`（產出 `build/edge_test_cli`、`build/test_edge_device`；`build/` 不入庫）。`test_edge_device` 結束碼 0/1/77（77 = 裝置不存在而 skip）
 - Step 3 ioctl 驗收併在同一支 `sudo bash scripts/verify_edge_test.sh 3` 裡（每輪多跑 C++ ioctl 測試、CLI 測試、reload 後 value 歸零）
+- Step 4-a userspace GPIO（LED 接 header pin 29 → 330 Ω → LED → pin 30）：`build/edge_gpio_blink`（CMake 產出，無參數，固定 gpiochip0 line 105 閃 5 次）。JP6 開機 pad 是 tristate，要先 `sudo python3 scripts/pad_pin29.py open`（`show` / `close`；重開機即失效）。驗收（需 root，請使用者執行並看 LED）：`sudo bash scripts/verify_edge_gpio_blink.sh`；實機測試單獨跑：`EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p test_edge_gpio_blink.py -v`
 - 教材程式碼節錄比對：`python3 scripts/check_listings.py docs`（0/1/2）。改到教材有引用的原始檔後一定要跑
 - Yocto：kas + BitBake（Phase 10）

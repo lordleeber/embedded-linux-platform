@@ -26,7 +26,7 @@
 |---:|---|---|---|
 | 00 | 環境準備 | 1 | [phase00.md](phase00.md) |
 | 01 | Linux Kernel Module 基礎 | 2, 3 | [phase01.md](phase01.md) |
-| 02 | GPIO + LED + Interrupt | 4, 5 | [phase02.md](phase02.md) |
+| 02 | GPIO + LED + Interrupt | 4-a, 4-b, 5 | [phase02.md](phase02.md) |
 | 03 | INA219 I2C Driver | 6, 7, 8 | [phase03.md](phase03.md) |
 | 04 | OLED Driver | 9, 10-a, 10-b, 10-c | [phase04.md](phase04.md) |
 | 05 | STM32F103 自製 Peripheral | 11, 12, 13 | [phase05.md](phase05.md) |
