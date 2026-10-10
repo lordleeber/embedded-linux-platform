@@ -226,6 +226,101 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">4b.3</span><b>overlay</b><span class="dot" style="background: var(--accent)"></span>兩個 fragment</div>
     <div class="content">
       <h2>overlay：一個裝置節點、一組 pad 設定</h2>
+      <h3>從 .dts 到 .dtbo</h3>
+      <p>Device Tree 有三種檔案，副檔名只差一兩個字母：</p>
+      <table>
+        <thead><tr><th>檔案</th><th>是什麼</th><th>在這台板子上</th></tr></thead>
+        <tbody>
+          <tr><td><code>.dts</code></td><td>人寫的文字原始檔（device tree source）</td><td><code>dts/edge-gpio-overlay.dts</code>，就是下面節錄的那份</td></tr>
+          <tr><td><code>.dtb</code></td><td>編譯好的<b>完整</b>樹（device tree blob），二進位</td><td>原廠的 <code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code>（249353 bytes），extlinux.conf 的 <code>FDT</code> 行指定用它</td></tr>
+          <tr><td><code>.dtbo</code></td><td>編譯好的<b>補丁</b>（overlay），二進位</td><td><code>dts/edge-gpio-overlay.dtbo</code>（999 bytes），安裝時複製到 <code>/boot</code>，寫進同一個 label 的 <code>OVERLAYS</code> 行</td></tr>
+        </tbody>
+      </table>
+      <figure class="figure">
+        <svg viewBox="0 0 760 250" role="img" aria-label="edge-gpio-overlay.dts 先經 cpp 展開 include 和巨集，再由 dtc 編成 edge-gpio-overlay.dtbo；開機時 UEFI 把原廠 dtb 和這個 dtbo 合併，kernel 看到的是 /proc/device-tree">
+          <defs>
+            <marker id="m4bRight" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="22">BUILD（make -C dts，在 Jetson 上）</text>
+          <rect class="s-box" x="14" y="36" width="160" height="62" rx="9" style="stroke: var(--line)"/>
+          <text class="s-key" x="94" y="62" text-anchor="middle">overlay.dts</text>
+          <text class="s-sm" x="94" y="83" text-anchor="middle">文字；有 #include</text>
+          <rect class="s-box" x="206" y="36" width="160" height="62" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="286" y="62" text-anchor="middle">cpp</text>
+          <text class="s-sm" x="286" y="83" text-anchor="middle">展開 header 與巨集</text>
+          <rect class="s-box" x="398" y="36" width="160" height="62" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="478" y="62" text-anchor="middle">dtc -@</text>
+          <text class="s-sm" x="478" y="83" text-anchor="middle">編成二進位</text>
+          <rect class="s-box" x="590" y="36" width="156" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="668" y="62" text-anchor="middle">overlay.dtbo</text>
+          <text class="s-sm" x="668" y="83" text-anchor="middle">999 bytes</text>
+          <line class="sv-down" x1="175" y1="67" x2="202" y2="67" marker-end="url(#m4bRight)"/>
+          <line class="sv-down" x1="367" y1="67" x2="394" y2="67" marker-end="url(#m4bRight)"/>
+          <line class="sv-down" x1="559" y1="67" x2="586" y2="67" marker-end="url(#m4bRight)"/>
+          <text class="s-mono" x="14" y="140">BOOT（每次開機）</text>
+          <rect class="s-box" x="14" y="154" width="200" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="114" y="180" text-anchor="middle">原廠 .dtb</text>
+          <text class="s-sm" x="114" y="201" text-anchor="middle">FDT 行；249353 bytes</text>
+          <rect class="s-box" x="290" y="154" width="190" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="385" y="180" text-anchor="middle">UEFI 合併</text>
+          <text class="s-sm" x="385" y="201" text-anchor="middle">依 OVERLAYS 行的順序</text>
+          <rect class="s-box" x="550" y="154" width="196" height="62" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="648" y="180" text-anchor="middle">/proc/device-tree</text>
+          <text class="s-sm" x="648" y="201" text-anchor="middle">kernel 看到的樹</text>
+          <line class="sv-down" x1="215" y1="185" x2="286" y2="185" marker-end="url(#m4bRight)"/>
+          <path class="sv-down" d="M668,99 L668,125 L385,125 L385,150" marker-end="url(#m4bRight)"/>
+          <line class="sv-down" x1="481" y1="185" x2="546" y2="185" marker-end="url(#m4bRight)"/>
+          <text class="s-sm" x="530" y="140">安裝到 /boot</text>
+        </svg>
+        <figcaption>圖 4.2 — 上排在建置時做一次（<code>make -C dts</code>），下排每次開機都做。kernel 從頭到尾沒看過 <code>.dts</code> 和 <code>.dtbo</code>，它只看到合併好的樹。</figcaption>
+      </figure>
+      <p>為什麼要先過 <code>cpp</code>（C 前處理器）？<code>dtc</code> 本身不懂 <code>#include</code> 和 <code>#define</code>，而 <code>TEGRA234_MAIN_GPIO</code>、<code>GPIO_ACTIVE_HIGH</code>、<code>TEGRA_PIN_DISABLE</code> 這些名字都來自 kernel 附的 binding header。所以 <code>dts/Makefile</code> 先用 cpp 把它們展開，再把結果用 pipe 交給 dtc：</p>
+      <figure class="listing"><figcaption>dts/Makefile:4–19 — cpp 展開、dtc 編譯；兩種極性各編一個</figcaption>
+<pre data-start="4" data-hot="6,10,11,16,19">KDIR ?= /lib/modules/$(shell uname -r)/build
+OUT ?= .
+DTC_CPP := cpp -nostdinc -undef -P -x assembler-with-cpp -I$(KDIR)/include
+
+# cpp | dtc: fail on cpp's exit status too, and never leave a half-built dtbo.
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+.DELETE_ON_ERROR:
+
+all: $(OUT)/edge-gpio-overlay.dtbo $(OUT)/edge-gpio-overlay-active-low.dtbo
+
+$(OUT)/edge-gpio-overlay.dtbo: edge-gpio-overlay.dts
+	$(DTC_CPP) $&lt; | dtc -@ -q -I dts -O dtb -o $@ -
+
+$(OUT)/edge-gpio-overlay-active-low.dtbo: edge-gpio-overlay.dts
+	$(DTC_CPP) -DEDGE_LED_ACTIVE_LOW $&lt; | dtc -@ -q -I dts -O dtb -o $@ -</pre></figure>
+      <dl class="terms">
+        <dt>-I$(KDIR)/include</dt><dd>binding header 的位置：<code>dt-bindings/gpio/tegra234-gpio.h</code> 等，跟著這台的 kernel headers 一起裝好。</dd>
+        <dt>-nostdinc</dt><dd>不要去找系統的 C header（<code>/usr/include</code>），只用 <code>-I</code> 給的路徑。</dd>
+        <dt>-undef</dt><dd>不要預先定義 <code>linux</code>、<code>unix</code> 這類巨集。實測沒加時，<code>linux,code</code> 這種屬性名稱會被展開成 <code>1,code</code>。</dd>
+        <dt>-P</dt><dd>不輸出 <code># 0 "file"</code> 這種行號標記。dtc 其實看得懂它們（實測不加 <code>-P</code> 也能編過，kernel 自己編 DT 時就保留它們，讓錯誤訊息指回原始檔）；這裡拿掉只是讓 cpp 的輸出乾淨、方便直接閱讀，代價是 dtc 報錯時的行號對應到的是展開後的內容。</dd>
+        <dt>-x assembler-with-cpp</dt><dd>用組合語言模式處理，和 kernel 編 DT 的做法一樣。</dd>
+        <dt>dtc -@</dt><dd>在輸出裡加上 <code>__symbols__</code> 表，記錄這份檔案定義的標籤。原廠的 dtb 也是這樣編的，overlay 的 <code>&amp;gpio</code> 才找得到對象。</dd>
+        <dt>-I dts -O dtb -o $@ -</dt><dd>輸入格式是文字、輸出格式是二進位，從 stdin（<code>-</code>）讀。反過來寫成 <code>-I dtb -O dts</code> 就是反組譯，下面會用到。</dd>
+        <dt>-DEDGE_LED_ACTIVE_LOW</dt><dd>只是一個 cpp 巨集：同一份原始檔，定義它就編出 active-low 版，不定義就是 active-high 版。</dd>
+      </dl>
+      <p>想看 cpp 展開後交給 dtc 的到底是什麼，在 repo 根目錄執行（不需要 root）：</p>
+<pre class="cmd">cpp -nostdinc -undef -P -x assembler-with-cpp -I/lib/modules/$(uname -r)/build/include dts/edge-gpio-overlay.dts | grep -E 'led-gpios|tristate'</pre>
+<pre class="out" data-marks>    led-gpios = &lt;&amp;gpio ((15 * 8) + 5) 0&gt;; «1»
+     nvidia,tristate = &lt;0&gt;; «2»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>TEGRA234_MAIN_GPIO(Q, 5)</code> 被展開成算式 <code>((15 * 8) + 5)</code>，<code>GPIO_ACTIVE_HIGH</code> 變成 <code>0</code>。算式由 dtc 算成 125（下面反組譯看到的 <code>0x7d</code>）。<code>&amp;gpio</code> 原封不動，等開機時才解。</span></li>
+        <li><span class="mk">2</span><span><code>TEGRA_PIN_DISABLE</code> 變成 <code>0</code>。加上 <code>-DEDGE_LED_ACTIVE_LOW</code> 再跑一次，<code>led-gpios</code> 的最後一格會變成 <code>1</code>。</span></li>
+      </ol>
+      <p>編出來的 <code>.dtbo</code> 除了我們寫的兩個 fragment，還多了 dtc 自動產生的三個特殊節點，合併時 bootloader 靠它們把補丁接到原廠的樹上：</p>
+      <table>
+        <thead><tr><th>節點</th><th>內容</th><th>在這份 overlay 裡</th></tr></thead>
+        <tbody>
+          <tr><td><code>fragment@N / __overlay__</code></td><td>要疊到哪裡（<code>target</code> 或 <code>target-path</code>），以及疊什麼</td><td>@0 疊到 <code>/</code>，@1 疊到 <code>&amp;pinmux</code></td></tr>
+          <tr><td><code>__symbols__</code></td><td>這份檔案定義的標籤（<code>-@</code> 產生）</td><td><code>edge_led_pins</code></td></tr>
+          <tr><td><code>__fixups__</code></td><td>引用了<b>外部</b>（原廠樹）的標籤：哪個屬性的哪一格要換成誰的 phandle</td><td><code>gpio</code>、<code>pinmux</code></td></tr>
+          <tr><td><code>__local_fixups__</code></td><td>引用了<b>自己</b>的標籤：合併時 phandle 會整體重新編號，這些位置要跟著改</td><td><code>edge-led</code> 的 <code>pinctrl-0</code>（編譯時是 <code>0x01</code>，這次開機合併後讀到 <code>0x384</code>）</td></tr>
+        </tbody>
+      </table>
+      <h3>overlay 原始檔</h3>
       <p>overlay 的開頭先 include 三份 kernel 附的 binding header，把 GPIO 編號、極性、pinctrl 常數都寫成有名字的巨集：</p>
       <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:14–29 — 前段：/plugin/、binding header、極性與板型</figcaption>
 <pre data-start="14" data-hot="15,21,22,24,29">/dts-v1/;
@@ -318,7 +413,8 @@ od -An -tx1 /proc/device-tree/bus@0/gpio@2200000/phandle</pre>
           <tr><td>手動編輯 extlinux.conf</td><td>腳本找出 DEFAULT 指到的 label，把 <code>/boot/edge-gpio-overlay.dtbo</code> 用逗號接在既有的 <code>OVERLAYS</code> 後面（和 jetson-io 的格式相同）；沒有這行就補一行。其他 label 不動。</td></tr>
           <tr><td>先備份</td><td>第一次安裝時自動存成 <code>extlinux.conf.edge-gpio.bak</code>，之後不覆蓋。</td></tr>
           <tr><td>把 dtbo 複製到 /boot</td><td>腳本會複製；重複執行不會加第二次（冪等）。</td></tr>
-          <tr><td>移除時手動清理</td><td><code>remove</code> 會把那一項拿掉（行空了就刪行）並刪除 <code>/boot</code> 裡的 dtbo。</td></tr>
+          <tr><td>移除時手動清理</td><td><code>remove</code> 會從<b>每個</b> label 拿掉那一項（行空了就刪行），寫好設定檔之後才刪除 <code>/boot</code> 裡的 dtbo。</td></tr>
+          <tr><td>擔心寫到一半斷電</td><td>新內容先寫進暫存檔、fsync，再 rename 蓋過原檔，extlinux.conf 不會只剩半個。看不懂的 <code>OVERLAYS</code> 行（例如值裡有空白）一律拒絕修改、回傳 1。</td></tr>
         </tbody>
       </table>
 <pre class="cmd">sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo
@@ -337,8 +433,8 @@ grep OVERLAYS /boot/extlinux/extlinux.conf</pre>
     <div class="content">
       <h2>driver：認得一個 compatible，要一個 GPIO</h2>
       <p>driver 的最後一段宣告「我認得哪些裝置」：</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:120–139 — 配對表與 platform_driver</figcaption>
-<pre data-start="120" data-hot="121,124,131,136,139">static const struct of_device_id edge_gpio_of_match[] = {
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:123–142 — 配對表與 platform_driver</figcaption>
+<pre data-start="123" data-hot="124,127,134,139,142">static const struct of_device_id edge_gpio_of_match[] = {
 	{ .compatible = "edge,gpio-led" },
 	{ }
 };
@@ -359,7 +455,7 @@ static struct platform_driver edge_gpio_driver = {
 };
 module_platform_driver(edge_gpio_driver);</pre></figure>
       <p><code>of_match_table</code> 裡的字串和 overlay 的 <code>compatible</code> 一模一樣，靜態測試會比對兩邊。<code>MODULE_DEVICE_TABLE</code> 把這張表寫進 <code>.ko</code>，讓 udev 之類的工具知道這個 module 支援哪些裝置。<code>module_platform_driver()</code> 展開成 module 載入時註冊 driver、卸載時取消註冊。<code>suppress_bind_attrs</code> 關掉 sysfs 的手動 unbind：unbind 會釋放 driver 的資料，而那時可能還有人開著 <code>/dev/edge_gpio</code>；rmmod 則已經由 <code>.owner</code> 擋住（檔案開著時 module 不能卸載，驗收會測）。</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:78–107 — probe：要 GPIO、開 /dev/edge_gpio</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:78–109 — probe：要 GPIO、開 /dev/edge_gpio</figcaption>
 <pre data-start="78" data-hot="84,89,91,98,99">static int edge_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &amp;pdev-&gt;dev;
@@ -382,8 +478,10 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
 	eg-&gt;misc.parent = dev;
 	eg-&gt;misc.mode = 0666;
 	ret = misc_register(&amp;eg-&gt;misc);
-	if (ret)
+	if (ret) {
+		mutex_destroy(&amp;eg-&gt;lock);
 		return ret;
+	}
 
 	platform_set_drvdata(pdev, eg);
 	dev_info(dev, "probed: led gpio acquired (%s)\n",
@@ -419,18 +517,19 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
 	return count;
 }</pre></figure>
       <p><code>kstrtouint_from_user()</code> 從 userspace 複製字串並解析成整數，會接受結尾的換行（shell 的 <code>echo 1</code> 送來的是 <code>"1\n"</code>），空字串、<code>on</code>、<code>1 1</code> 都回 <code>-EINVAL</code>。先解析到區域變數、檢查範圍，成功才動 GPIO：這是 Step 2 那個 <code>copy_from_user</code> 坑的老規矩，壞的寫入不能改到狀態。<code>gpiod_set_value_cansleep()</code> 收的是邏輯值，極性反相由 gpiolib 處理，所以這段 code 對 active-high、active-low 都一樣。</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:109–118 — remove：先關節點、熄燈，再交還 GPIO</figcaption>
-<pre data-start="109" data-hot="113,115">static int edge_gpio_remove(struct platform_device *pdev)
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:111–121 — remove：先關節點、熄燈，再交還 GPIO</figcaption>
+<pre data-start="111" data-hot="115,117,118">static int edge_gpio_remove(struct platform_device *pdev)
 {
 	struct edge_gpio *eg = platform_get_drvdata(pdev);
 
 	misc_deregister(&amp;eg-&gt;misc);
 	/* Leave the LED off; devm then releases the GPIO line. */
 	gpiod_set_value_cansleep(eg-&gt;led, 0);
+	mutex_destroy(&amp;eg-&gt;lock);
 	dev_info(&amp;pdev-&gt;dev, "removed\n");
 	return 0;
 }</pre></figure>
-      <p>先 <code>misc_deregister()</code>，之後就不會再有新的 open；再把 LED 寫成 0。4-a 量過：Tegra 釋放 line 時不會把輸出歸零，而且這一步也實測到 pinctrl 的 default 狀態在 unbind 後不會還原，pad 仍然開著。如果不寫 0，rmmod 之後 LED 可能一直亮著。驗收腳本在 rmmod 前會故意先寫 1。</p>
+      <p>先 <code>misc_deregister()</code>，之後就不會再有新的 open；再把 LED 寫成 0。4-a 量過：Tegra 釋放 line 時不會把輸出歸零，而且這一步也實測到 pinctrl 的 default 狀態在 unbind 後不會還原，pad 仍然開著。如果不寫 0，rmmod 之後 LED 可能一直亮著。驗收腳本在 rmmod 前會故意先寫 1，但 line 釋放後 debugfs 就不再列出它，而重新請求又會改到輸出值，所以「rmmod 後腳位是 low」<b>只能靠人眼</b>：腳本最後會提示你看 LED 是不是熄的。<code>mutex_destroy()</code> 和 probe 的 <code>mutex_init()</code> 成對，只在開了 <code>CONFIG_DEBUG_MUTEXES</code> 的 kernel 上有作用，用來抓「已銷毀的鎖又被使用」。</p>
     </div>
   </section>
 
@@ -440,11 +539,11 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
       <h2>不開機也能測 overlay，開機後再測裝置</h2>
       <p>overlay 要重開機才生效，所以大部分檢查做成不需要硬體的靜態測試：</p>
       <ul>
-        <li><code>tests/test_edge_gpio_static.py</code>：<span data-tests="tests/test_edge_gpio_static.py">13</span> 個案例。用 <code>make -C dts</code> 真的編出 dtbo，再用 dtc 反組譯檢查：binding header 裡 port Q 還是 15、兩種極性都編得出來、板型 compatible、<code>led-gpios</code> 是 125 加 flags 0／1、<code>&amp;gpio</code> 和 <code>&amp;pinmux</code> 留成 fixup、<code>pinctrl-0</code> 指到的狀態節點設了 <code>soc_gpio32_pq5</code> 的 tristate=0／input=0，而且這個 pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 40-pin overlay 的 pin 29 一致。driver 端則檢查 of_match 字串和 overlay 相同、<code>devm_gpiod_get(dev, "led", GPIOD_OUT_LOW)</code>、沒有用舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。期望值來自 binding header 和 NVIDIA 的 overlay，不是從我們的 overlay 抄的。</li>
-        <li><code>tests/test_install_overlay.py</code>：<span data-tests="tests/test_install_overlay.py">8</span> 個案例，對照這台實際的 extlinux.conf 版面做假檔：接在既有 OVERLAYS 後面、只動 DEFAULT label、沒有 OVERLAYS 時補一行、重複安裝不重複、備份是原檔、remove 還原原文、找不到 DEFAULT label 時不動檔案。</li>
+        <li><code>tests/test_edge_gpio_static.py</code>：<span data-tests="tests/test_edge_gpio_static.py">14</span> 個案例。用 <code>make -C dts</code> 真的編出 dtbo，再用 dtc 反組譯檢查：前處理器出錯時 make 必須失敗且不留下 dtbo（在 dts 副本加一行 <code>#error</code>：cpp 回 1 但照樣輸出，沒有 <code>pipefail</code> 的話 dtc 會編出一個 dtbo）、binding header 裡 port Q 還是 15、兩種極性都編得出來、板型 compatible、<code>led-gpios</code> 是 125 加 flags 0／1、<code>&amp;gpio</code> 和 <code>&amp;pinmux</code> 留成 fixup、<code>pinctrl-0</code> 指到的狀態節點設了 <code>soc_gpio32_pq5</code> 的 tristate=0／input=0，而且這個 pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 40-pin overlay 的 pin 29 一致。driver 端則檢查 of_match 字串和 overlay 相同、<code>devm_gpiod_get(dev, "led", GPIOD_OUT_LOW)</code>、沒有用舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。期望值來自 binding header 和 NVIDIA 的 overlay，不是從我們的 overlay 抄的。</li>
+        <li><code>tests/test_install_overlay.py</code>：<span data-tests="tests/test_install_overlay.py">12</span> 個案例，對照這台實際的 extlinux.conf 版面做假檔：接在既有 OVERLAYS 後面、只動 DEFAULT label、沒有 OVERLAYS 時補一行、重複安裝不重複、備份是原檔、remove 還原原文、找不到 DEFAULT label 時不動檔案；code review 後補了四個：<code>OVERLAYS</code> 後面是空的時不能把下一行黏上來、值裡有空白時拒絕修改（不另加一行）、remove 要從每個 label 移除、寫入後權限不變且不留暫存檔。</li>
         <li><code>tests/test_edge_gpio_device.py</code>：<span data-tests="tests/test_edge_gpio_device.py">6</span> 個案例，對真的 <code>/dev/edge_gpio</code>：權限 0666、寫 1/0 讀回、接受結尾換行、重開檔案狀態還在、讀到 2 bytes 後 EOF、<code>2</code> <code>-1</code> <code>on</code> 空字串 <code>\n</code> <code>10</code> <code>1 1</code> 都回 <code>EINVAL</code> 且狀態不變。裝置不存在時 skip；設了 <code>EDGE_GPIO_REQUIRE=1</code> 時改成 fail。</li>
       </ul>
-      <p>紅燈紀錄：靜態和 installer 測試在實作前全紅（11/11、8/8；pinctrl 的 2 個案例是後來加的，在 overlay 加 <code>fragment@1</code> 前也是紅的）。device 測試在 overlay 開機後、insmod 之前用 <code>EDGE_GPIO_REQUIRE=1</code> 跑，6 個全部 failure。變異測試：overlay 的 compatible 改錯、port 改成 P、tristate 改回 enable、pad 名稱寫錯、拿掉 <code>pinctrl-0</code>，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
+      <p>紅燈紀錄：靜態和 installer 測試在實作前全紅（11/11、8/8；pinctrl 的 2 個案例是後來加的，在 overlay 加 <code>fragment@1</code> 前也是紅的）。code review 後補的案例中，空 OVERLAYS、含空白、每個 label 移除、<code>#error</code> 這四個先紅再修；「權限不變、不留暫存檔」在修之前就會過（舊版直接覆寫也滿足），只能當守門測試，證明不了寫入真的是原子的。device 測試在 overlay 開機後、insmod 之前用 <code>EDGE_GPIO_REQUIRE=1</code> 跑，6 個全部 failure。變異測試：overlay 的 compatible 改錯、port 改成 P、tristate 改回 enable、pad 名稱寫錯、拿掉 <code>pinctrl-0</code>，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
       <p>其中「空字串回 <code>EINVAL</code>」也順便確認了一件事：寫 0 個 byte 一樣會進到 driver 的 <code>write()</code>，VFS 不會替你擋掉。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_gpio_static.py' -v
 python3 -m unittest discover -s tests -p 'test_install_overlay.py' -v</pre>
@@ -511,9 +610,9 @@ exit=1 «6»
         <li><b>不在</b>（overlay 沒裝）：insmod 後確認 driver 註冊在 platform bus、沒有任何 device 綁定、<code>/dev/edge_gpio</code> 不存在、line 105 沒被動到，再 rmmod。overlay 安裝前實測 10 項 PASS。</li>
         <li><b>在</b>：從 DT 讀出極性（<code>led-gpios</code> 的第三格），決定「寫 1 時 pin 應該是 hi 還是 lo」，然後跑指定的輪數。</li>
       </ul>
-      <p>第 1 輪多做兩件事：讀 pinconf 確認 pad 已被 pinctrl 打開，以及以一般使用者跑 4-a 的 <code>edge_gpio_blink</code>，它必須拿到 busy：</p>
-      <figure class="listing"><figcaption>scripts/verify_edge_gpio.sh:109–128 — probe 之後檢查 pad，並確認 userspace 搶不到 line</figcaption>
-<pre data-start="109" data-hot="111,116,122,123">        # Pad config while the driver holds the line (the DT pinctrl "default" state).
+      <p>第 1 輪多做兩件事：讀 pinconf 確認 pad 已被 pinctrl 打開，以及跑 4-a 的 <code>edge_gpio_blink</code>，它必須拿到 busy。這一步用 root 執行：一般使用者若不在 <code>gpio</code> 群組，會先拿到 <code>EACCES</code>（權限不足），被誤判成 driver 的問題（code review 指出後修正）：</p>
+      <figure class="listing"><figcaption>scripts/verify_edge_gpio.sh:111–131 — probe 之後檢查 pad，並確認 userspace 搶不到 line</figcaption>
+<pre data-start="111" data-hot="113,118,125,126">        # Pad config while the driver holds the line (the DT pinctrl "default" state).
         if ((i == 1)); then
             conf="$(pinconf)"
             if [[ -z $conf ]]; then
@@ -526,7 +625,8 @@ exit=1 «6»
                     fail "PQ.05 pad not set by pinctrl-0: output will not reach the pin"
                 fi
             fi
-            busy="$(sudo -u "$BUILD_USER" "$REPO/build/edge_gpio_blink" 2&gt;&amp;1)"; rc=$?
+            # As root: a user outside the gpio group would get EACCES, not EBUSY.
+            busy="$("$REPO/build/edge_gpio_blink" 2&gt;&amp;1)"; rc=$?
             if [[ $rc -eq 1 &amp;&amp; $busy == *"request line 105"*busy* ]]; then
                 pass "userspace edge_gpio_blink gets EBUSY while the driver owns line $LINE"
             else
@@ -570,12 +670,13 @@ PASS cycle 2: line 105 released
 --- cycle 3/3
   …
     after rmmod: 115 (soc_gpio32_pq5): pull=0 tristate=0 enable-input=0 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=1 function=rsvd0 «6»
+    look at the LED now: it must be OFF (each cycle wrote 1 right before rmmod) «7»
 PASS dmesg free of Oops/BUG/WARNING
-PASS dmesg shows 3 probe / 3 remove «7»
-[  400.627303] edge_gpio edge-led: probed: led gpio acquired (active-high)
-[  400.780633] edge_gpio edge-led: removed
-[  400.842800] edge_gpio edge-led: probed: led gpio acquired (active-high)
-[  400.992080] edge_gpio edge-led: removed
+PASS dmesg shows 3 probe / 3 remove «8»
+[ 2991.660519] edge_gpio edge-led: probed: led gpio acquired (active-high)
+[ 2991.808488] edge_gpio edge-led: removed
+[ 2991.853575] edge_gpio edge-led: probed: led gpio acquired (active-high)
+[ 2992.014313] edge_gpio edge-led: removed
 === 0 failure(s)</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>極性是從 <code>/proc/device-tree/edge-led/led-gpios</code> 讀出來的，不是腳本寫死的。</span></li>
@@ -584,7 +685,8 @@ PASS dmesg shows 3 probe / 3 remove «7»
         <li><span class="mk">4</span><span><b class="hl-ok">LED 閃了 5 次</b>（人眼確認）：第一次由我們的 kernel driver 點亮。其他步驟（<code>on/off</code> 檢查、device 測試、rmmod 前的寫 1）間隔只有幾毫秒，看起來是快閃。</span></li>
         <li><span class="mk">5</span><span>腳本以 fd 7 開著 <code>/dev/edge_gpio</code> 時 rmmod 被拒絕：<code>.owner = THIS_MODULE</code> 讓開著的檔案持有 module 的參考。</span></li>
         <li><span class="mk">6</span><span>rmmod 之後 pad 仍是 <code>tristate=0</code>：pinctrl 狀態不會在 unbind 時還原。另外注意 <code>gpio-mode</code>：driver 持有 line、LED 正常閃時是 0，rmmod 後才變 1。這推翻了 4-a 原本「bit 10 在請求 line 時設定」的推論（4-a 的章已更正）。</span></li>
-        <li><span class="mk">7</span><span>probe 次數 = 輪數，每次 probe 都配一次 remove。腳本只印最後 4 行。</span></li>
+        <li><span class="mk">7</span><span>每一輪都在 rmmod 前寫 1，所以如果 <code>remove()</code> 沒有寫 0，LED 現在會是亮的。這一點腳本看不到，只能靠人眼（4b.5）。實測：慢閃 5 下、接著約 1 秒的快閃之後 LED 熄滅。</span></li>
+        <li><span class="mk">8</span><span>probe 次數 = 輪數，每次 probe 都配一次 remove。腳本只印最後 4 行。</span></li>
       </ol>
     </div>
   </section>

@@ -57,6 +57,20 @@ class OverlayTest(unittest.TestCase):
         self.assertRegex(text, r"#define\s+TEGRA234_MAIN_GPIO_PORT_Q\s+15\b")
         self.assertRegex(text, r"TEGRA234_MAIN_GPIO_PORT_##port \* 8\) \+ offset")
 
+    def test_preprocessor_error_fails_the_build_and_leaves_no_dtbo(self):
+        # cpp reports #error with exit 1 but still prints the rest, so dtc alone would
+        # succeed: cpp | dtc must fail on cpp's status (pipefail) and delete the target.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "dts"
+            shutil.copytree(DTS_DIR, src, ignore=shutil.ignore_patterns("*.dtbo"))
+            dts = src / "edge-gpio-overlay.dts"
+            dts.write_text(dts.read_text() + "#error deliberate preprocessor error\n")
+            res = subprocess.run(["make", "-s", "-C", str(src), "edge-gpio-overlay.dtbo"],
+                                 capture_output=True, text=True)
+            self.assertNotEqual(res.returncode, 0, res.stderr)
+            self.assertIn("deliberate preprocessor error", res.stderr)
+            self.assertFalse((src / "edge-gpio-overlay.dtbo").exists())
+
     def test_both_variants_are_built(self):
         self.assertTrue(self.high.is_file())
         self.assertTrue(self.low.is_file())

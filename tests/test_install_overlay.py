@@ -139,6 +139,46 @@ class InstallOverlayTest(unittest.TestCase):
         self.assertEqual(self.conf.read_text(), broken)
         self.assertFalse((self.boot / "edge-gpio-overlay.dtbo").exists())
 
+    def test_empty_overlays_line_keeps_the_next_line_intact(self):
+        # "\tOVERLAYS\n": a \s+ in the pattern would swallow the newline and glue the
+        # entry onto the following line.
+        conf = JETSONIO.replace("\tOVERLAYS /boot/tegra234-p3767-camera-p3768-imx219-A.dtbo\n",
+                                "\tOVERLAYS\n") + "LABEL after\n      LINUX /boot/Image\n"
+        self.conf.write_text(conf)
+        res = self.run_script("install", str(self.dtbo))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        text = self.conf.read_text()
+        self.assertIn(f"\tOVERLAYS {ENTRY}\n", text)
+        self.assertIn("\nLABEL after\n", text)
+
+    def test_unparseable_overlays_line_is_refused(self):
+        # Spaces in the value: never add a second OVERLAYS line next to it.
+        broken = JETSONIO.replace("imx219-A.dtbo", "imx219-A.dtbo, /boot/other.dtbo")
+        self.conf.write_text(broken)
+        res = self.run_script("install", str(self.dtbo))
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(self.conf.read_text(), broken)
+        self.assertFalse((self.boot / "edge-gpio-overlay.dtbo").exists())
+
+    def test_remove_strips_the_entry_from_every_label(self):
+        # DEFAULT may have moved since install; the dtbo is deleted, so no label may keep it.
+        conf = JETSONIO.replace("      APPEND ${cbootargs} root=PARTUUID=x rw\n",
+                                f"      APPEND ${{cbootargs}} root=PARTUUID=x rw\n      OVERLAYS {ENTRY}\n", 1)
+        self.conf.write_text(conf)
+        self.assertEqual(self.run_script("install", str(self.dtbo)).returncode, 0)
+        res = self.run_script("remove")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn(ENTRY, self.conf.read_text())
+
+    def test_write_is_atomic_and_keeps_mode(self):
+        # Written through a temp file + rename: nothing left behind, permissions kept.
+        self.conf.write_text(JETSONIO)
+        self.conf.chmod(0o640)
+        self.assertEqual(self.run_script("install", str(self.dtbo)).returncode, 0)
+        self.assertEqual(self.conf.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()),
+                         ["boot", "extlinux.conf", "extlinux.conf.edge-gpio.bak", "src.dtbo"])
+
     def test_usage_errors_exit_2(self):
         self.conf.write_text(JETSONIO)
         self.assertEqual(self.run_script().returncode, 2)

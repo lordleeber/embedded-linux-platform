@@ -38,6 +38,9 @@ command -v gpioinfo >/dev/null || die "gpioinfo missing (apt install gpiod)"
 BUILD_USER="${SUDO_USER:-root}"
 
 is_loaded() { grep -q '^edge_gpio ' /proc/modules; }
+# Checked before the EXIT trap exists, so a module the user loaded is left alone.
+is_loaded && die "edge_gpio already loaded; rmmod edge_gpio first"
+
 outfile="$(mktemp)"   # root writes test output here: never a guessable /tmp name
 cleanup() {
     rm -f "$outfile"
@@ -57,7 +60,6 @@ pinconf() {
 # Raw output register level from gpiolib debugfs ("hi"/"lo"); only listed while the line is requested.
 pin_level() { awk '/\(PQ\.05/ { for (i = 1; i <= NF; i++) if ($i == "hi" || $i == "lo") { print $i; exit } }' /sys/kernel/debug/gpio; }
 
-is_loaded && die "edge_gpio already loaded; rmmod edge_gpio first"
 mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug || die "cannot mount debugfs"
 
 if timeout 300 sudo -u "$BUILD_USER" make -C "$MOD_DIR" >/dev/null 2>&1; then
@@ -119,7 +121,8 @@ else
                     fail "PQ.05 pad not set by pinctrl-0: output will not reach the pin"
                 fi
             fi
-            busy="$(sudo -u "$BUILD_USER" "$REPO/build/edge_gpio_blink" 2>&1)"; rc=$?
+            # As root: a user outside the gpio group would get EACCES, not EBUSY.
+            busy="$("$REPO/build/edge_gpio_blink" 2>&1)"; rc=$?
             if [[ $rc -eq 1 && $busy == *"request line 105"*busy* ]]; then
                 pass "userspace edge_gpio_blink gets EBUSY while the driver owns line $LINE"
             else
@@ -175,6 +178,9 @@ else
     done
     # Informational: does the pad keep the pinctrl state after the driver is gone?
     echo "    after rmmod: $(pinconf)"
+    # remove() must leave the LED off, but the released line is no longer in debugfs
+    # and re-requesting it would change it: only a person can check this one.
+    echo "    look at the LED now: it must be OFF (each cycle wrote 1 right before rmmod)"
     expect_probes=$CYCLES
 fi
 

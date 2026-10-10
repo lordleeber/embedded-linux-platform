@@ -23,20 +23,21 @@ die()  { echo "ERROR $*" >&2; exit 2; }
 # Build as the invoking user so root-owned objects are not left in the tree.
 BUILD_USER="${SUDO_USER:-root}"
 
+is_loaded() { grep -q '^edge_test ' /proc/modules; }
+proc_major() { awk '$2 == "edge_test" { print $1 }' /proc/devices; }
+
+# Checked before the EXIT trap exists, so a module the user loaded is left alone.
+is_loaded && die "edge_test already loaded; run kernel/edge_test/unload.sh first"
+
 outfile="$(mktemp)"   # root writes test output here: never a guessable /tmp name
 cleanup() {
     rm -f "$outfile"
-    if grep -q '^edge_test ' /proc/modules; then
+    if is_loaded; then
         rmmod edge_test || echo "WARN cleanup rmmod failed" >&2
     fi
 }
 trap cleanup EXIT
 trap 'exit 2' INT TERM
-
-is_loaded() { grep -q '^edge_test ' /proc/modules; }
-proc_major() { awk '$2 == "edge_test" { print $1 }' /proc/devices; }
-
-is_loaded && die "edge_test already loaded; run kernel/edge_test/unload.sh first"
 
 if timeout 300 sudo -u "$BUILD_USER" make -C "$MOD_DIR" >/dev/null; then
     pass "build edge_test.ko"

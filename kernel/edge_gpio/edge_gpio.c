@@ -97,8 +97,10 @@ static int edge_gpio_probe(struct platform_device *pdev)
 	eg->misc.parent = dev;
 	eg->misc.mode = 0666;
 	ret = misc_register(&eg->misc);
-	if (ret)
+	if (ret) {
+		mutex_destroy(&eg->lock);
 		return ret;
+	}
 
 	platform_set_drvdata(pdev, eg);
 	dev_info(dev, "probed: led gpio acquired (%s)\n",
@@ -113,6 +115,7 @@ static int edge_gpio_remove(struct platform_device *pdev)
 	misc_deregister(&eg->misc);
 	/* Leave the LED off; devm then releases the GPIO line. */
 	gpiod_set_value_cansleep(eg->led, 0);
+	mutex_destroy(&eg->lock);
 	dev_info(&pdev->dev, "removed\n");
 	return 0;
 }
