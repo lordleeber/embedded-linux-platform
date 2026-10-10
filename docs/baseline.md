@@ -185,9 +185,9 @@
   - 讀不存在的位址（0x45）：`OSError(121, 'Remote I/O error')`。
   - 容差：電壓判定「9.0～12.8 V」（3S 鋰電池 9～12.6 V，留 0.2 V）；電量和公式 `(V − 9) / 3.6` 差 ≤ 0.01 %。拔掉 adapter 時判定「|I| ≥ 0.05 A」。
 - **未實測**：拔掉 DC adapter 後的電流與正負號（遠端登入，沒人能拔）。腳本那一段已寫好，下次在板子旁邊跑 `bash scripts/verify_ina219_sample.sh`（不加參數）補記。adapter 接著時電流 0 是因為電池已充飽（使用者確認，2026-10-11）：不充不放；加上 bus 電壓等於電池電壓，推論 INA219 量的是電池側（未查證）。電池沒滿時，adapter 接著也該看到充電電流，可以順便驗方向；shunt 0.01 Ω 是範例註解的假設，也未查證。
-- 自動測試：`tests/test_ina219_sample.py` 21 個案例（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 2、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：148 個，`OK (skipped=39)`。
+- 自動測試：`tests/test_ina219_sample.py` 21 個案例，code review 後 24 個（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 4、讀輸出 helper 1、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：151 個，`OK (skipped=39)`。
 - 紅燈紀錄：範例複製進 repo 前 19 個案例 1 failure + 13 errors（實機模式 14 errors）；「Config 逐欄拆解」「讀不存在的位址」兩條不依賴範例，先就會過，是守門測試。驗收腳本的兩條測試在腳本寫好前 1 failure + 1 error。
-- 規模：新增程式約 400 行（測試 260、驗收腳本 120、README 15）；範例本身 175 行是第三方原檔，不計。
+- 規模：新增程式約 440 行（code review 後：測試 324、驗收腳本 103、README 12；第一版寫成「測試 260、腳本 120」是估的，實際是 281 / 101）；範例本身 175 行是第三方原檔，不計。
 
 ### 踩坑
 
@@ -199,3 +199,12 @@
 - 範例的類別預設位址是 `0x40`，主程式傳 `0x41`；直接 `INA219()` 會得到 `Errno 121`。
 - 寫測試時兩個格式字串的空白數抄錯（`Power:` 後面 10 個空白、`Percentage:` 的 `{:6.2f}`），第一次跑紅；改成直接用範例的 `format` 字串產生期望值。
 - 發現（範圍外，未修）：`docs/step05b.html` 第 142–150 行殘留一段 Step 4-b 的 `<nav>` 與章首，渲染時頁首多一列導覽和錯的標題；排進 Step 6-b 一併修。
+- code review（PR #9）找出的問題，原本都以為沒事：
+  - 原本以為測試名稱 `test_discharge_shows_negative_current` 只是好讀；它把「放電 = 負」寫成事實，但方向沒實測。改名 `test_negative_raw_current_prints_negative`，章裡改成「只驗算術」。
+  - 原本以為範例出錯就會結束、`readline()` 會拿到 EOF；範例活著卻不輸出時，實機測試和驗收腳本會一直等。改成 `select` 加 10 秒時限的 `sample_block()`，卡住時 AssertionError（用 `sleep 30` 當假範例，1 秒內失敗）。
+  - 原本以為 `timeout` 包住的範例收得到 Ctrl-C；`timeout` 不加 `--foreground` 會把子程序移出終端機的 process group，Ctrl-C 只送到 bash，而 bash 的 INT trap 要等前景的 `timeout` 結束才執行。用 `script` 開虛擬終端實測：不加時 trap 在第 8 秒（timeout 到期）才跑，加了在第 1 秒；真腳本在拔插那 20 秒內送 Ctrl-C，立刻 `rc=2`、沒有殘留的範例程序。
+  - PASS 訊息寫 `9.0 .. 12.6 V`，判定其實到 12.8 V；訊息改成寫出判定範圍。
+  - 原本以為 `test_config_fields` 有在守 Config；它拆的是測試自己寫的 `0x0EEF`，永遠不會紅。改成拆假 bus 記下的那筆寫入。
+  - `FakeSMBus.reads_from` 只寫不讀：改成記錄每次讀取，主程式測試檢查讀寫都對 0x41。建立假 `smbus` 的程式碼抽成 `fake_smbus()`。
+  - 授權：README 原本寫「和 Adafruit CircuitPython INA219 相同，推測由它改寫」；查了 Adafruit 目前版本（MIT，2017 Dean Miller），`set_calibration_16V_5A` 的寫法不同，也沒有 `Cal = 13434` 那段註解，出處無法確認。使用者決定保留在 repo（Waveshare 公開提供），README 改成照實寫「沒有授權聲明、出處未確認」。
+

@@ -17,6 +17,7 @@ import io
 import os
 from pathlib import Path
 import runpy
+import select
 import subprocess
 import sys
 import time
@@ -34,23 +35,24 @@ HW = os.environ.get("EDGE_INA219_HW") == "1"
 
 
 class FakeSMBus:
-    """Records writes; reads come from a {register: [msb, lsb]} table."""
+    """Records reads and writes; reads come from a {register: [msb, lsb]} table."""
 
     def __init__(self, bus, regs=None):
         self.bus = bus
         self.regs = regs if regs is not None else {}
+        self.reads = []
         self.writes = []
 
     def read_i2c_block_data(self, addr, reg, length):
-        self.reads_from = addr
+        self.reads.append((addr, reg))
         return list(self.regs.get(reg, [0, 0]))[:length]
 
     def write_i2c_block_data(self, addr, reg, data):
         self.writes.append((addr, reg, list(data)))
 
 
-def load_sample(regs=None):
-    """Import the sample with `smbus` replaced; returns (module, list of buses opened)."""
+def fake_smbus(regs=None):
+    """A stand-in `smbus` module; returns (module, list of FakeSMBus it opened)."""
     opened = []
 
     def factory(bus):
@@ -60,6 +62,12 @@ def load_sample(regs=None):
 
     fake = types.ModuleType("smbus")
     fake.SMBus = factory
+    return fake, opened
+
+
+def load_sample(regs=None):
+    """Import the sample with `smbus` replaced; returns (module, list of buses opened)."""
+    fake, opened = fake_smbus(regs)
     with mock.patch.dict(sys.modules, {"smbus": fake}):
         spec = importlib.util.spec_from_file_location("ina219_sample", SAMPLE)
         mod = importlib.util.module_from_spec(spec)
@@ -70,15 +78,7 @@ def load_sample(regs=None):
 
 def run_main_once(regs):
     """Run the sample as __main__ for one loop; returns (stdout, the fake bus)."""
-    opened = []
-
-    def factory(bus):
-        b = FakeSMBus(bus, regs)
-        opened.append(b)
-        return b
-
-    fake = types.ModuleType("smbus")
-    fake.SMBus = factory
+    fake, opened = fake_smbus(regs)
     out = io.StringIO()
 
     def stop(_):
@@ -89,6 +89,29 @@ def run_main_once(regs):
         with contextlib.suppress(KeyboardInterrupt):
             runpy.run_path(str(SAMPLE), run_name="__main__")
     return out.getvalue(), opened[0]
+
+
+def sample_block(cmd, timeout=10):
+    """First four output lines of `cmd` as {label: value}; AssertionError if they take too long."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    out = b""
+    deadline = time.monotonic() + timeout
+    try:
+        while out.count(b"\n") < 4:   # the sample prints a block, then sleeps 2 s, forever
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([proc.stdout], [], [], left)[0]:
+                break
+            chunk = os.read(proc.stdout.fileno(), 4096)
+            if not chunk:                 # it exited (e.g. an I/O error traceback)
+                break
+            out += chunk
+    finally:
+        proc.kill()
+        proc.communicate()
+    lines = out.decode().splitlines()[:4]
+    if len(lines) < 4:
+        raise AssertionError(f"{cmd[-1]}: {len(lines)} line(s) within {timeout} s")
+    return dict(line.split(":", 1) for line in lines if ":" in line)
 
 
 def be(value):
@@ -113,6 +136,8 @@ class InitSequenceTest(unittest.TestCase):
         _, bus = run_main_once({2: be(0x609A)})
         self.assertEqual(bus.bus, BUS)
         self.assertEqual({w[0] for w in bus.writes}, {ADDR})
+        self.assertTrue(bus.reads)
+        self.assertEqual({r[0] for r in bus.reads}, {ADDR})
 
     def test_writes_calibration_then_config_big_endian(self):
         mod, opened = load_sample()
@@ -124,7 +149,11 @@ class InitSequenceTest(unittest.TestCase):
 
     def test_config_fields(self):
         # BRNG=0 (16 V), PG=01 (/2, 80 mV), BADC=SADC=1101 (12-bit, 32 samples), MODE=111.
-        cfg = 0x0EEF
+        # Decoded from what the sample really writes, not from a constant of our own.
+        mod, opened = load_sample()
+        mod.INA219(addr=ADDR)
+        (_, reg, data), = [w for w in opened[0].writes if w[1] == 0x00]
+        cfg = data[0] << 8 | data[1]
         self.assertEqual(cfg >> 13 & 1, 0)
         self.assertEqual(cfg >> 11 & 3, 1)
         self.assertEqual(cfg >> 7 & 0xF, 0xD)
@@ -202,7 +231,8 @@ class MainLoopTest(unittest.TestCase):
             out, _ = run_main_once({2: be(raw)})
             self.assertIn("Percentage:    {:6.2f} %".format(float(pct)), out, volts)
 
-    def test_discharge_shows_negative_current(self):
+    def test_negative_raw_current_prints_negative(self):
+        # Only the arithmetic: which direction is negative on this module is not measured yet.
         out, _ = run_main_once({2: be(0x5A00), 4: be(-6562)})   # -6562 * 0.1524 mA ~ -1 A
         self.assertIn("Current:       -1.000049 A", out)
 
@@ -220,6 +250,26 @@ class VerifyScriptTest(unittest.TestCase):
         # and never shows 0x41; -r probes with a read instead.
         self.assertRegex(self.SCRIPT.read_text(), r"i2cdetect -y -r")
 
+    def test_ctrl_c_reaches_the_sample(self):
+        # Without --foreground, timeout moves the sample out of the terminal's process group:
+        # Ctrl-C only reaches bash, whose trap waits for the whole sampling window (code review).
+        self.assertRegex(self.SCRIPT.read_text(), r"timeout --foreground")
+
+    def test_voltage_message_states_the_real_limit(self):
+        # The PASS line must name the limit the check really uses (code review).
+        text = self.SCRIPT.read_text()
+        self.assertIn("v <= 12.8", text)
+        self.assertRegex(text, r'pass "battery voltage[^"]*accepted 9\.0 \.\. 12\.8 V')
+
+
+class SampleBlockTest(unittest.TestCase):
+    def test_gives_up_on_a_silent_process(self):
+        # A sample stuck on the bus must fail the test, not hang it (code review).
+        start = time.monotonic()
+        with self.assertRaises(AssertionError):
+            sample_block(["sleep", "30"], timeout=1)
+        self.assertLess(time.monotonic() - start, 5)
+
 
 @unittest.skipUnless(HW, "set EDGE_INA219_HW=1 (scripts/verify_ina219_sample.sh)")
 class HardwareTest(unittest.TestCase):
@@ -233,14 +283,7 @@ class HardwareTest(unittest.TestCase):
         return d[0] << 8 | d[1]
 
     def first_block(self):
-        proc = subprocess.Popen([sys.executable, "-u", str(SAMPLE)], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True)
-        try:
-            lines = [proc.stdout.readline().strip() for _ in range(4)]
-        finally:
-            proc.kill()
-            proc.communicate()
-        return dict(line.split(":", 1) for line in lines if ":" in line)
+        return sample_block([sys.executable, "-u", str(SAMPLE)])
 
     def test_script_prints_a_plausible_battery_voltage(self):
         block = self.first_block()

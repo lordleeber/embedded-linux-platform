@@ -43,8 +43,10 @@ trap cleanup EXIT
 trap 'exit 2' INT TERM
 
 # Run the sample for $1 seconds; output in $tmpdir/$2. SIGINT is what Ctrl-C would send.
+# --foreground keeps the sample in the terminal's process group, so a real Ctrl-C reaches it
+# at once; without it bash's INT trap waits for the whole window (measured: 8 s of 8).
 sample() {
-    timeout -s INT -k 2 "$1" python3 -u "$SAMPLE" >"$tmpdir/$2" 2>/dev/null
+    timeout --foreground -s INT -k 2 "$1" python3 -u "$SAMPLE" >"$tmpdir/$2" 2>/dev/null
 }
 # One line per block: volts amps watts percent
 blocks() { awk '/^Load Voltage/ {v=$3} /^Current/ {a=$2} /^Power/ {w=$2} /^Percentage/ {print v, a, w, $2}' "$tmpdir/$1"; }
@@ -72,7 +74,7 @@ sample 5 idle
 cat "$tmpdir/idle"
 read -r v a w p < <(blocks idle | head -1)
 if [[ -n "${v:-}" ]] && awk -v v="$v" 'BEGIN { exit !(v >= 9.0 && v <= 12.8) }'; then
-    pass "battery voltage $v V, $p % (3S pack: 9.0 .. 12.6 V)"
+    pass "battery voltage $v V, $p % (accepted 9.0 .. 12.8 V; a 3S pack is 9.0 .. 12.6 V)"
 else
     fail "no plausible voltage in the sample output"
 fi

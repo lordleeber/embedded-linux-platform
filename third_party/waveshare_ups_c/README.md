@@ -8,5 +8,5 @@ sha256  ceb770e56f2feae3af0b29dc237e94097e12704b555afc5024e3214efca748fb
 
 - 執行：`python3 third_party/waveshare_ups_c/ina219.py`（需要 `python3-smbus`、使用者在 `i2c` 群組；每 2 秒印一組，Ctrl-C 結束）
 - 它會在啟動時**寫入** INA219 的 Calibration 與 Config register，之後只讀
-- 檔案沒有授權聲明；`INA219` 類別的結構與註解和 Adafruit CircuitPython INA219（MIT）的 `set_calibration_*` 相同，推測由它改寫（未查證）
+- **授權**：檔案沒有版權或授權聲明，出處未確認。它是 Waveshare 隨 UPS Power Module (C) 提供的範例程式（依官方說明取得）；為了讓教材的程式碼節錄能逐字核對而原樣收錄。曾比對 Adafruit CircuitPython INA219（MIT）目前的版本：類別與常數名稱相近，但 `set_calibration_16V_5A` 的寫法不同，也沒有 `Cal = 13434` 這段註解，所以不能說是由它改寫。權利人若不同意收錄，移除這個目錄即可（測試與教材的節錄會跟著失敗，需改成引用外部來源）
 - 自己的工具與 driver 在 Step 6-b 之後另寫，不 import 這個檔案

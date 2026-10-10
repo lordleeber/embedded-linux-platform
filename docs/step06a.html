@@ -453,16 +453,17 @@ KeyboardInterrupt «4»</pre>
     <div class="rail"><span class="no">6a.9</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>把章裡的每個說法寫成測試</h2>
-      <p>這一步沒有新程式，要測的是「章裡對範例的說法」。<code>tests/test_ina219_sample.py</code> 共 <span data-tests="tests/test_ina219_sample.py">21</span> 個案例，期望值照 INA219 datasheet 寫，不是從範例的輸出抄：</p>
+      <p>這一步沒有新程式，要測的是「章裡對範例的說法」。<code>tests/test_ina219_sample.py</code> 共 <span data-tests="tests/test_ina219_sample.py">24</span> 個案例，期望值照 INA219 datasheet 寫，不是從範例的輸出抄：</p>
       <ul>
         <li><b>入庫的副本（2）</b>：SHA-256 和記錄的一致；板上有 <code>~/UPS_Power_Module_C/ina219.py</code> 時，兩份逐 byte 相同。</li>
-        <li><b>啟動序列（5）</b>：用假的 <code>smbus</code> 模組（放進 <code>sys.modules</code>，範例 import 到的就是它）記下所有寫入：主程式用 bus 7、位址 0x41；先寫 Calibration <code>[0x68, 0xF4]</code> 再寫 Config <code>[0x0E, 0xEF]</code>；Config 逐欄拆解；LSB 常數和 Cal 一致；註解和程式的兩組數字都釘住。</li>
+        <li><b>啟動序列（5）</b>：用假的 <code>smbus</code> 模組（放進 <code>sys.modules</code>，範例 import 到的就是它）記下所有寫入：主程式用 bus 7，讀寫都對位址 0x41；先寫 Calibration <code>[0x68, 0xF4]</code> 再寫 Config <code>[0x0E, 0xEF]</code>；Config 逐欄拆解（拆的是假 bus 記下的那筆寫入，不是測試自己寫的常數）；LSB 常數和 Cal 一致；註解和程式的兩組數字都釘住。</li>
         <li><b>換算（5）</b>：bus voltage 丟掉低 3 bit、高位 byte 在前（反過來就不是 12.364 V）、shunt 與 current 是有號數、power 乘 3.048 mW。</li>
-        <li><b>主迴圈（3）</b>：用 <code>runpy</code> 把範例當主程式跑一輪（<code>time.sleep</code> 換成丟例外來停下），比對印出的四行；電量在 9 V、10.8 V、12.6 V 與範圍外的值；放電時電流印成負數。</li>
-        <li><b>驗收腳本（2）</b>：參數錯誤回 2；腳本用 <code>i2cdetect -y -r</code>（6a.8）。</li>
+        <li><b>主迴圈（3）</b>：用 <code>runpy</code> 把範例當主程式跑一輪（<code>time.sleep</code> 換成丟例外來停下），比對印出的四行；電量在 9 V、10.8 V、12.6 V 與範圍外的值；raw 是負的，電流就印成負數（只驗算術：這塊模組上哪個方向是負的還沒實測）。</li>
+        <li><b>驗收腳本（4）</b>：參數錯誤回 2；腳本用 <code>i2cdetect -y -r</code>（6a.8）；用 <code>timeout --foreground</code> 跑範例，Ctrl-C 才會立刻生效；PASS 訊息寫出實際的判定範圍（後兩條是 code review 後補，先紅再修）。</li>
+        <li><b>讀輸出的 helper（1）</b>：範例卡住不輸出時，實機測試要在時限內失敗，而不是一直等（code review 後補）。</li>
         <li><b>實機（4）</b>：<code>EDGE_INA219_HW=1</code> 才跑，<code>i2c</code> 群組即可。範例印出 9～12.8 V 且電量照公式；跑過後 Config / Calibration 讀回 <code>0x0EEF</code> / <code>0x68F4</code>；讀 Power 清掉 CNVR、0.1 秒後又設起來；讀不存在的位址 0x45 得到 <code>EREMOTEIO</code>（errno 121，模組被拔掉時範例會看到的錯誤）。</li>
       </ul>
-      <p>紅燈紀錄：範例還沒複製進 repo 時，19 個案例裡 1 個 failure、13 個 error（實機模式 14 個 error）；只有「Config 逐欄拆解」和「讀不存在的位址」兩條在那之前就會過，它們不依賴範例，是守門用的。之後有兩條是我自己的期望寫錯，詳見 6a.11。</p>
+      <p>紅燈紀錄：範例還沒複製進 repo 時，19 個案例裡 1 個 failure、13 個 error（實機模式 14 個 error）；只有「Config 逐欄拆解」（那時拆的還是測試自己寫的常數，code review 指出它永遠不會紅，已改）和「讀不存在的位址」兩條在那之前就會過，它們不依賴範例，是守門用的。之後有兩條是我自己的期望寫錯，詳見 6a.11。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_ina219_sample.py' -v
 EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_sample.py' -v</pre>
       <p>第一行不碰硬體（實機 4 個 skip，沒有 <code>~/UPS_Power_Module_C</code> 時再多 skip 1 個）；第二行要有 UPS 模組接在 bus 7。注意實機測試會讓範例跑一下，<b>也就是會寫入 Config 和 Calibration</b>（寫的是範例本來就會寫的值）。</p>
@@ -475,7 +476,7 @@ EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_sample.py
       <h2>驗收：掃得到、讀得到、數字合理</h2>
       <p><code>scripts/verify_ina219_sample.sh</code> 依序做：<code>i2cdetect -y -r 7</code> 找到 0x41、跑實機測試、讓範例跑 5 秒並檢查電壓在 3S 電池範圍內。最後一段會請人<b>拔掉 UPS 的 DC adapter</b>，讓電池接手供電，檢查電流不再是 0，再請人插回去。不需要 root。在 repo 根目錄執行（沒辦法碰到板子時加 <code>--no-unplug</code>）：</p>
 <pre class="cmd">bash scripts/verify_ina219_sample.sh --no-unplug</pre>
-      <p>2026-10-11 的實測輸出（遠端登入，沒有人能拔 adapter，所以用 <code>--no-unplug</code>；掃描表同 6a.8，範例輸出重複三輪，略）：</p>
+      <p>2026-10-11 的實測輸出（code review 修正後重跑；遠端登入，沒有人能拔 adapter，所以用 <code>--no-unplug</code>；掃描表同 6a.8，範例輸出重複三輪，略）：</p>
 <pre class="out" data-marks>== bus scan (i2cdetect -y -r 7)
 …
 PASS INA219 answers at 0x41 on i2c-7 «1»
@@ -487,16 +488,16 @@ Current:        0.000000 A
 Power:          0.000000 W
 Percentage:     93.44 %
 …
-PASS battery voltage 12.364 V, 93.44 % (3S pack: 9.0 .. 12.6 V) «3»
+PASS battery voltage 12.364 V, 93.44 % (accepted 9.0 .. 12.8 V; a 3S pack is 9.0 .. 12.6 V) «3»
 current on adapter: 0.000000 A «4»
 === 0 failure(s)</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>controller <code>c250000.i2c</code>（pin 3 / 5）上，target 0x41 回應了位址。</span></li>
-        <li><span class="mk">2</span><span>21 個案例全過，含 4 個實機案例：晶片確實保留了範例寫進去的設定。</span></li>
-        <li><span class="mk">3</span><span>電壓在 3S 電池範圍內，電量照 <code>(V − 9) / 3.6</code>。</span></li>
+        <li><span class="mk">2</span><span>24 個案例全過，含 4 個實機案例：晶片確實保留了範例寫進去的設定。</span></li>
+        <li><span class="mk">3</span><span>判定範圍是 9.0～12.8 V（3S 電池 9～12.6 V，多留 0.2 V），電量照 <code>(V − 9) / 3.6</code>。</span></li>
         <li><span class="mk">4</span><span>adapter 接著時電流 0：電池已經充飽（使用者確認），電池不充也不放，所以 shunt 上沒有電流。bus voltage 等於電池電壓，加上「充飽時電流歸零」，都指向 INA219 量的是電池這一側；這仍是<b>推論</b>，正負號代表哪個方向要靠拔掉 adapter 驗證。</span></li>
       </ol>
-      <div class="callout"><p><b class="hl-bad">沒有實測</b>：拔掉 DC adapter 之後電流會不會變成非 0、正負號代表哪個方向（放電是負的嗎？）。腳本的這一段已經寫好，下次有人在板子旁邊時跑 <code>bash scripts/verify_ina219_sample.sh</code>（不加參數）補上，結果記進 <code>docs/baseline.md</code>。測試 <code>test_discharge_shows_negative_current</code> 只驗證範例「會把負的 raw 印成負數」，不能代替實機的方向。</p></div>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：拔掉 DC adapter 之後電流會不會變成非 0、正負號代表哪個方向（放電是負的嗎？）。腳本的這一段已經寫好，下次有人在板子旁邊時跑 <code>bash scripts/verify_ina219_sample.sh</code>（不加參數）補上，結果記進 <code>docs/baseline.md</code>。測試 <code>test_negative_raw_current_prints_negative</code> 只驗證範例「會把負的 raw 印成負數」，不能代替實機的方向。</p></div>
     </div>
   </section>
 
@@ -510,6 +511,7 @@ current on adapter: 0.000000 A «4»
         <div class="pit"><h4>以為範例跑完 CNVR 一定是 1</h4><dl><dt>症狀</dt><dd>實機測試讀到 <code>0x6098</code>，CNVR = 0。</dd><dt>後果</dt><dd>測試紅了，像是晶片沒在轉換。</dd><dt>正解</dt><dd class="fix">讀 Power 會清掉 CNVR，範例每輪都讀；等一次轉換（約 34 ms）再看。</dd></dl></div>
         <div class="pit"><h4>相信範例的註解</h4><dl><dt>症狀</dt><dd>註解寫 Cal 13434、100 µA/bit。</dd><dt>後果</dt><dd>照註解換算，電流差 1.5 倍。</dd><dt>正解</dt><dd class="fix">以寫進晶片的值為準，用 datasheet 公式從 Cal 推回 LSB。</dd></dl></div>
         <div class="pit"><h4>以為範例只會讀</h4><dl><dt>症狀</dt><dd>只是「跑一下看數字」。</dd><dt>後果</dt><dd>建立 <code>INA219</code> 物件就覆寫 Config 與 Calibration；之後別的程式看到的是範例的設定。</dd><dt>正解</dt><dd class="fix">知道它會寫；要純讀取，等 6-b 的工具。</dd></dl></div>
+        <div class="pit"><h4>以為 timeout 包住的程式收得到 Ctrl-C</h4><dl><dt>症狀</dt><dd>驗收腳本在拔插那 20 秒內按 Ctrl-C，沒反應。</dd><dt>後果</dt><dd>要等整段取樣結束才退出（code review 指出，實測：8 秒的 timeout，trap 在第 8 秒才跑）。</dd><dt>正解</dt><dd class="fix"><code>timeout --foreground</code>：範例留在終端機的 process group，Ctrl-C 直接送到它（實測第 1 秒）。</dd></dl></div>
         <div class="pit"><h4>直接用類別的預設位址</h4><dl><dt>症狀</dt><dd><code>INA219()</code> 不傳參數。</dd><dt>後果</dt><dd>預設 0x40，這塊模組在 0x41：<code>Errno 121 Remote I/O error</code>。</dd><dt>正解</dt><dd class="fix">照主程式傳 <code>addr=0x41</code>；先用 <code>i2cdetect -y -r</code> 確認。</dd></dl></div>
       </div>
     </div>
@@ -521,7 +523,7 @@ current on adapter: 0.000000 A «4»
       <h2>這一步做到了什麼</h2>
       <ul class="checks">
         <li class="y">逐行讀懂廠商範例：bus 7、位址 0x41、高位 byte 在前、啟動時寫 Calibration <code>26868</code> 與 Config <code>0x0EEF</code>、四個 getter 的換算與電量公式。</li>
-        <li class="y">每個說法都有測試核對（21 個，含 4 個實機）；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
+        <li class="y">每個說法都有測試核對（24 個，含 4 個實機）；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
         <li class="y">找出註解和程式不一致，並從 datasheet 公式確認程式那組才是對的（前提：shunt 0.01 Ω）。</li>
         <li class="n">沒有實測：拔掉 DC adapter 時的電流與方向（遠端登入，沒人能拔）。</li>
         <li class="n">沒有查證：shunt 電阻值、模組的電源路徑（INA219 在電池側是由電壓推論的）。</li>
