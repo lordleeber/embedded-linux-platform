@@ -404,7 +404,7 @@ Traceback (most recent call last):
 KeyboardInterrupt «4»</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>raw <code>0x609A</code>，3S 電池在 9～12.6 V 之間，合理。</span></li>
-        <li><span class="mk">2</span><span>電流是 0：電池已經充飽（使用者確認），DC adapter 接著時由 adapter 供電，電池不充也不放，shunt 上沒有電流。電池沒滿時這裡會是充電電流；拔掉 adapter 時會變成放電電流（6a.10）。</span></li>
+        <li><span class="mk">2</span><span>電流是 0：電池已經充飽（使用者確認），DC adapter 接著時由 adapter 供電，電池不充也不放，shunt 上沒有電流。電池沒滿時這裡會是充電電流；拔掉 adapter 時會變成放電電流（6a.11）。</span></li>
         <li><span class="mk">3</span><span>(12.364 − 9) / 3.6 = 93.44 %。</span></li>
         <li><span class="mk">4</span><span><code>timeout</code> 送的 SIGINT，和按 Ctrl-C 一樣。結束碼是 124（<code>timeout</code> 的「時間到」）。</span></li>
       </ol>
@@ -449,8 +449,43 @@ KeyboardInterrupt «4»</pre>
     </div>
   </section>
 
+  <section id="nodt">
+    <div class="rail"><span class="no">6a.9</span><b>對照</b><span class="dot" style="background: var(--drv)"></span>不用 overlay</div>
+    <div class="content">
+      <h2>為什麼這次不用像 Step 4、5 那樣設 overlay</h2>
+      <p>Step 4-b、5-b 都得改 Device Tree、重開機，這一章卻什麼都沒設，<code>python3 ina219.py</code> 就讀得到。原因要看 overlay 當時在解決什麼問題：</p>
+      <table>
+        <thead><tr><th>overlay 在 Step 4-b / 5-b 做的事</th><th>這一章為什麼不需要</th></tr></thead>
+        <tbody>
+          <tr><td><b>讓我們的 driver 被 probe</b>：platform driver 靠 DT 節點的 <code>compatible</code> 配對，沒有節點，<code>insmod</code> 了也不會呼叫 <code>probe()</code></td><td>沒有我們的 driver。範例走 <b class="hl-key">i2c-dev</b>：開 <code>/dev/i2c-7</code>、用 <code>I2C_SLAVE</code> ioctl 指定位址 0x41，再收發 byte。kernel 只負責把 byte 送上線，不知道 0x41 是什麼晶片；register 的意義全在 Python 裡（圖 6.1）</td></tr>
+          <tr><td><b>告訴 driver 硬體接在哪</b>：<code>led-gpios</code>、<code>button-gpios</code> 寫在 DT 裡，driver 不寫死腳位</td><td>bus 7、位址 0x41 直接寫死在範例裡（6a.3、6a.7）</td></tr>
+          <tr><td><b>設定 pad</b>：pin 29 開機是 tristate（4-a 的坑），pin 33 要上拉；overlay 帶了 pinctrl 狀態</td><td>NVIDIA 的基礎 Device Tree 已經啟用 <code>c250000.i2c</code>（<code>status = "okay"</code>，400 kHz），開機就有 <code>/dev/i2c-7</code>。pin 3 / 5 是 header 上專用的 I2C 腳位，直接接 SoC、不經 TXB0108（5-b 查過的載板規格書）</td></tr>
+        </tbody>
+      </table>
+      <p>可以自己確認這幾件事（不需要 root）：</p>
+<pre class="cmd">ls -l /dev/i2c-7; cat /sys/bus/i2c/devices/i2c-7/name; tr -d '\0' &lt; /proc/device-tree/bus@0/i2c@c250000/status; echo; ls /sys/bus/i2c/devices/ | grep '^7-' || echo "no I2C client on bus 7"</pre>
+<pre class="out" data-marks>crw-rw---- 1 root i2c 89, 7 Aug 26  2025 /dev/i2c-7 «1»
+c250000.i2c «2»
+okay «3»
+no I2C client on bus 7 «4»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>i2c-dev 的節點已經在了（這台 kernel 是 <code>CONFIG_I2C_CHARDEV=y</code>，內建，不用載模組）；<code>i2c</code> 群組可讀寫。</span></li>
+        <li><span class="mk">2</span><span>bus 7 就是 <code>c250000.i2c</code> 這個控制器。</span></li>
+        <li><span class="mk">3</span><span>控制器在基礎 DT 裡就是啟用的。</span></li>
+        <li><span class="mk">4</span><span>kernel 在 bus 7 上<b>沒有任何 I2C client</b>（有的話會出現 <code>7-0041</code> 這種目錄）：DT 裡沒有描述 0x41 上的晶片，也就沒有 driver 綁上它。範例照樣讀得到，因為 i2c-dev 不需要 client。</span></li>
+      </ol>
+      <p>反過來說，<b>不需要 overlay 是因為這一章不寫 driver</b>。4-a 的 LED 也是 userspace 程式，卻得先開 pad；差別在 pin 29 開機時不能輸出，而 pin 3 / 5 開機就是 I2C 功能。這一點沒有讀 pinmux 暫存器確認，依據是「什麼都不設，掃描和讀寫就都成功」。</p>
+      <p>到 Step 7 寫自己的 I2C driver（<code>struct i2c_driver</code>、<code>probe()</code>）就需要了：kernel 要先知道「bus 7 的 0x41 上有一顆 <code>edge,ina219</code>」，才會建立 I2C client（第 4 點會多出 <code>7-0041</code>）並呼叫 <code>probe()</code>。這要在 overlay 裡、<code>c250000.i2c</code> 底下加一個節點，形狀和 4-b 的 LED 節點一樣靠 <code>compatible</code> 配對，只是多了 <code>reg</code> 寫 I2C 位址：</p>
+<pre>ina219@41 {
+    compatible = "edge,ina219";
+    reg = &lt;0x41&gt;;
+};</pre>
+      <p>（這段是 <code>phase03.md</code> 的規劃，位址照這一章改成 0x41；實際的 overlay 在 Step 7 才寫。）另一個不改 DT 的作法是測試時從 sysfs 臨時建立 client（<code>new_device</code>），Step 7 再比較兩者。</p>
+    </div>
+  </section>
+
   <section id="tests">
-    <div class="rail"><span class="no">6a.9</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="rail"><span class="no">6a.10</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>把章裡的每個說法寫成測試</h2>
       <p>這一步沒有新程式，要測的是「章裡對範例的說法」。<code>tests/test_ina219_sample.py</code> 共 <span data-tests="tests/test_ina219_sample.py">24</span> 個案例，期望值照 INA219 datasheet 寫，不是從範例的輸出抄：</p>
@@ -463,7 +498,7 @@ KeyboardInterrupt «4»</pre>
         <li><b>讀輸出的 helper（1）</b>：範例卡住不輸出時，實機測試要在時限內失敗，而不是一直等（code review 後補）。</li>
         <li><b>實機（4）</b>：<code>EDGE_INA219_HW=1</code> 才跑，<code>i2c</code> 群組即可。範例印出 9～12.8 V 且電量照公式；跑過後 Config / Calibration 讀回 <code>0x0EEF</code> / <code>0x68F4</code>；讀 Power 清掉 CNVR、0.1 秒後又設起來；讀不存在的位址 0x45 得到 <code>EREMOTEIO</code>（errno 121，模組被拔掉時範例會看到的錯誤）。</li>
       </ul>
-      <p>紅燈紀錄：範例還沒複製進 repo 時，19 個案例裡 1 個 failure、13 個 error（實機模式 14 個 error）；只有「Config 逐欄拆解」（那時拆的還是測試自己寫的常數，code review 指出它永遠不會紅，已改）和「讀不存在的位址」兩條在那之前就會過，它們不依賴範例，是守門用的。之後有兩條是我自己的期望寫錯，詳見 6a.11。</p>
+      <p>紅燈紀錄：範例還沒複製進 repo 時，19 個案例裡 1 個 failure、13 個 error（實機模式 14 個 error）；只有「Config 逐欄拆解」（那時拆的還是測試自己寫的常數，code review 指出它永遠不會紅，已改）和「讀不存在的位址」兩條在那之前就會過，它們不依賴範例，是守門用的。之後有兩條是我自己的期望寫錯，詳見 6a.12。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_ina219_sample.py' -v
 EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_sample.py' -v</pre>
       <p>第一行不碰硬體（實機 4 個 skip，沒有 <code>~/UPS_Power_Module_C</code> 時再多 skip 1 個）；第二行要有 UPS 模組接在 bus 7。注意實機測試會讓範例跑一下，<b>也就是會寫入 Config 和 Calibration</b>（寫的是範例本來就會寫的值）。</p>
@@ -471,7 +506,7 @@ EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_sample.py
   </section>
 
   <section id="verify">
-    <div class="rail"><span class="no">6a.10</span><b>驗收</b>掃描 → 讀值</div>
+    <div class="rail"><span class="no">6a.11</span><b>驗收</b>掃描 → 讀值</div>
     <div class="content">
       <h2>驗收：掃得到、讀得到、數字合理</h2>
       <p><code>scripts/verify_ina219_sample.sh</code> 依序做：<code>i2cdetect -y -r 7</code> 找到 0x41、跑實機測試、讓範例跑 5 秒並檢查電壓在 3S 電池範圍內。最後一段會請人<b>拔掉 UPS 的 DC adapter</b>，讓電池接手供電，檢查電流不再是 0，再請人插回去。不需要 root。在 repo 根目錄執行（沒辦法碰到板子時加 <code>--no-unplug</code>）：</p>
@@ -502,7 +537,7 @@ current on adapter: 0.000000 A «4»
   </section>
 
   <section id="pitfalls">
-    <div class="rail"><span class="no">6a.11</span><b>常見錯誤</b></div>
+    <div class="rail"><span class="no">6a.12</span><b>常見錯誤</b></div>
     <div class="content">
       <h2>踩過的坑</h2>
       <div class="pitfalls">
@@ -518,7 +553,7 @@ current on adapter: 0.000000 A «4»
   </section>
 
   <section id="next">
-    <div class="rail"><span class="no">6a.12</span><b>收尾</b>6-a → 6-b</div>
+    <div class="rail"><span class="no">6a.13</span><b>收尾</b>6-a → 6-b</div>
     <div class="content">
       <h2>這一步做到了什麼</h2>
       <ul class="checks">
