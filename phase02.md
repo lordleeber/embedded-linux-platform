@@ -204,14 +204,21 @@ kernel/edge_gpio/
 └── Makefile
 
 dts/
-└── edge-gpio-overlay.dts
+├── edge-gpio-overlay.dts
+└── Makefile                          （cpp + dtc，產出 active-high / active-low 兩個 dtbo）
+
+scripts/install_edge_gpio_overlay.py  （把 overlay 加進 extlinux.conf 的 DEFAULT label）
+scripts/verify_edge_gpio.sh           （驗收：有 / 沒有 DT node 兩種模式）
+tests/test_edge_gpio_static.py
+tests/test_install_overlay.py
+tests/test_edge_gpio_device.py
 ```
 
 ### 驗證
 
 - `probe()` 確實由 DT match 觸發
 - 移除 DT node 後 driver 不應憑空 probe
-- LED active-low/active-high 行為正確
+- LED active-low/active-high 行為正確（active-high 已實測；active-low 只有靜態測試，未改接線實測）
 - unload driver 後 GPIO 被釋放
 - driver 載入期間 4-a 的 `edge_gpio_blink` 請求 line 105 得到 busy
 - 順帶修正（4-a code review 發現、範圍外延後）：`verify_edge_test.sh` 與 `verify_edge_gpio.sh` 以 root 寫入 `/tmp/<name>.$$`，改用 `mktemp`；`verify_edge_gpio.sh` 的 pinconf 解析改成多行格式

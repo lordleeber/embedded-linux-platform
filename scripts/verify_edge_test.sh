@@ -23,7 +23,9 @@ die()  { echo "ERROR $*" >&2; exit 2; }
 # Build as the invoking user so root-owned objects are not left in the tree.
 BUILD_USER="${SUDO_USER:-root}"
 
+outfile="$(mktemp)"   # root writes test output here: never a guessable /tmp name
 cleanup() {
+    rm -f "$outfile"
     if grep -q '^edge_test ' /proc/modules; then
         rmmod edge_test || echo "WARN cleanup rmmod failed" >&2
     fi
@@ -84,32 +86,29 @@ for ((i = 1; i <= CYCLES; i++)); do
         if [[ $got == 0 ]]; then pass "cycle $i: ioctl value reset to 0 after reload"; else fail "cycle $i: value after reload is '$got', expected 0"; fi
     fi
 
-    if (cd "$REPO" && EDGE_TEST_REQUIRE=1 timeout 60 python3 -m unittest discover -s tests -p test_edge_test_device.py >/tmp/edge_test_unittest.$$ 2>&1); then
+    if (cd "$REPO" && EDGE_TEST_REQUIRE=1 timeout 60 python3 -m unittest discover -s tests -p test_edge_test_device.py >"$outfile" 2>&1); then
         pass "cycle $i: device unittest (root)"
     else
-        fail "cycle $i: device unittest (root)"; cat /tmp/edge_test_unittest.$$
+        fail "cycle $i: device unittest (root)"; cat "$outfile"
     fi
-    rm -f /tmp/edge_test_unittest.$$
 
     if [[ $BUILD_USER != root ]]; then
         out="$(timeout 10 sudo -u "$BUILD_USER" sh -c "echo hello > $DEV && cat $DEV")"
         if [[ $out == hello ]]; then pass "cycle $i: echo/cat as $BUILD_USER"; else fail "cycle $i: echo/cat as $BUILD_USER got '$out'"; fi
     fi
 
-    if EDGE_TEST_REQUIRE=1 timeout 30 "$BUILD_DIR/test_edge_device" >/tmp/edge_test_cxx.$$ 2>&1; then
+    if EDGE_TEST_REQUIRE=1 timeout 30 "$BUILD_DIR/test_edge_device" >"$outfile" 2>&1; then
         pass "cycle $i: C++ ioctl test (root)"
     else
-        fail "cycle $i: C++ ioctl test (root)"; cat /tmp/edge_test_cxx.$$
+        fail "cycle $i: C++ ioctl test (root)"; cat "$outfile"
     fi
-    rm -f /tmp/edge_test_cxx.$$
 
     # Run as the invoking user so the CLI test's CMake step cannot leave root-owned files in build/.
-    if (cd "$REPO" && timeout 120 sudo -u "$BUILD_USER" env EDGE_TEST_REQUIRE=1 python3 -m unittest discover -s tests -p test_edge_test_cli.py >/tmp/edge_test_cli.$$ 2>&1); then
+    if (cd "$REPO" && timeout 120 sudo -u "$BUILD_USER" env EDGE_TEST_REQUIRE=1 python3 -m unittest discover -s tests -p test_edge_test_cli.py >"$outfile" 2>&1); then
         pass "cycle $i: CLI tests as $BUILD_USER"
     else
-        fail "cycle $i: CLI tests as $BUILD_USER"; cat /tmp/edge_test_cli.$$
+        fail "cycle $i: CLI tests as $BUILD_USER"; cat "$outfile"
     fi
-    rm -f /tmp/edge_test_cli.$$
 
     timeout 10 "$CLI" set 4242 >/dev/null || fail "cycle $i: set 4242 before unload"
 

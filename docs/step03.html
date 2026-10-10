@@ -519,8 +519,8 @@ exit=1 «5»</pre>
     <div class="content">
       <h2>同一支驗收腳本，多驗三件事</h2>
       <p>Step 2 的 <code>scripts/verify_edge_test.sh</code> 照舊重複 load → 測試 → unload，<b>只加不換</b>：迴圈前多一步 CMake build；每一輪多跑 C++ ioctl 測試（root）與 CLI 測試（一般使用者）；從第 2 輪起，多檢查 reload 後 value 是否歸零：</p>
-      <figure class="listing"><figcaption>scripts/verify_edge_test.sh:81–85 — reload 後 value 必須歸零</figcaption>
-<pre data-start="81" data-hot="82-84">    # Step 3: the ioctl value lives in the module, so a reload starts from 0.
+      <figure class="listing"><figcaption>scripts/verify_edge_test.sh:83–87 — reload 後 value 必須歸零</figcaption>
+<pre data-start="83" data-hot="84-86">    # Step 3: the ioctl value lives in the module, so a reload starts from 0.
     if ((i &gt; 1)); then
         got="$(timeout 10 "$CLI" get 2&gt;&amp;1)"
         if [[ $got == 0 ]]; then pass "cycle $i: ioctl value reset to 0 after reload"; else fail "cycle $i: value after reload is '$got', expected 0"; fi
@@ -562,8 +562,8 @@ PASS dmesg shows 3 load / 3 unload messages
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:54</code>），而且以你的身分執行。</td></tr>
-          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 114 行），下一輪自動檢查（第 81–85 行）。</td></tr>
+          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:56</code>），而且以你的身分執行。</td></tr>
+          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 113 行），下一輪自動檢查（第 83–87 行）。</td></tr>
           <tr><td>用 sudo 跑 CLI 的 Python 測試</td><td>不要：那支測試第一次會跑 CMake，用 root 會在 <code>build/</code> 留下 root 所有的檔案。腳本用 <code>sudo -u "$SUDO_USER"</code> 執行它。</td></tr>
         </tbody>
       </table>

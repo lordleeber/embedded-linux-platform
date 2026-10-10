@@ -139,7 +139,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><span class="disabled">Step 4-b →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04b.html">Step 4-b →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 4-a · userspace GPIO</div>
     <h1>先在 userspace 點亮 pin 29</h1>
@@ -266,12 +266,12 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
     <div class="rail"><span class="no">4a.4</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>0x458 → 0x400</div>
     <div class="content">
       <h2>把 pad 打開：一個暫存器、三個欄位</h2>
-      <p>PQ.05 的 pad 設定在實體位址 <code>0x02430068</code>：pinmux 區塊的基底 <code>0x02430000</code>（Device Tree 裡的 <code>pinmux@2430000</code>）加上偏移 <code>0x68</code>。一個 32-bit 暫存器，用不同的 bit 表示不同的電氣設定。開機時讀到 <code>0x00000458</code>：</p>
+      <p>PQ.05 的 pad 設定在實體位址 <code>0x02430068</code>：pinmux 區塊的基底 <code>0x02430000</code>（Device Tree 裡的 <code>pinmux@2430000</code>）加上偏移 <code>0x68</code>。一個 32-bit 暫存器，用不同的 bit 表示不同的電氣設定。實驗時讀到的是 <code>0x00000458</code>（剛開機、還沒有程式用過這條 line 時是 <code>0x00000058</code>，只差 bit 10，見下方說明）：</p>
       <figure class="figure">
-        <svg viewBox="0 0 760 230" role="img" aria-label="暫存器低 12 bit：開機值 0x458 的 bit 10、6、4、3 為 1；打開後 0x400 只剩 bit 10。改動的是 bit 6 input、bit 4 tristate、bit 3:2 pull">
+        <svg viewBox="0 0 760 230" role="img" aria-label="暫存器低 12 bit：關閉時 0x458 的 bit 10、6、4、3 為 1；打開後 0x400 只剩 bit 10。改動的是 bit 6 input、bit 4 tristate、bit 3:2 pull">
           <text class="s-mono" x="10" y="30">BIT</text>
           <text class="s-sm" x="153" y="30" text-anchor="middle">11</text><text class="s-sm" x="203" y="30" text-anchor="middle">10</text><text class="s-sm" x="253" y="30" text-anchor="middle">9</text><text class="s-sm" x="303" y="30" text-anchor="middle">8</text><text class="s-sm" x="353" y="30" text-anchor="middle">7</text><text class="s-sm" x="403" y="30" text-anchor="middle">6</text><text class="s-sm" x="453" y="30" text-anchor="middle">5</text><text class="s-sm" x="503" y="30" text-anchor="middle">4</text><text class="s-sm" x="553" y="30" text-anchor="middle">3</text><text class="s-sm" x="603" y="30" text-anchor="middle">2</text><text class="s-sm" x="653" y="30" text-anchor="middle">1</text><text class="s-sm" x="703" y="30" text-anchor="middle">0</text>
-          <text class="s-lbl" x="10" y="69">開機</text>
+          <text class="s-lbl" x="10" y="69">關閉</text>
           <text class="s-sm" x="10" y="86">0x458</text>
           <rect class="bit bit-0" x="133" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1" x="183" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="233" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="283" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="333" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="383" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="433" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="483" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="533" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="583" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="633" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="683" y="45" width="40" height="40" rx="5"/>
           <text class="s-key" x="153" y="70" text-anchor="middle">0</text><text class="s-key" x="203" y="70" text-anchor="middle">1</text><text class="s-key" x="253" y="70" text-anchor="middle">0</text><text class="s-key" x="303" y="70" text-anchor="middle">0</text><text class="s-key" x="353" y="70" text-anchor="middle">0</text><text class="s-key" x="403" y="70" text-anchor="middle">1</text><text class="s-key" x="453" y="70" text-anchor="middle">0</text><text class="s-key" x="503" y="70" text-anchor="middle">1</text><text class="s-key" x="553" y="70" text-anchor="middle">1</text><text class="s-key" x="603" y="70" text-anchor="middle">0</text><text class="s-key" x="653" y="70" text-anchor="middle">0</text><text class="s-key" x="703" y="70" text-anchor="middle">0</text>
@@ -293,7 +293,7 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
         <li><b>tristate（bit 4）</b>：1 = 輸出驅動器斷開。這是 LED 不亮的原因，非清不可。</li>
         <li><b>input（bit 6）</b>：輸入接收器。當輸出用不需要；NVIDIA 自家 40-pin overlay 對 pin 29 也是設成 0。</li>
         <li><b>pull（bit 3:2）</b>：<code>10</code> 是內部上拉。腳位由輸出主動驅動時不需要，改成 <code>00</code>（不拉）。</li>
-        <li><b>bit 10</b>：意義沒有查過 TRM，所以不動。實測時它為 1 時 debugfs 都顯示 <code>gpio-mode=1</code>，而剛開機、還沒人請求過 line 時量到的是 <code>gpio-mode=0</code>。推論它是 GPIO / 其他功能的選擇位元，在 line 第一次被請求時由 GPIO 那一側設定。這是推論，不是查證過的事實。</li>
+        <li><b>bit 10</b>：意義沒有查過 TRM，所以不動。debugfs 把它顯示成 <code>gpio-mode</code>。實測：剛開機時是 0（讀到 <code>0x058</code>），有程式用過這條 line、釋放之後是 1。本章原本推論「line 被請求時就會設成 1」，Step 4-b 的實測推翻了這個推論：kernel driver 持有 line、LED 正常閃爍時，它仍然是 0。所以 bit 10 不是 GPIO 輸出的必要條件；它在什麼時機、被誰設起來，目前不知道。</li>
       </ul>
       <p>這個位址一開始是憑印象提出的，所以第一步只讀不寫：讀回 <code>0x458</code>，低位元組拆開和 debugfs 的 <code>pull=2 tristate=1 enable-input=1 function=rsvd0</code> 完全一致，才確定位址正確。對錯的位址寫入，可能改到別根腳或別的硬體。<code>scripts/pad_pin29.py</code> 把這個保護寫成程式：</p>
       <figure class="listing"><figcaption>scripts/pad_pin29.py:38–46 — 暫存器位址與欄位</figcaption>
@@ -304,7 +304,7 @@ TRISTATE = 0x10
 INPUT = 0x40
 FIELDS = PULL_MASK | TRISTATE | INPUT
 BOOT_BITS = (2 &lt;&lt; PULL_SHIFT) | TRISTATE | INPUT  # 0x58: pull-up, tristate, input on
-GPIO_MODE = 0x400         # bit 10: reads 1 once a GPIO request has claimed the pad (measured, not from the TRM)
+GPIO_MODE = 0x400         # bit 10: 0 at boot, 1 after a GPIO line was used and released (measured; meaning not from the TRM)
 PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
       <figure class="listing"><figcaption>scripts/pad_pin29.py:55–73 — 先讀、確認是這個 pad，才寫</figcaption>
 <pre data-start="55" data-hot="60,61,62,63,64,65,66,67">def apply(reg, index, action):
@@ -326,7 +326,7 @@ PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
         reg[index] = new
     print(f"after:  {decode(reg[index])}")
     return 0</pre></figure>
-      <p><code>open</code> 和 <code>close</code> 只在暫存器「看起來就是這個 pad」時才寫：低位元組是開機值 <code>0x58</code>，或者低位元組是 <code>0x00</code> <b>而且</b> bit 10 為 1（實測打開後的值 <code>0x400</code>）。其他值代表位址錯了、或這根腳被設成別的功能，一律拒寫並回傳 1。第一版只要低位元組是 <code>0x00</code> 就當成「已開啟」，code review 指出：很多不相干的位址讀出來就是 <code>0x00000000</code>，萬一位址錯了，<code>close</code> 會把 <code>0x58</code> 寫進一個不認識的暫存器。所以全 0 一律拒寫。代價是：剛開機、還沒有程式請求過 line 時（bit 10 可能還是 0），<code>open</code> 之後會得到 <code>0x000</code>，這時 <code>close</code> 會被拒絕，要先跑過一次 <code>edge_gpio_blink</code>。</p>
+      <p><code>open</code> 和 <code>close</code> 只在暫存器「看起來就是這個 pad」時才寫：低位元組是開機值 <code>0x58</code>，或者低位元組是 <code>0x00</code> <b>而且</b> bit 10 為 1（實測打開後的值 <code>0x400</code>）。其他值代表位址錯了、或這根腳被設成別的功能，一律拒寫並回傳 1。第一版只要低位元組是 <code>0x00</code> 就當成「已開啟」，code review 指出：很多不相干的位址讀出來就是 <code>0x00000000</code>，萬一位址錯了，<code>close</code> 會把 <code>0x58</code> 寫進一個不認識的暫存器。所以全 0 一律拒寫。代價是：剛開機、還沒有程式用過 line 時（bit 10 是 0，Step 4-b 實測讀到 <code>0x058</code>），<code>open</code> 之後會得到 <code>0x000</code>，這時 <code>close</code> 會被拒絕，要先跑過一次 <code>edge_gpio_blink</code>。</p>
       <p>寫入時只動三個欄位，其他 bit 原樣保留。存取方式是把 <code>/dev/mem</code> 從 <code>0x02430000</code> mmap 一頁進來，再用 32-bit 的 memoryview 讀寫第 <code>0x68 / 4</code> 格。這有兩個已知限制，寫在腳本開頭：CPython 沒有保證這是單一一次 32-bit 匯流排存取（實測一直正常）；讀和寫之間，kernel 的 pinctrl driver 理論上也可能改到同一個暫存器。對一個沒有任何 device 使用的 pad、只在實驗時用的工具來說可以接受。這個修改 kernel 完全不知道，重開機就會消失。</p>
     </div>
   </section>
@@ -485,7 +485,7 @@ after:  0x00000458 pull=up tristate=1 input=1 function=0 «6»</pre>
         <li><span class="mk">5</span><span>背景程式結束後 line 被釋放（<code>unused</code>）；方向仍顯示 output，因為釋放不會改動暫存器。</span></li>
         <li><span class="mk">6</span><span>把 pad 關回去，板子回到開機時的狀態。</span></li>
       </ol>
-      <p>如果你的第一行 <code>before:</code> 是 <code>0x00000058</code> 而不是 <code>0x00000458</code>，代表這次開機後還沒有程式請求過 line 105（bit 10 還沒被設起來），不影響結果。如果低位元組不是 <code>58</code> 或 <code>00</code>，腳本會拒寫：那代表這根腳被其他設定（例如 jetson-io）改過，先別硬寫。</p>
+      <p>如果你的第一行 <code>before:</code> 是 <code>0x00000058</code> 而不是 <code>0x00000458</code>，代表這次開機後還沒有程式用過 line 105（bit 10 還是 0），不影響結果。如果低位元組不是 <code>58</code> 或 <code>00</code>，腳本會拒寫：那代表這根腳被其他設定（例如 jetson-io）改過，先別硬寫。</p>
     </div>
   </section>
 
@@ -585,7 +585,7 @@ PASS pad restored to low byte 0x58 «6»
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><span class="disabled">Step 4-b →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04b.html">Step 4-b →</a></nav>
 </main>
 
 <script>
