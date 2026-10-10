@@ -765,6 +765,7 @@ bitbake-layers show-layers
 - module recipe
 - modules-load.d
 - package dependencies
+- udev rule：`/dev/edge_button` 改成 `root:gpio 0440`（比照 `/dev/gpiochip0` 的 `root:gpio 0660`）。Step 5-b 的 driver 只能設 mode，用 0444 加獨占 open，任何使用者都能開著不放、讓真正的 reader 拿到 `EBUSY`（PR #7 code review 指出，延後到這裡隨 udev rule 一起處理）
 
 
 <!-- STEP_DETAIL_START -->

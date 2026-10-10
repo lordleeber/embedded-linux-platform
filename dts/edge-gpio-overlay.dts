@@ -53,4 +53,44 @@
 			};
 		};
 	};
+
+	/*
+	 * Step 5-b: push button for edge_button.ko.
+	 *
+	 *   pin 1 (3.3 V) --[330R]--+-- header pin 33 (GPIO13, SoC pad PH.00)
+	 *                           +--[button]-- pin 34 (GND)
+	 *
+	 * Pressed pulls the pin low, hence GPIO_ACTIVE_LOW (logical 1 = pressed).
+	 * The pad never drives (tristate) so a press can't short an output, and
+	 * samples the pin (enable-input). The pull-up is the external resistor: on
+	 * the devkit carrier pin 33 sits behind a TXB0108 level translator, whose
+	 * ~4k buffers hold the last level, so the SoC pull-up below cannot lift the
+	 * header pin (measured: reads 0 with nothing attached). It is kept only
+	 * because it does no harm.
+	 */
+	fragment@2 {
+		target-path = "/";
+		__overlay__ {
+			edge-button {
+				compatible = "edge,gpio-button";
+				button-gpios = <&gpio TEGRA234_MAIN_GPIO(H, 0) GPIO_ACTIVE_LOW>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&edge_button_pins>;
+			};
+		};
+	};
+
+	fragment@3 {
+		target = <&pinmux>;
+		__overlay__ {
+			edge_button_pins: edge-button-pins {
+				pin33 {
+					nvidia,pins = "soc_gpio21_ph0";
+					nvidia,pull = <TEGRA_PIN_PULL_UP>;
+					nvidia,tristate = <TEGRA_PIN_ENABLE>;
+					nvidia,enable-input = <TEGRA_PIN_ENABLE>;
+				};
+			};
+		};
+	};
 };

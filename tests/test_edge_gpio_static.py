@@ -101,8 +101,9 @@ class OverlayTest(unittest.TestCase):
 
     def test_gpio_phandle_is_resolved_against_base_dt_symbol(self):
         # &gpio must be left as a fixup so the bootloader patches in the base DT's phandle.
+        # The fixup value is a \0-separated list (Step 5-b's button adds a second entry).
         dts = decompile(self.high)
-        self.assertRegex(dts, r"__fixups__ \{\s*gpio = \"/fragment@0/__overlay__/edge-led:led-gpios:0\";")
+        self.assertRegex(dts, r'__fixups__ \{\s*gpio = "(?:[^"]*\\0)?/fragment@0/__overlay__/edge-led:led-gpios:0[\\"]')
 
     def test_pad_state_drives_pq5_and_is_owned_by_edge_led(self):
         # JP6 boots pin 29's pad tristated (measured: pinconf tristate=1, LED never lit),
@@ -125,7 +126,7 @@ class OverlayTest(unittest.TestCase):
 
         # The state node lives under the SoC pin controller (base DT symbol "pinmux").
         fixups = re.search(r"__fixups__ \{(.*?)\};", dts, re.S).group(1)
-        self.assertRegex(fixups, r'pinmux = "/fragment@\d+:target:0";')
+        self.assertRegex(fixups, r'pinmux = "(?:[^"]*\\0)?/fragment@\d+:target:0[\\"]')
 
     def test_pad_name_matches_nvidia_header_overlay(self):
         # Cross-check the pad name against NVIDIA's own 40-pin header overlay, not ours.
