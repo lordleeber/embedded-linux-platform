@@ -198,7 +198,7 @@
 - 原本以為跑範例只是「讀一下」；建構 `INA219` 物件就會寫 Calibration 和 Config，實機測試也因此會寫入晶片（寫的是範例本來就寫的值）。
 - 範例的類別預設位址是 `0x40`，主程式傳 `0x41`；直接 `INA219()` 會得到 `Errno 121`。
 - 寫測試時兩個格式字串的空白數抄錯（`Power:` 後面 10 個空白、`Percentage:` 的 `{:6.2f}`），第一次跑紅；改成直接用範例的 `format` 字串產生期望值。
-- 發現（範圍外，未修）：`docs/step05b.html` 第 142–150 行殘留一段 Step 4-b 的 `<nav>` 與章首，渲染時頁首多一列導覽和錯的標題；排進 Step 6-b 一併修。
+- 發現（範圍外，未修）：`docs/step05b.html` 第 142–150 行殘留一段 Step 4-b 的 `<nav>` 與章首，渲染時頁首多一列導覽和錯的標題；排進 Step 6-b 一併修。（2026-10-11 結案：已在 main 刪掉第 144–151 行的殘留，`check_book.py` 通過。）
 - code review（PR #9）找出的問題，原本都以為沒事：
   - 原本以為測試名稱 `test_discharge_shows_negative_current` 只是好讀；它把「放電 = 負」寫成事實，但方向沒實測。改名 `test_negative_raw_current_prints_negative`，章裡改成「只驗算術」。
   - 原本以為範例出錯就會結束、`readline()` 會拿到 EOF；範例活著卻不輸出時，實機測試和驗收腳本會一直等。改成 `select` 加 10 秒時限的 `sample_block()`，卡住時 AssertionError（用 `sleep 30` 當假範例，1 秒內失敗）。

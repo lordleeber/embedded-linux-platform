@@ -239,7 +239,7 @@ converted current
 
 ### 附帶（Step 6-a 發現，範圍外）
 
-- 修 `docs/step05b.html` 第 142–150 行殘留的 Step 4-b `<nav>` 與章首（渲染時頁首多一列導覽和錯的標題）
+- ~~修 `docs/step05b.html` 頁首殘留的 Step 4-b `<nav>` 與章首~~（2026-10-11 已在 main 直接修掉，結案）
 - 在板子旁邊補跑 `bash scripts/verify_ina219_sample.sh`（不加 `--no-unplug`），記錄拔掉 DC adapter 時的電流與正負號；6-b 的「有負載時數值變化」也靠這個情境
 
 ### 這一步不做
