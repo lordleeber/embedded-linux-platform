@@ -216,7 +216,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <text class="s-mono" x="14" y="412">READ</text>
           <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
           <text class="s-key" x="350" y="405" text-anchor="middle">edge_button_read() 醒來</text>
-          <text class="s-sm" x="350" y="426" text-anchor="middle">kfifo_get 取出一筆 → copy_to_user（16 bytes）</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">kfifo_peek → copy_to_user（16 bytes）→ kfifo_skip</text>
           <text class="s-mono" x="14" y="502">USERSPACE</text>
           <rect class="s-box" x="130" y="470" width="440" height="58" rx="9" style="stroke: var(--user)"/>
           <text class="s-key" x="350" y="495" text-anchor="middle">edge_button_wait：read() 返回</text>
@@ -373,41 +373,48 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</
     <div class="content">
       <h2>IRQ handler 只做兩件事，讀電位交給 work</h2>
       <p>driver 的狀態全放在一個 struct 裡，probe 時配置：</p>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:42–54 — driver 的狀態：GPIO、延後工作、wait queue、佇列</figcaption>
-<pre data-start="42" data-hot="45,46,47,48,49,52">struct edge_button {
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:46–60 — driver 的狀態：GPIO、延後工作、wait queue、佇列</figcaption>
+<pre data-start="46" data-hot="49,50,51,52,53,54,57,58">struct edge_button {
 	struct gpio_desc *gpio;
 	struct miscdevice misc;
 	struct delayed_work work;
 	wait_queue_head_t wq;
+	struct mutex read_lock;	/* pairs kfifo_peek with kfifo_skip in read() */
 	spinlock_t lock;	/* fifo, last, seq, dropped */
 	DECLARE_KFIFO(fifo, struct edge_button_event, 16);
 	int last;		/* last debounced state, 1 = pressed */
 	u32 seq;
 	u32 dropped;
 	atomic_t irq_count;	/* raw edges, bounces included */
+	u64 edge_ns;		/* first edge of the current burst */
 	unsigned long flags;
 };</pre></figure>
       <p>中斷進來時執行的就是這個函式。整個函式只有兩行實際動作：</p>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:61–74 — hard IRQ handler：計數、把 debounce 計時器往後推</figcaption>
-<pre data-start="61" data-hot="70,71,72,73">static irqreturn_t edge_button_irq(int irq, void *data)
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:67–83 — hard IRQ handler：記第一個邊緣的時間、計數、把 debounce 計時器往後推</figcaption>
+<pre data-start="67" data-hot="77,78,79,80,81,82">static irqreturn_t edge_button_irq(int irq, void *data)
 {
 	struct edge_button *eb = data;
 
 	/*
 	 * Hard IRQ context: no sleeping, no GPIO read (the _cansleep accessor may
 	 * sleep). Every edge pushes the deadline back, so the work runs once the
-	 * line has been quiet for the debounce time.
+	 * line has been quiet for the debounce time. No work pending means this is
+	 * the first edge of a burst: that is when the press really happened.
 	 */
+	if (!delayed_work_pending(&amp;eb-&gt;work))
+		WRITE_ONCE(eb-&gt;edge_ns, ktime_get_ns());
 	atomic_inc(&amp;eb-&gt;irq_count);
 	mod_delayed_work(system_wq, &amp;eb-&gt;work,
 			 msecs_to_jiffies(EDGE_BUTTON_DEBOUNCE_MS));
 	return IRQ_HANDLED;
 }</pre></figure>
       <ul>
+        <li><b><code>delayed_work_pending()</code></b> 是假的話，代表這是一串彈跳的<b>第一個邊緣</b>，記下 <code>ktime_get_ns()</code> 當事件的時間戳：真正按下的時刻。第一版在 work 裡才取時間，比按下晚 20 ms 以上（code review 指出後修正）。</li>
         <li><b><code>atomic_inc()</code></b>：原始邊緣數，含彈跳。用 atomic 是因為 sysfs 的讀取可能同時發生，而 handler 裡不能拿會睡的鎖。</li>
         <li><b><code>mod_delayed_work()</code></b>：如果 work 還沒排，就排在 20 ms 後；如果已經排了，就把時間<b>改成</b>從現在起 20 ms。所以彈跳期間每個邊緣都把期限往後推，work 只會在訊號安靜 20 ms 之後執行一次。</li>
         <li>回傳 <code>IRQ_HANDLED</code> 告訴 kernel 這個中斷有人處理了。</li>
       </ul>
+      <p>修正前後的實測時間戳可以看出差別。這台 <code>CONFIG_HZ=250</code>，delayed work 的計時器只在 4 ms 一次的 tick 上觸發。修正前（work 裡取時間）的 14 個時間戳，毫秒數除以 4 的餘數全都在 0.022～0.051 ms，例如 <code>483.596029563</code>：每一個都落在 tick 之後幾十微秒。修正後（IRQ 裡取時間）的 12 個，餘數分散在 0.9～4.0 ms，例如 <code>3667.401418590</code>：那是手指按下的隨機時刻。</p>
       <figure class="figure">
         <svg viewBox="0 0 760 270" role="img" aria-label="時序圖：按下時邏輯電位在約 10 毫秒內彈跳三次，每個邊緣觸發一次 IRQ，每次 IRQ 都把 20 毫秒計時器重新開始；最後一個邊緣 20 毫秒後 work 執行，產生一筆 pressed 事件；放開時同樣彈跳，最後產生一筆 released 事件">
           <text class="s-mono" x="14" y="56">邏輯電位</text>
@@ -440,15 +447,16 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</
           <text class="s-lbl" x="578" y="237">released</text>
           <text class="s-sm" x="330" y="56">按住多久都沒有新事件</text>
         </svg>
-        <figcaption>圖 5.3 — 示意圖（時間軸未依比例）：五個 IRQ 只產生一筆事件。被新邊緣打斷的計時器（短的橘色段）都作廢，只有最後一段跑滿 20 ms。代價是事件比實際按下晚 20 ms 以上，而短於 20 ms 的點按可能被當成彈跳吃掉。</figcaption>
+        <figcaption>圖 5.3 — 示意圖（時間軸未依比例）：五個 IRQ 只產生一筆事件。被新邊緣打斷的計時器（短的橘色段）都作廢，只有最後一段跑滿 20 ms。代價是事件要等最後一個邊緣後 20 ms 才送到 reader（時間戳仍是第一個邊緣，也就是圖中第一根 IRQ），而短於 20 ms 的點按可能被當成彈跳吃掉。</figcaption>
       </figure>
       <p>20 ms 後，workqueue 執行緒跑這個函式。它在 process context，可以呼叫會睡的 GPIO 函式：</p>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:76–101 — debounce work：讀邏輯電位、狀態變了才排事件、叫醒 reader</figcaption>
-<pre data-start="76" data-hot="83,88,92,94,96,97,100">static void edge_button_work(struct work_struct *work)
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:85–111 — debounce work：讀邏輯電位、狀態變了才排事件、叫醒 reader</figcaption>
+<pre data-start="85" data-hot="90,93,98,102,103,104,106,107,110">static void edge_button_work(struct work_struct *work)
 {
 	struct edge_button *eb = container_of(to_delayed_work(work),
 					      struct edge_button, work);
 	struct edge_button_event ev;
+	u64 edge_ns = READ_ONCE(eb-&gt;edge_ns);	/* before the read: a new burst may start */
 	int val;
 
 	val = gpiod_get_value_cansleep(eb-&gt;gpio);	/* logical: DT says active-low */
@@ -461,7 +469,7 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</
 		return;
 	}
 	eb-&gt;last = val;
-	ev.timestamp_ns = ktime_get_ns();
+	ev.timestamp_ns = edge_ns;
 	ev.seq = ++eb-&gt;seq;
 	ev.pressed = val;
 	if (test_bit(EDGE_BUTTON_OPEN, &amp;eb-&gt;flags) &amp;&amp; !kfifo_put(&amp;eb-&gt;fifo, ev))
@@ -471,13 +479,14 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</
 	wake_up_interruptible(&amp;eb-&gt;wq);
 }</pre></figure>
       <ul>
+        <li>一開頭先讀出 IRQ 記的 <code>edge_ns</code>，再讀電位：讀電位可能會睡，這段時間如果又開始一串新的彈跳，<code>edge_ns</code> 會被改成新的時間。</li>
         <li><b><code>gpiod_get_value_cansleep()</code></b> 回傳邏輯值：DT 寫了 active-low，所以按下（實體低電位）讀到 1。</li>
         <li><b><code>val == eb-&gt;last</code></b>：彈跳結束後電位回到原本的狀態（例如很短的雜訊），就不產生事件。所以按一下一定是 pressed、released 各一筆，不會連續兩筆 pressed。</li>
-        <li><b><code>seq</code></b> 每次狀態改變都加一，不管有沒有放進佇列。佇列滿了，<code>kfifo_put</code> 回 0，事件被丟掉，<code>dropped</code> 加一：reader 看到 seq 從 7 跳到 9，就知道中間掉了一筆。</li>
+        <li><b><code>seq</code></b> 每次狀態改變都加一，不管有沒有放進佇列，也不管有沒有人開著裝置。佇列滿了，<code>kfifo_put</code> 回 0，事件被丟掉，<code>dropped</code> 加一：同一次 open 之內，reader 看到 seq 從 7 跳到 9，就知道中間掉了一筆。</li>
         <li><b>沒有人開著裝置時不排事件</b>（<code>test_bit(EDGE_BUTTON_OPEN, …)</code>）：不然昨天按的十下會在今天打開時一口氣湧出來。</li>
         <li>最後 <b><code>wake_up_interruptible()</code></b> 叫醒睡在 <code>eb-&gt;wq</code> 上的 reader。</li>
       </ul>
-      <p>鎖用 spinlock 而不是 mutex：保護的只是幾個欄位的讀寫，持有時間很短。work 和 <code>read()</code> 都在 process context，用一般的 <code>spin_lock()</code> 就夠；IRQ handler 完全不碰這些欄位，所以不需要關中斷的 <code>spin_lock_irqsave()</code>。</p>
+      <p>鎖用 spinlock 而不是 mutex：保護的只是幾個欄位的讀寫，持有時間很短。work 和 <code>read()</code> 都在 process context，用一般的 <code>spin_lock()</code> 就夠；IRQ handler 完全不碰這些欄位（它只寫 <code>edge_ns</code>，用 <code>WRITE_ONCE</code> / <code>READ_ONCE</code>，以及 atomic 的 <code>irq_count</code>），所以不需要關中斷的 <code>spin_lock_irqsave()</code>。</p>
     </div>
   </section>
 
@@ -485,8 +494,8 @@ dtc -q -I dtb -O dts dts/edge-gpio-overlay.dtbo | grep -m1 -A4 'edge-button {'</
     <div class="rail"><span class="no">5b.6</span><b>read()</b><span class="dot" style="background: var(--drv)"></span>wait queue</div>
     <div class="content">
       <h2>read() 沒有事件就睡</h2>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:121–150 — blocking read：一次回一筆，沒有就睡在 wait queue 上</figcaption>
-<pre data-start="121" data-hot="129,130,134,138,139,141,142,143,147">/* Returns exactly one event per call; blocks until there is one. */
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:131–171 — blocking read：一次回一筆，沒有就睡在 wait queue 上；複製成功才移出佇列</figcaption>
+<pre data-start="131" data-hot="139,140,142,147,152,153,155,156,160,162,165">/* Returns exactly one event per call; blocks until there is one. */
 static ssize_t edge_button_read(struct file *file, char __user *ubuf,
 				size_t count, loff_t *ppos)
 {
@@ -496,35 +505,47 @@ static ssize_t edge_button_read(struct file *file, char __user *ubuf,
 
 	if (count &lt; sizeof(ev))
 		return -EINVAL;
+	/* Threads sharing the fd: only one may sit between peek and skip. */
+	if (mutex_lock_interruptible(&amp;eb-&gt;read_lock))
+		return -ERESTARTSYS;
 
 	for (;;) {
 		spin_lock(&amp;eb-&gt;lock);
-		got = kfifo_get(&amp;eb-&gt;fifo, &amp;ev);
+		got = kfifo_peek(&amp;eb-&gt;fifo, &amp;ev);
 		spin_unlock(&amp;eb-&gt;lock);
 		if (got)
 			break;
+		ret = -EAGAIN;
 		if (file-&gt;f_flags &amp; O_NONBLOCK)
-			return -EAGAIN;
+			goto out;
 		/* Sleeps (no CPU) until the work queues an event or a signal arrives. */
 		ret = wait_event_interruptible(eb-&gt;wq, !kfifo_is_empty(&amp;eb-&gt;fifo));
 		if (ret)
-			return ret;
+			goto out;
 	}
 
-	/* The event has left the queue: a bad buffer loses it (seq shows the gap). */
+	/* Dequeue only once the event reached userspace: EFAULT keeps it queued. */
+	ret = -EFAULT;
 	if (copy_to_user(ubuf, &amp;ev, sizeof(ev)))
-		return -EFAULT;
-	return sizeof(ev);
+		goto out;
+	spin_lock(&amp;eb-&gt;lock);
+	kfifo_skip(&amp;eb-&gt;fifo);
+	spin_unlock(&amp;eb-&gt;lock);
+	ret = sizeof(ev);
+out:
+	mutex_unlock(&amp;eb-&gt;read_lock);
+	return ret;
 }</pre></figure>
       <ul>
         <li><b>buffer 小於 16 bytes 回 <code>EINVAL</code></b>：一筆事件不能拆成兩次讀。一次 <code>read()</code> 只回一筆，給再大的 buffer 也一樣。</li>
         <li><b><code>O_NONBLOCK</code></b>：用非阻塞模式開檔的人不想睡，沒有事件就回 <code>EAGAIN</code>。</li>
         <li><b><code>wait_event_interruptible(wq, 條件)</code></b>：條件不成立就把自己掛到 <code>wq</code>、狀態設成可中斷睡眠（<code>ps</code> 看到的 <code>S</code>），讓出 CPU。被 <code>wake_up_interruptible()</code> 叫醒後重新檢查條件，成立才返回 0。收到 signal 會提早返回非 0（<code>-ERESTARTSYS</code>），這裡直接往上傳：userspace 沒有用 <code>SA_RESTART</code> 的話就看到 <code>EINTR</code>。</li>
-        <li>醒來後回到迴圈頂端重新 <code>kfifo_get</code>：醒來不保證佇列裡一定有東西，所以「取」和「等」寫成迴圈。</li>
-        <li><code>copy_to_user</code> 失敗時事件已經離開佇列，這一筆就丟了；註解寫明 seq 會顯示這個缺口。這條路徑沒有測試。</li>
+        <li>醒來後回到迴圈頂端重新 <code>kfifo_peek</code>：醒來不保證佇列裡一定有東西，所以「看」和「等」寫成迴圈。</li>
+        <li><b>先 peek、複製成功才 <code>kfifo_skip</code></b>：userspace 給了壞的 buffer（<code>EFAULT</code>）時，事件還留在佇列裡，下一次 <code>read()</code> 拿得到。第一版是先 <code>kfifo_get</code> 取出再複製，失敗就丟了（code review 指出）。這條路徑要先有一筆事件才測得到，需要人按，所以<b class="hl-bad">沒有自動測試</b>。</li>
+        <li><b><code>read_lock</code>（mutex）</b>：獨占 open 只擋得住第二次 open，擋不住同一個 fd 被兩個執行緒同時讀。兩邊 peek 到同一筆、各 skip 一次，就會重複一筆、跳過一筆。peek 到 skip 之間只允許一個人。這裡用 mutex 而不是 spinlock，因為中間的 <code>wait_event_interruptible()</code> 和 <code>copy_to_user()</code> 都可能睡。</li>
       </ul>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:103–119 — open / release：一次只允許一個 reader，開檔時清空佇列</figcaption>
-<pre data-start="103" data-hot="107,108,110">static int edge_button_open(struct inode *inode, struct file *file)
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:113–129 — open / release：一次只允許一個 reader，開檔時清空佇列</figcaption>
+<pre data-start="113" data-hot="117,118,120">static int edge_button_open(struct inode *inode, struct file *file)
 {
 	struct edge_button *eb = to_edge_button(file);
 
@@ -543,26 +564,31 @@ static int edge_button_release(struct inode *inode, struct file *file)
 }</pre></figure>
       <p>只允許一個 reader：兩個程式同時讀，一筆事件只會被其中一個拿走，兩邊都看到殘缺的序列。第二個 <code>open()</code> 回 <code>EBUSY</code>，比默默分走事件好除錯。<code>test_and_set_bit()</code> 是原子操作，兩個 open 同時進來也只有一個成功。</p>
       <h3>事件格式與語意</h3>
-      <figure class="listing"><figcaption>include/edge_button.h:13–17 — 事件格式：kernel 與 userspace 共用，固定 16 bytes</figcaption>
-<pre data-start="13" data-hot="14,15,16">struct edge_button_event {
-	__u64 timestamp_ns;	/* CLOCK_MONOTONIC when the debounced state was taken */
-	__u32 seq;		/* 1, 2, 3 ... per state change since load; a gap = lost events */
-	__u32 pressed;		/* 1 = pressed, 0 = released */
+      <figure class="listing"><figcaption>include/edge_button.h:13–19 — 事件格式：kernel 與 userspace 共用，固定 16 bytes</figcaption>
+<pre data-start="13" data-hot="14,15,17">struct edge_button_event {
+	__u64 timestamp_ns;	/* CLOCK_MONOTONIC of the first edge of the burst */
+	__u32 seq;		/* 1, 2, 3 ... per state change since load, open or not;
+				 * within one open, a gap = lost events */
+	__u32 pressed;		/* 1 = pressed, 0 = released; opened while held,
+				 * the first event is a release */
 };</pre></figure>
       <p>和 Step 3 的 ioctl header 同一個原則：只用固定大小的型別，64-bit 欄位放最前面，32-bit 和 64-bit 程式看到的排列完全一樣。靜態測試用 C 和 C++ 各編一次，<code>static_assert</code> 大小是 16、offset 是 0／8／12。</p>
       <table>
         <thead><tr><th>情況</th><th>會收到什麼</th></tr></thead>
         <tbody>
+          <tr><td>時間戳</td><td>一串彈跳的第一個邊緣（IRQ 時記錄），不是 20 ms 後 work 執行的時間</td></tr>
           <tr><td>按一下</td><td><code>pressed</code>、<code>released</code> 各一筆，seq 連號</td></tr>
           <tr><td>長按</td><td>一筆 <code>pressed</code>，放開時一筆 <code>released</code>；中間沒有重複事件（不像鍵盤會連發）</td></tr>
           <tr><td>短於 20 ms 的點按、彈跳</td><td>可能被合併掉；電位最後回到原狀就不產生事件</td></tr>
           <tr><td>按太快，佇列（16 筆）滿了</td><td>新事件被丟掉、<code>dropped</code> 加一，seq 照算，所以 seq 會跳號</td></tr>
-          <tr><td>沒有人開著裝置時按</td><td>不排事件（seq 照算）；<code>open()</code> 時佇列清空</td></tr>
-          <tr><td>第二個程式同時 <code>open()</code></td><td><code>EBUSY</code></td></tr>
+          <tr><td>沒有人開著裝置時按</td><td>不排事件（seq 照算，所以兩次 open 之間的 seq 不連號，那不是遺失）；<code>open()</code> 時佇列清空</td></tr>
+          <tr><td>按住按鍵時才 <code>open()</code></td><td>第一筆是 <code>released</code>（按下那筆發生在 open 之前）</td></tr>
+          <tr><td>第二個程式同時 <code>open()</code></td><td><code>EBUSY</code>。節點是 0444，所以<b>任何使用者</b>都能開著不放、讓真正的 reader 拿不到（已知限制，見下）</td></tr>
           <tr><td>reader 正在睡時 rmmod</td><td>rmmod 被拒（<code>.owner</code> 讓開著的檔案持有 module）；reader 要靠 signal 離開</td></tr>
         </tbody>
       </table>
       <p>最後一列是規劃裡「driver unload 時要安全終止等待者」的答案：只要檔案開著，module 就卸載不掉，所以 <code>remove()</code> 執行時不可能有人睡在 wait queue 上；sysfs 手動 unbind 則和 4-b 一樣用 <code>suppress_bind_attrs</code> 關掉。驗收腳本兩件事都會測。</p>
+      <div class="callout"><p>已知限制（code review 指出）：kernel 裡的 misc device 只能設 mode、不能設群組，所以這裡是 0444 加獨占 open。對照 <code>/dev/gpiochip0</code> 是 <code>root:gpio 0660</code>，只有 gpio 群組能用。要比照它，需要一條 udev rule（<code>GROUP="gpio", MODE="0440"</code>）。這排進 Phase 10 的 Step 26，和 module 的打包、modules-load.d 一起做。開發板只有一個使用者，暫時沒有影響。</p></div>
     </div>
   </section>
 
@@ -570,12 +596,12 @@ static int edge_button_release(struct inode *inode, struct file *file)
     <div class="rail"><span class="no">5b.7</span><b>probe</b><span class="dot" style="background: var(--drv)"></span>順序</div>
     <div class="content">
       <h2>probe：先準備好接中斷的東西，最後才開中斷</h2>
-      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:199–252 — probe：GPIO → 佇列與 work → 取消 work 的 devm 動作 → IRQ → /dev/edge_button</figcaption>
-<pre data-start="199" data-hot="210,217,222,226,230,233,234,244,245">static int edge_button_probe(struct platform_device *pdev)
+      <figure class="listing"><figcaption>kernel/edge_button/edge_button.c:220–283 — probe：GPIO → 佇列與 work → 取消 work 的 devm 動作 → IRQ → 初始狀態 → /dev/edge_button</figcaption>
+<pre data-start="220" data-hot="231,238,243,250,251,260,264,273,274">static int edge_button_probe(struct platform_device *pdev)
 {
 	struct device *dev = &amp;pdev-&gt;dev;
 	struct edge_button *eb;
-	int irq, ret;
+	int irq, ret, val;
 
 	eb = devm_kzalloc(dev, sizeof(*eb), GFP_KERNEL);
 	if (!eb)
@@ -598,10 +624,6 @@ static int edge_button_release(struct inode *inode, struct file *file)
 	if (ret)
 		return ret;
 
-	eb-&gt;last = gpiod_get_value_cansleep(eb-&gt;gpio);
-	if (eb-&gt;last &lt; 0)
-		return dev_err_probe(dev, eb-&gt;last, "cannot read button gpio\n");
-
 	irq = gpiod_to_irq(eb-&gt;gpio);
 	if (irq &lt; 0)
 		return dev_err_probe(dev, irq, "button gpio has no irq\n");
@@ -611,27 +633,42 @@ static int edge_button_release(struct inode *inode, struct file *file)
 	if (ret)
 		return dev_err_probe(dev, ret, "cannot request irq %d\n", irq);
 
+	/*
+	 * Initial state only now: from here on every edge re-runs the work, which
+	 * compares against it. Read before the IRQ, a press in between was lost.
+	 */
+	val = gpiod_get_value_cansleep(eb-&gt;gpio);
+	if (val &lt; 0)
+		return dev_err_probe(dev, val, "cannot read button gpio\n");
+	spin_lock(&amp;eb-&gt;lock);
+	eb-&gt;last = val;
+	spin_unlock(&amp;eb-&gt;lock);
+
 	platform_set_drvdata(pdev, eb);
+	mutex_init(&amp;eb-&gt;read_lock);
 	eb-&gt;misc.minor = MISC_DYNAMIC_MINOR;
 	eb-&gt;misc.name = "edge_button";
 	eb-&gt;misc.fops = &amp;edge_button_fops;
 	eb-&gt;misc.parent = dev;
 	eb-&gt;misc.mode = 0444;
 	ret = misc_register(&amp;eb-&gt;misc);
-	if (ret)
+	if (ret) {
+		mutex_destroy(&amp;eb-&gt;read_lock);
 		return ret;
+	}
 
 	dev_info(dev, "probed: button gpio acquired (irq %d, %s)\n",
-		 irq, eb-&gt;last ? "pressed" : "released");
+		 irq, val ? "pressed" : "released");
 	return 0;
 }</pre></figure>
       <ul>
         <li><b><code>devm_gpiod_get(dev, "button", GPIOD_IN)</code></b>：去 DT 找 <code>button-gpios</code>，拿到時就設成輸入。</li>
         <li><b>順序很重要</b>：<code>devm_request_irq()</code> 一成功，中斷隨時可能進來，handler 會用到 work；所以 spinlock、wait queue、kfifo、work 都要在它之前初始化好。</li>
+        <li><b>初始狀態在登記 IRQ 之後才讀</b>：第一版先讀再登記，兩者之間如果剛好按下，那個邊緣沒有中斷，<code>last</code> 卻已經是舊值；之後放開時 work 讀到的值等於 <code>last</code>，整組 pressed / released 就默默消失，seq 也沒有缺口（code review 指出）。改成登記之後才讀，從那一刻起每個邊緣都會在 20 ms 後重新比對，不會漏。讀電位可能會睡，所以先讀進區域變數，再在 spinlock 裡寫入 <code>last</code>。</li>
         <li><b><code>devm_add_action_or_reset()</code></b> 登記一個「卸載時呼叫 <code>cancel_delayed_work_sync()</code>」的動作。devm 的資源在 remove 之後<b>倒序</b>釋放：這個動作登記在 IRQ 之前，所以會先釋放 IRQ（不會再有新的 work 被排），再取消、等完還在跑的 work。順序反過來的話，work 取消之後 IRQ 還可能又排一個，在 <code>eb</code> 被釋放後執行。</li>
         <li><b><code>gpiod_to_irq()</code></b>：把 GPIO descriptor 換成中斷號碼（這次 278），不用自己查。<code>IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING</code>：按下、放開都要。</li>
-        <li>probe 時讀一次初始狀態存進 <code>last</code>，也印在 dmesg。第一次驗收印出的是 <code>pressed</code>，那時 pin 卡在 0（5b.3），看 dmesg 第一行就知道接線有問題。</li>
-        <li>節點權限 0444：這個裝置只能讀。</li>
+        <li>初始狀態也印在 dmesg。第一次驗收印出的是 <code>pressed</code>，那時 pin 卡在 0（5b.3），看 dmesg 第一行就知道接線有問題。</li>
+        <li>節點權限 0444：這個裝置只能讀（限制見 5b.6 的方框）。<code>mutex_init()</code> 放在 <code>misc_register()</code> 之前，節點一出現就可能有人 read。</li>
       </ul>
       <p>規劃寫的是 <code>request_threaded_irq()</code>：中斷進來先跑一個很短的 hard handler，再由專屬的 kernel 執行緒跑可以睡的部分。這裡改用一般的 <code>devm_request_irq()</code> 加 delayed work，因為 debounce 本來就需要「最後一個邊緣後再等 20 ms」：threaded IRQ 的執行緒在每個中斷後立刻執行，要延後只能在裡面睡，每次彈跳都會各睡一輪；delayed work 則可以用 <code>mod_delayed_work()</code> 不斷把期限往後推。kernel 自己的 <code>gpio-keys</code> driver 也是用 delayed work 做 debounce。</p>
       <p>此外還有三個唯讀的 sysfs 屬性，掛在 platform device 上（<code>/sys/bus/platform/devices/edge-button/</code>）：<code>irq_count</code>（原始邊緣數）、<code>event_count</code>（debounce 後的狀態變化數，就是目前的 seq）、<code>dropped</code>。兩個數字一比，就看得出彈跳被合併了多少。</p>
@@ -642,8 +679,17 @@ static int edge_button_release(struct inode *inode, struct file *file)
     <div class="rail"><span class="no">5b.8</span><b>userspace</b><span class="dot" style="background: var(--user)"></span>C++</div>
     <div class="content">
       <h2>userspace：一個 read() 迴圈</h2>
-      <figure class="listing"><figcaption>apps/edge_button_wait.cpp:41–71 — edge_button_wait：signal 不重啟、blocking read、印出事件</figcaption>
-<pre data-start="41" data-hot="41,42,43,49,58,60,61,67">    struct sigaction sa{};
+      <figure class="listing"><figcaption>apps/edge_button_wait.cpp:20–27 — signal handler：只設旗標</figcaption>
+<pre data-start="20" data-hot="20,26">volatile std::sig_atomic_t stop = 0;
+
+// No SA_RESTART: a signal inside read() makes it fail with EINTR. One that lands
+// elsewhere (e.g. while printing) is kept in the flag, checked before every read().
+void on_signal(int)
+{
+    stop = 1;
+}</pre></figure>
+      <figure class="listing"><figcaption>apps/edge_button_wait.cpp:48–78 — edge_button_wait：signal 不重啟、blocking read、印出事件</figcaption>
+<pre data-start="48" data-hot="48,49,50,56,65,67,68,74">    struct sigaction sa{};
     sa.sa_handler = on_signal;
     sigaction(SIGINT, &amp;sa, nullptr);
     sigaction(SIGTERM, &amp;sa, nullptr);
@@ -660,9 +706,9 @@ static int edge_button_release(struct inode *inode, struct file *file)
     int rc = 0;
     for (long i = 0; i &lt; count; i++) {
         edge_button_event ev{};
-        ssize_t n = read(fd, &amp;ev, sizeof(ev));   // blocks until a press or release
+        ssize_t n = stop ? -1 : read(fd, &amp;ev, sizeof(ev));   // blocks until a press or release
         if (n != static_cast&lt;ssize_t&gt;(sizeof(ev))) {
-            if (n &lt; 0 &amp;&amp; errno == EINTR)
+            if (stop || (n &lt; 0 &amp;&amp; errno == EINTR))
                 std::fprintf(stderr, "interrupted\n");
             else
                 std::fprintf(stderr, "read %s: %s\n", path, n &lt; 0 ? std::strerror(errno) : "short read");
@@ -677,6 +723,7 @@ static int edge_button_release(struct inode *inode, struct file *file)
       <ul>
         <li><b><code>read(fd, &amp;ev, sizeof(ev))</code></b>：就是規劃裡那一行。沒有事件時這個呼叫不會返回，程式不佔 CPU。</li>
         <li><b><code>sigaction</code> 沒有設 <code>SA_RESTART</code></b>：Ctrl-C 或 <code>kill</code> 時，睡著的 <code>read()</code> 回 <code>-1</code>、<code>errno == EINTR</code>，程式印 <code>interrupted</code> 結束（結束碼 1）。如果用 <code>std::signal()</code>，glibc 預設會自動重啟 <code>read()</code>，程式就醒不過來。</li>
+        <li><b>handler 設旗標，每次 <code>read()</code> 前檢查</b>：signal 不一定落在 <code>read()</code> 裡。第一版的 handler 是空的，如果 signal 剛好在印輸出時到達，處理完就沒了，下一次 <code>read()</code> 照樣睡下去，驗收腳本的 <code>timeout</code> 就可能永遠等不到它結束（code review 指出）。檢查旗標和進入 <code>read()</code> 之間仍有極小的空隙，所以腳本的 <code>timeout</code> 也加了 <code>-k 2</code>：2 秒後還沒結束就送 SIGKILL。</li>
         <li>結束碼：讀滿 N 筆回 0；裝置錯誤或被中斷回 1；參數錯誤回 2。<code>EDGE_BUTTON_DEV</code> 可以換裝置路徑，給測試用。</li>
       </ul>
       <p>用 CMake 建置，在 repo 根目錄執行（不需要 root）：</p>
@@ -689,10 +736,11 @@ static int edge_button_release(struct inode *inode, struct file *file)
     <div class="content">
       <h2>不按按鍵能測的，都先寫成測試</h2>
       <ul>
-        <li><code>tests/test_edge_button_static.py</code>：<span data-tests="tests/test_edge_button_static.py">20</span> 個案例，不需要硬體。overlay 用 cpp + dtc 實際編譯再反組譯：兩個 dtbo 都有 <code>edge-button</code> 節點、<code>button-gpios</code> 是 56 加 flags 1、<code>&amp;gpio</code> 留成 fixup、pad 狀態是 <code>soc_gpio21_ph0</code> 的 pull=2 / tristate=1 / input=1、pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 overlay 的 pin 33 一致、LED 節點還在。driver 原始碼：of_match、<code>devm_gpiod_get(dev, "button", GPIOD_IN)</code>、<code>gpiod_to_irq</code> 加雙邊緣、<b>hard IRQ handler 的函式本體裡不能有會睡的呼叫</b>（<code>_cansleep</code>、<code>mutex_lock</code>、<code>GFP_KERNEL</code>…）、有 wait queue 和 <code>O_NONBLOCK</code>、有 <code>cancel_delayed_work_sync</code>、沒有舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。header 在 C 和 C++ 下各編一次檢查大小與 offset。<code>edge_button_wait</code> 的用法錯誤回 2、找不到裝置回 1。</li>
+        <li><code>tests/test_edge_button_static.py</code>：<span data-tests="tests/test_edge_button_static.py">26</span> 個案例，不需要硬體。overlay 用 cpp + dtc 實際編譯再反組譯：兩個 dtbo 都有 <code>edge-button</code> 節點、<code>button-gpios</code> 是 56 加 flags 1、<code>&amp;gpio</code> 留成 fixup、pad 狀態是 <code>soc_gpio21_ph0</code> 的 pull=2 / tristate=1 / input=1、pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 overlay 的 pin 33 一致、LED 節點還在。driver 原始碼：of_match、<code>devm_gpiod_get(dev, "button", GPIOD_IN)</code>、<code>gpiod_to_irq</code> 加雙邊緣、<b>hard IRQ handler 的函式本體裡不能有會睡的呼叫</b>（<code>_cansleep</code>、<code>mutex_lock</code>、<code>GFP_KERNEL</code>…）、有 wait queue 和 <code>O_NONBLOCK</code>、有 <code>cancel_delayed_work_sync</code>、沒有舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。header 在 C 和 C++ 下各編一次檢查大小與 offset。<code>edge_button_wait</code> 的用法錯誤回 2、找不到裝置回 1，再用一個 named pipe 假裝成 <code>/dev/edge_button</code>：寫進兩筆 16 bytes 的事件，檢查印出來的格式；睡在 <code>read()</code> 時送 SIGTERM 要印 <code>interrupted</code>；讓 stdout 的 pipe 塞滿、程式卡在印輸出時送 SIGTERM，排空之後 3 秒內一定要結束。</li>
         <li><code>tests/test_edge_button_device.py</code>：<span data-tests="tests/test_edge_button_device.py">8</span> 個案例，對真的 <code>/dev/edge_button</code>，<b>不需要有人按</b>：權限 0444、<code>O_NONBLOCK</code> 沒事件回 <code>EAGAIN</code>、buffer 小於 16 回 <code>EINVAL</code>、第二個 open 回 <code>EBUSY</code>、關掉後能再開、blocking read 1.5 秒內用掉的 CPU 少於 0.1 秒並被 signal 打斷、打斷後 fd 還能用、三個 sysfs 計數器讀得到。裝置不存在時 skip；<code>EDGE_BUTTON_REQUIRE=1</code> 時改成 fail。</li>
       </ul>
       <p>紅燈紀錄：實作前靜態測試 17 個 failure、2 個 error；device 測試在 <code>EDGE_BUTTON_REQUIRE=1</code> 下 8 個 failure。「LED 節點還在」和「pad 名稱和 NVIDIA 一致」在實作前就會過，只能當守門測試。後來把 pin 31 改成 pin 33 時，也是先改期望值、看到 3 個 failure，再改 overlay。變異測試：flags 改成 active-high、編號改錯、tristate 關掉、上拉拿掉、pad 名稱寫錯、在 IRQ handler 裡呼叫 <code>gpiod_get_value_cansleep</code>、改用不等待的 <code>cancel_delayed_work</code>、只留 falling、header 的欄位型別改掉，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
+      <p><b>code review 後補的 6 個案例</b>：初始狀態要在 IRQ 之後讀、read 要先 peek 再 skip、時間戳要在 IRQ handler 裡取、signal 落在兩次 read 之間不能遺失，這 4 個先紅再修；named pipe 的格式和「睡在 read 時被打斷」2 個在修之前就會過，是守門測試。驗收腳本的快速連按改成：佇列滿時，缺的 seq 數目要等於 <code>dropped</code> 的增量（第一版只看 <code>dropped &gt; 0</code>，比 baseline 寫的容差寬鬆）。</p>
       <p>另外，加按鍵節點讓 Step 4-b 的兩個靜態測試紅了：它們假設 <code>__fixups__</code> 的 <code>gpio</code>、<code>pinmux</code> 只有一項，現在多了按鍵的那一項（用 <code>\0</code> 隔開）。改成接受多項的寫法。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_button_static.py' -v
 python3 -m unittest discover -s tests -p 'test_edge_button_device.py' -v</pre>
@@ -718,25 +766,25 @@ sudo rmmod edge_button</pre>
       <p>2026-10-10 的實測輸出（<code>make</code> 那行的 compiler 版本警告和 Step 2 一樣無害，這裡省略）：</p>
 <pre class="out" data-marks><span class="prompt">$</span> sudo insmod kernel/edge_button/edge_button.ko
 <span class="prompt">$</span> sudo dmesg | tail -n 1
-[ 1001.477821] edge_button edge-button: probed: button gpio acquired (irq 278, released) «1»
+[ 3709.854704] edge_button edge-button: probed: button gpio acquired (irq 278, released) «1»
 <span class="prompt">$</span> ls -l /dev/edge_button
-cr--r--r-- 1 root root 10, 121 Oct 10 18:10 /dev/edge_button «2»
+cr--r--r-- 1 root root 10, 121 Oct 10 18:55 /dev/edge_button «2»
 <span class="prompt">$</span> gpioinfo gpiochip0 | grep 'line  43:'
     line  43:      "PH.00"     "button"   input   active-low [used] «3»
 <span class="prompt">$</span> gpioget gpiochip0 43; echo "exit=$?"
 gpioget: error reading GPIO values: Device or resource busy
 exit=1 «4»
 <span class="prompt">$</span> ./build/edge_button_wait 1 &amp; sleep 1; ps -o stat,wchan:20,cmd -p $!; kill $!; sleep 0.5
-[1] 7048
+[1] 11444
 STAT WCHAN                CMD
 S    edge_button_read     ./build/edge_button_wait 1 «5»
 interrupted
 [1]+  Exit 1                  ./build/edge_button_wait 1 «6»
 <span class="prompt">$</span> ./build/edge_button_wait 4
-seq=1 pressed t=1089.584033763
-seq=2 released t=1089.744021628
-seq=3 pressed t=1091.460022106
-seq=4 released t=1091.628038409 «7»
+seq=1 pressed t=3784.377235351
+seq=2 released t=3784.512923720
+seq=3 pressed t=3785.570426647
+seq=4 released t=3785.737830409 «7»
 <span class="prompt">$</span> grep . /sys/bus/platform/devices/edge-button/{irq_count,event_count,dropped}
 /sys/bus/platform/devices/edge-button/irq_count:4
 /sys/bus/platform/devices/edge-button/event_count:4
@@ -749,8 +797,8 @@ seq=4 released t=1091.628038409 «7»
         <li><span class="mk">4</span><span>driver 持有 line 43 時，userspace 的 <code>gpioget</code> 拿到 busy：和 4-b 的 LED 一樣，一條 line 同時只有一個使用者。</span></li>
         <li><span class="mk">5</span><span>reader 開著、沒有事件：狀態 <code>S</code>（可中斷睡眠），<code>WCHAN</code> 顯示它睡在 <code>edge_button_read</code> 裡。不需要 root 就看得到自己程式的 wchan。</span></li>
         <li><span class="mk">6</span><span><code>kill</code> 送出 SIGTERM，<code>wait_event_interruptible()</code> 提早返回，<code>read()</code> 回 <code>EINTR</code>，程式印 <code>interrupted</code>、結束碼 1。</span></li>
-        <li><span class="mk">7</span><span>按兩下，四筆事件，pressed / released 交替、seq 連號。每次按住約 0.16～0.17 秒。</span></li>
-        <li><span class="mk">8</span><span>這次 4 個 IRQ 產生 4 筆事件：這兩下剛好沒有彈跳。驗收時同樣按一下出現過 4 個 IRQ（5b.11），彈跳次數每次不同。</span></li>
+        <li><span class="mk">7</span><span>按兩下，四筆事件，pressed / released 交替、seq 連號。每次按住約 0.14～0.17 秒（時間戳是按下、放開那一刻的 IRQ 時間）。</span></li>
+        <li><span class="mk">8</span><span>這次 4 個 IRQ 產生 4 筆事件：這兩下剛好沒有彈跳。修正前的驗收出現過按一下 4 個 IRQ，彈跳次數每次不同。</span></li>
       </ol>
       <p>如果 insmod 成功但 dmesg 沒有 <code>probed</code>、<code>/dev/edge_button</code> 也不存在，表示這次開機沒有 <code>edge-button</code> 節點（overlay 沒裝上或被 jetson-io 洗掉，見 4-b 的 4b.4）。如果 dmesg 寫的是 <code>pressed</code>，或按了 <code>edge_button_wait</code> 都沒反應，回 5b.3 檢查上拉電阻。<code>ps</code> 的 PID、時間戳、minor 號每次都不一樣。</p>
     </div>
@@ -783,7 +831,7 @@ PASS line 43 (PH.00) unused before insmod
 PASS edge-button bound to edge_button
 PASS /dev/edge_button created, mode 0444
 PASS line 43 owned by "button", input, active-low
-PASS IRQ registered: 278: 8 0 0 0 0 0 2200000.gpio 43 Edge edge_button «1»
+PASS IRQ registered: 278: 52 0 0 0 0 0 2200000.gpio 43 Edge edge_button «1»
     132 (soc_gpio21_ph0): pull=2 tristate=1 enable-input=1 open-drain=0 io-reset=0 rcv-sel=0 io-hv=0 schmitt=0 pull-down-strength=0 pull-up-strength=0 drive-type=0 gpio-mode=0 function=rsvd0
 PASS PH.00 pad: pull-up, output off, input on
 PASS pin idles high (released) «2»
@@ -793,38 +841,39 @@ PASS reader asleep after 3 s (state S, 0 CPU ticks, wchan edge_button_read) «3�
 PASS rmmod refused while a reader is blocked
 PASS SIGTERM wakes the reader: exit 1, 'interrupted' «4»
 &gt;&gt;&gt; press the button ONCE and release it (15 s)
-    seq=1 pressed t=483.596029563
-    seq=2 released t=483.784025846
+    seq=1 pressed t=3667.401418590
+    seq=2 released t=3667.546020658
 PASS one press -&gt; pressed + released
 PASS no extra event after the release
-    raw IRQs for that press: 4 (bounces), events: 2 «5»
+    raw IRQs for that press: 2 (bounces), events: 2 «5»
 &gt;&gt;&gt; press and HOLD the button about 2 s, then release (15 s)
-    seq=3 pressed t=492.232025828
-    seq=4 released t=495.080037184
-PASS long press -&gt; one pressed, one released 2.85 s later, nothing in between «6»
+    seq=3 pressed t=3671.666221258
+    seq=4 released t=3673.859556825
+PASS long press -&gt; one pressed, one released 2.19 s later, nothing in between «6»
 &gt;&gt;&gt; press the button over and over, about 10 times, as fast as you can, until '&gt;&gt;&gt; stop' (6 s)
 &gt;&gt;&gt; stop
-    32 events read, 34 state changes, 0 dropped, seq=5 pressed t=497.668029421 seq=6 released t=497.732033731 …
-PASS rapid presses: 32 events, alternating, no seq gap «7»
-    totals: irq_count=40 event_count=38 dropped=0
+    39 events read, 42 state changes, 0 dropped, seq=5 pressed t=3675.805861400 seq=6 released t=3675.895951621 …
+PASS rapid presses: 39 events, alternating, no seq gap «7»
+    totals: irq_count=52 event_count=46 dropped=0
 PASS module and /dev/edge_button gone
 PASS line 43 released
 PASS IRQ freed
 PASS dmesg free of Oops/BUG/WARNING
 PASS dmesg shows 1 probe / 1 remove
-[  475.405839] edge_button verify 5638 1791626521
-[  475.410620] edge_button edge-button: probed: button gpio acquired (irq 278, released)
-[  501.612584] edge_button edge-button: removed: 40 irqs, 38 events, 0 dropped
+[ 3659.274630] edge_button verify 10703 1791629705
+[ 3659.279599] edge_button edge-button: probed: button gpio acquired (irq 278, released)
+[ 3680.327940] edge_button edge-button: removed: 52 irqs, 46 events, 0 dropped
 === 0 failure(s)</pre>
       <ol class="notes">
-        <li><span class="mk">1</span><span>IRQ 278 是 GPIO controller <code>2200000.gpio</code> 的第 43 號，邊緣觸發。一開始就是 8，是<b>上一次</b>載入用同一個號碼留下的累計，<code>/proc/interrupts</code> 不會歸零；這次的數字要看 driver 自己的 <code>irq_count</code>。</span></li>
+        <li><span class="mk">1</span><span>IRQ 278 是 GPIO controller <code>2200000.gpio</code> 的第 43 號，邊緣觸發。一開始就是 52，是<b>之前</b>幾次載入用同一個號碼留下的累計，<code>/proc/interrupts</code> 不會歸零；這次的數字要看 driver 自己的 <code>irq_count</code>。</span></li>
         <li><span class="mk">2</span><span>放開時 pin 是 <code>hi</code>：330 Ω 的上拉有效。第一次驗收這一行是 FAIL（pin 卡在 <code>lo</code>，5b.3）。</span></li>
         <li><span class="mk">3</span><span>reader 睡了 3 秒，用掉 <b class="hl-ok">0 個 CPU tick</b>，<code>wchan</code> 顯示它睡在 <code>edge_button_read</code> 裡：就是 5b.6 那個 <code>wait_event_interruptible()</code>。</span></li>
         <li><span class="mk">4</span><span>signal 打斷睡眠：kernel 回 <code>-ERESTARTSYS</code>，因為沒有 <code>SA_RESTART</code>，userspace 看到 <code>EINTR</code>。</span></li>
-        <li><span class="mk">5</span><span>一次按壓 4 個 IRQ（有彈跳），debounce 後剛好 2 筆事件。上一次執行同樣的動作是 2 個 IRQ：彈跳次數每次不同。</span></li>
-        <li><span class="mk">6</span><span>按住 2.85 秒，中間沒有任何事件。腳本只要求間隔 ≥ 1.0 秒，因為人按的時間不固定。</span></li>
-        <li><span class="mk">7</span><span>6 秒讀到 32 筆，交替且連號、<code>dropped=0</code>。<code>event_count</code> 多了 34：差的 2 筆發生在 reader 被 timeout 結束、<code>&gt;&gt;&gt; stop</code> 印出前後，裝置已經關了，照設計只計數不排隊。人手按不出「20 ms 內 16 筆」，所以佇列滿、<code>dropped</code> 增加的情況<b class="hl-bad">沒有實測</b>。</span></li>
+        <li><span class="mk">5</span><span>這次一下按壓 2 個 IRQ、2 筆事件，沒有彈跳；之前同樣的動作出現過 4 個 IRQ。彈跳次數每次不同，debounce 後一律是 2 筆。</span></li>
+        <li><span class="mk">6</span><span>按住 2.19 秒，中間沒有任何事件。腳本只要求間隔 ≥ 1.0 秒，因為人按的時間不固定。</span></li>
+        <li><span class="mk">7</span><span>6 秒讀到 39 筆，交替且連號、<code>dropped=0</code>。<code>event_count</code> 多了 42：差的 3 筆發生在 reader 被 timeout 結束、<code>&gt;&gt;&gt; stop</code> 印出前後，裝置已經關了，照設計只計數不排隊。人手按不出「20 ms 內 16 筆」，所以佇列滿、<code>dropped</code> 增加的情況<b class="hl-bad">沒有實測</b>。</span></li>
       </ol>
+      <p>這是 code review 修正後的重跑（2026-10-10）。修正前的那次也是 <code>0 failure(s)</code>（按一下 4 個 IRQ、長按 2.85 秒、快速連按 32 筆）。</p>
       <p>同一支腳本也當 Step 4-b 的回歸：overlay 加了按鍵節點之後，拆 LED 前跑 <code>sudo bash scripts/verify_edge_gpio.sh --blink 3</code>，<code>0 failure(s)</code>，人眼看到慢閃 5 下、最後熄滅。</p>
     </div>
   </section>
@@ -850,9 +899,9 @@ PASS dmesg shows 1 probe / 1 remove
       <h2>這一步做到了什麼</h2>
       <ul class="checks">
         <li class="y">按下按鍵 → IRQ → driver → <code>wake_up_interruptible()</code> → 睡著的 <code>read()</code> 返回；等待時 0 CPU tick。</li>
-        <li class="y">按一下一筆 pressed、一筆 released；長按不重複；快速連按 32 筆交替、seq 連號；debounce 把 40 個 IRQ 合併成 38 次狀態變化。</li>
+        <li class="y">按一下一筆 pressed、一筆 released；長按不重複；快速連按 39 筆交替、seq 連號；debounce 把 52 個 IRQ 合併成 46 次狀態變化（code review 修正後重跑）。</li>
         <li class="y">reader 睡著時 rmmod 被拒，signal 能叫醒它；卸載後 GPIO、IRQ、節點都釋放；驗收 <b class="hl-ok">0 failure</b>。</li>
-        <li class="n">沒有實測：佇列滿（<code>dropped</code> 增加、seq 跳號）只有程式邏輯；<code>copy_to_user</code> 失敗時事件遺失沒有測試。</li>
+        <li class="n">沒有實測：佇列滿（<code>dropped</code> 增加、seq 跳號）只有程式邏輯；<code>copy_to_user</code> 失敗時事件留在佇列（review 後的新行為）沒有測試。</li>
         <li class="n">5b.3 的電阻計算用的是 TI 典型值，沒有量測 TXB 的實際 buffer 強度；330 Ω 偏離規格書的「&gt; 50 kΩ」（理由見 5b.3）。</li>
         <li class="n">LED 為了接按鍵已經拆除；重跑 Step 4 的驗收要先接回。</li>
         <li class="n">新增約 1031 行，超過約 800 行的上限：實作前估約 775 行，又一次把測試和驗收腳本估低了。原本叫 Step 5，驗收後改名 5-b，另補 userspace 版的 5-a 對照。</li>

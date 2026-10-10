@@ -9,11 +9,17 @@ The button pulls the pin to GND when pressed, so the GPIO is active-low
 (GPIO_ACTIVE_LOW = 1) and the pad needs a pull-up (TEGRA_PIN_PULL_UP = 2).
 """
 
+import fcntl
+import os
 from pathlib import Path
 import re
+import signal
+import struct
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 
 
@@ -156,6 +162,27 @@ class ButtonDriverContractTest(unittest.TestCase):
         self.assertIn("wake_up_interruptible(", self.src)
         self.assertIn("O_NONBLOCK", self.src)
 
+    def test_irq_is_requested_before_the_initial_state_is_read(self):
+        # Reading first leaves a gap: a press there raises no IRQ, "last" is stale, and the
+        # whole press/release pair vanishes without a seq gap (code review, PR #7).
+        probe = function_body(self.src, "edge_button_probe")
+        self.assertIsNotNone(probe)
+        self.assertLess(probe.index("devm_request_irq("), probe.index("gpiod_get_value_cansleep("))
+
+    def test_event_leaves_the_queue_only_after_copy_to_user(self):
+        # kfifo_get before copy_to_user loses the event on EFAULT: peek, copy, then skip.
+        body = function_body(self.src, "edge_button_read")
+        self.assertIsNotNone(body)
+        self.assertNotIn("kfifo_get(", body)
+        self.assertIn("kfifo_peek(", body)
+        self.assertLess(body.index("copy_to_user("), body.index("kfifo_skip("))
+
+    def test_timestamp_is_taken_at_the_edge_not_in_the_work(self):
+        # The work runs >= 20 ms after the last edge; the event should carry the time of
+        # the first edge of the burst, taken in the IRQ handler.
+        self.assertIn("ktime_get_ns(", function_body(self.src, "edge_button_irq"))
+        self.assertNotIn("ktime_get", function_body(self.src, "edge_button_work"))
+
     def test_pending_debounce_work_is_cancelled_on_teardown(self):
         self.assertIn("cancel_delayed_work_sync(", self.src)
 
@@ -217,6 +244,63 @@ class WaitCliTest(unittest.TestCase):
                 res = self.run_wait(*args)
                 self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
                 self.assertIn("usage", res.stderr)
+
+    def start_on_fifo(self, count, stdout):
+        """Run edge_button_wait on a named pipe standing in for /dev/edge_button."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        fifo = Path(tmp.name) / "edge_button"
+        os.mkfifo(fifo)
+        proc = subprocess.Popen([str(WAIT), str(count)], stdout=stdout, stderr=subprocess.PIPE,
+                                env={"EDGE_BUTTON_DEV": str(fifo)})
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        writer = os.open(fifo, os.O_WRONLY)  # returns once the program has opened it
+        self.addCleanup(os.close, writer)
+        return proc, writer
+
+    @staticmethod
+    def event(seq, pressed, ns=1_500_000_000):
+        return struct.pack("=QII", ns, seq, pressed)  # include/edge_button.h layout
+
+    def test_prints_events_read_from_the_device(self):
+        proc, writer = self.start_on_fifo(2, subprocess.PIPE)
+        os.write(writer, self.event(1, 1, 1_000_000_001) + self.event(2, 0, 2_000_000_002))
+        out, err = proc.communicate(timeout=5)
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertEqual(out, b"seq=1 pressed t=1.000000001\nseq=2 released t=2.000000002\n")
+
+    def test_sigterm_while_blocked_in_read_exits_1(self):
+        proc, _ = self.start_on_fifo(1, subprocess.PIPE)
+        time.sleep(0.3)
+        proc.send_signal(signal.SIGTERM)
+        out, err = proc.communicate(timeout=5)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(b"interrupted", err)
+
+    def test_sigterm_between_reads_is_not_lost(self):
+        # The signal lands while the program is stuck writing stdout (a full pipe), not
+        # inside read(). An empty handler forgets it and the next read() sleeps forever,
+        # so `timeout` in the acceptance script could hang (code review, PR #7).
+        rd, wr = os.pipe()
+        fcntl.fcntl(wr, 1031, 4096)  # F_SETPIPE_SZ: about 100 lines fill it
+        proc, writer = self.start_on_fifo(100000, wr)
+        os.close(wr)
+        os.write(writer, b"".join(self.event(i, i % 2) for i in range(1, 401)))
+        time.sleep(0.5)                       # now blocked in write() on the full pipe
+        proc.send_signal(signal.SIGTERM)
+        time.sleep(0.2)
+
+        def drain():                          # unblock it; EOF once the program exits
+            while os.read(rd, 65536):
+                pass
+        threading.Thread(target=drain, daemon=True).start()
+        self.addCleanup(os.close, rd)
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.fail("SIGTERM between reads was lost: still running 3 s later")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(b"interrupted", proc.stderr.read())
 
     def test_missing_device_exits_1(self):
         res = self.run_wait("1", env={"EDGE_BUTTON_DEV": "/nonexistent/edge_button"})

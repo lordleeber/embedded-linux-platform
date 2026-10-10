@@ -65,7 +65,7 @@ counter() { cat "$SYSFS/$1"; }
 # events in $tmpdir/$3 (stderr in $3.err: a timeout ends it with "interrupted"); sets
 # $reader_pid. Started before the prompt, so no press is missed.
 start_reader() {
-    timeout "$1" "$WAIT" "$2" >"$tmpdir/$3" 2>"$tmpdir/$3.err" &
+    timeout -k 2 "$1" "$WAIT" "$2" >"$tmpdir/$3" 2>"$tmpdir/$3.err" &   # -k: SIGKILL if SIGTERM is ignored
     reader_pid=$!
     sleep 0.3
 }
@@ -78,6 +78,15 @@ check_events() {
         NR > 1 && seq != pseq + 1      { print "seq gap " pseq " -> " seq; bad = 1 }
         { prev = state; pseq = seq }
         END { exit bad }' "$1"
+}
+# With dropped events: prints how many seq numbers are missing; fails if two events with
+# consecutive seq numbers have the same state (a gap may legitimately break alternation).
+seq_missing() {
+    awk '
+        { split($1, a, "="); seq = a[2]; state = $2 }
+        NR > 1 { missing += seq - pseq - 1; if (seq == pseq + 1 && state == prev) bad = 1 }
+        { prev = state; pseq = seq }
+        END { print missing + 0; exit bad }' "$1"
 }
 held_seconds() { awk '{ split($3, t, "="); v[NR] = t[2] } END { printf "%.2f", v[2] - v[1] }' "$1"; }
 
@@ -209,8 +218,8 @@ else
         echo "    $n events read, $evs state changes, $drops dropped, $(head -c 300 "$tmpdir/rapid" | tr '\n' ' ')"
         if ((n >= 4)) && check_events "$tmpdir/rapid" >/dev/null && ((drops == 0)); then
             pass "rapid presses: $n events, alternating, no seq gap"
-        elif ((n >= 4 && drops > 0)); then
-            pass "rapid presses: queue overflowed, $drops dropped and seq shows the gap"
+        elif ((n >= 4 && drops > 0)) && missing="$(seq_missing "$tmpdir/rapid")" && ((missing == drops)); then
+            pass "rapid presses: queue overflowed, $drops dropped = $missing missing seq numbers"
         else
             fail "rapid presses: $n events"; check_events "$tmpdir/rapid"
         fi

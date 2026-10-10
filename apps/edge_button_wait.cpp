@@ -17,7 +17,14 @@
 
 namespace {
 
-void on_signal(int) {}  // no SA_RESTART: a signal makes the blocked read() fail with EINTR
+volatile std::sig_atomic_t stop = 0;
+
+// No SA_RESTART: a signal inside read() makes it fail with EINTR. One that lands
+// elsewhere (e.g. while printing) is kept in the flag, checked before every read().
+void on_signal(int)
+{
+    stop = 1;
+}
 
 }  // namespace
 
@@ -55,9 +62,9 @@ int main(int argc, char **argv)
     int rc = 0;
     for (long i = 0; i < count; i++) {
         edge_button_event ev{};
-        ssize_t n = read(fd, &ev, sizeof(ev));   // blocks until a press or release
+        ssize_t n = stop ? -1 : read(fd, &ev, sizeof(ev));   // blocks until a press or release
         if (n != static_cast<ssize_t>(sizeof(ev))) {
-            if (n < 0 && errno == EINTR)
+            if (stop || (n < 0 && errno == EINTR))
                 std::fprintf(stderr, "interrupted\n");
             else
                 std::fprintf(stderr, "read %s: %s\n", path, n < 0 ? std::strerror(errno) : "short read");
