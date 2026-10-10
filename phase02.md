@@ -214,6 +214,7 @@ dts/
 - LED active-low/active-high 行為正確
 - unload driver 後 GPIO 被釋放
 - driver 載入期間 4-a 的 `edge_gpio_blink` 請求 line 105 得到 busy
+- 順帶修正（4-a code review 發現、範圍外延後）：`verify_edge_test.sh` 與 `verify_edge_gpio.sh` 以 root 寫入 `/tmp/<name>.$$`，改用 `mktemp`；`verify_edge_gpio.sh` 的 pinconf 解析改成多行格式
 
 ### 這一步不做
 

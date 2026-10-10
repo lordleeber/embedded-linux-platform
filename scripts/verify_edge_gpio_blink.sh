@@ -69,7 +69,9 @@ sample_run() {
     sudo -u "$BUILD_USER" "$CLI" >/dev/null &
     bg=$!
     local deadline=$((SECONDS + 3))
-    until [[ "$(line_info)" == *'"edge_gpio_blink"'* ]] || ((SECONDS > deadline)); do sleep 0.02; done
+    until [[ "$(line_info)" == *'"edge_gpio_blink"'* ]] || ((SECONDS > deadline)) || ! kill -0 "$bg" 2>/dev/null; do
+        sleep 0.02
+    done
     sleep 0.2; high="$(pin_level)"
     sleep 0.5; low="$(pin_level)"
     wait "$bg"; status=$?; bg=""
@@ -90,15 +92,16 @@ echo "--- phase 2: pad opened"
 $PAD open | sed 's/^/    /' || fail "pad open"
 conf="$(pinconf)"; echo "    $conf"
 if [[ $conf == *tristate=0* && $conf == *enable-input=0* ]]; then pass "pad drives (tristate=0, input=0)"; else fail "pad not open"; fi
-sample_run "it should BLINK 5 times (the unittests after it blink 2 x 5 more)"
+sample_run "it should BLINK 5 times (the unittests after it blink about 12 more)"
 if [[ $status -eq 0 && $high == hi && $low == lo ]]; then pass "register goes hi then lo with the pad open"; else fail "open pad run: exit $status, levels '$high'/'$low'"; fi
+log="$(mktemp)"   # root writes it: never a guessable /tmp name
 if (cd "$REPO" && timeout 60 sudo -u "$BUILD_USER" env EDGE_GPIO_HW=1 \
-        python3 -m unittest discover -s tests -p test_edge_gpio_blink.py >/tmp/edge_gpio_blink.$$ 2>&1); then
+        python3 -m unittest discover -s tests -p test_edge_gpio_blink.py >"$log" 2>&1); then
     pass "edge_gpio_blink unittests (hardware) as $BUILD_USER"
 else
-    fail "edge_gpio_blink unittests as $BUILD_USER"; cat /tmp/edge_gpio_blink.$$
+    fail "edge_gpio_blink unittests as $BUILD_USER"; cat "$log"
 fi
-rm -f /tmp/edge_gpio_blink.$$
+rm -f "$log"
 
 if [[ "$(line_info)" == *unused* ]]; then pass "line $LINE released"; else fail "line $LINE still held: $(line_info)"; fi
 trap - EXIT

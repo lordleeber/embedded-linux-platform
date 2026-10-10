@@ -12,9 +12,18 @@ state. The register address was confirmed on this board by reading it back:
 its low byte 0x58 decodes to exactly what debugfs pinconf reports for
 soc_gpio32_pq5 (pull=up, tristate=1, enable-input=1, function=rsvd0).
 
-open/close only write when the low byte is the boot value (0x58) or the open
-value (0x00); anything else means a wrong address or another function, and the
-register is left alone. Bits outside the three fields are always kept.
+open/close only write when the register looks like this pad: low byte 0x58
+(boot value), or low byte 0x00 with bit 10 set (opened after a GPIO request;
+measured 0x400). An all-zero register is refused, because that is what many
+unrelated addresses read. Anything else means a wrong address or another
+function, and the register is left alone. Bits outside the three fields are
+always kept.
+
+Limits: the read-modify-write goes through a Python memoryview of an mmap'd
+page; CPython does not promise a single 32-bit bus access (it has behaved as
+one here), and nothing stops the kernel's pinctrl driver from writing the same
+register between the read and the write. Acceptable for a lab tool on a pad no
+device claims; Step 4-b moves the pad setup into a DT pinctrl state.
 
 Exit status: 0 = done (or nothing to do), 1 = unexpected register value
 (nothing written), 2 = usage error or /dev/mem not accessible.
@@ -33,6 +42,7 @@ TRISTATE = 0x10
 INPUT = 0x40
 FIELDS = PULL_MASK | TRISTATE | INPUT
 BOOT_BITS = (2 << PULL_SHIFT) | TRISTATE | INPUT  # 0x58: pull-up, tristate, input on
+GPIO_MODE = 0x400         # bit 10: reads 1 once a GPIO request has claimed the pad (measured, not from the TRM)
 PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}
 
 
@@ -47,10 +57,12 @@ def apply(reg, index, action):
     print(f"before: {decode(value)}")
     if action == "show":
         return 0
-    if value & 0xFF not in (BOOT_BITS, 0x00):
-        print(f"error: low byte 0x{value & 0xFF:02x} is neither the boot value 0x58 nor "
-              "the open value 0x00; wrong address or pad reassigned, not writing",
-              file=sys.stderr)
+    is_boot = value & 0xFF == BOOT_BITS
+    is_open = value & 0xFF == 0x00 and value & GPIO_MODE
+    if not (is_boot or is_open):
+        print(f"error: 0x{value:08x} is neither the boot value (low byte 0x58) nor the open "
+              "value (low byte 0x00 with bit 10 set); wrong address or pad reassigned, "
+              "not writing", file=sys.stderr)
         return 1
     new = value & ~FIELDS & 0xFFFFFFFF
     if action == "close":
