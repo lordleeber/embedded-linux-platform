@@ -1,13 +1,12 @@
 # 硬體接線與 pin mapping
 
-狀態：按鍵在 Step 5-b 接線、Step 5-a 驗收後拆除（2026-10-10；Step 19 修 `ppoll()` 時要照下表原樣接回）；LED 在 Step 4-a 接線、Step 5-b 驗收前因材料不夠拆除（拆除前 Step 4-b 回歸測試 0 failure，人眼確認慢閃 5 下、最後熄滅），重跑 Step 4 驗收要先接回；其餘**尚未接線**。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
+狀態：UPS Power Module (C)（INA219，i2c-7 位址 0x41）在 Step 6-a 依官方說明接上並供電給 Jetson；按鍵在 Step 5-b 接線、Step 5-a 驗收後拆除（2026-10-10；Step 19 修 `ppoll()` 時要照下表原樣接回）；LED 在 Step 4-a 接線、Step 5-b 驗收前因材料不夠拆除（拆除前 Step 4-b 回歸測試 0 failure，人眼確認慢閃 5 下、最後熄滅），重跑 Step 4 驗收要先接回；其餘**尚未接線**。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
 
 | 元件 / 訊號 | Jetson 40-pin header 實體 pin | Linux controller / bus | 電壓 | 對端 pin | 狀態 / 驗證 |
 |---|---|---|---|---|---|
-| INA219 VCC | 待確認 | 電源，非 bus | 待確認 | INA219 VCC | 未接線 |
-| INA219 GND | 待確認 | GND，非 bus | 0 V | INA219 GND | 未接線 |
-| INA219 SDA | 待確認 | I2C controller 待確認 | 待確認 | INA219 SDA | 未接線 |
-| INA219 SCL | 待確認 | I2C controller 待確認 | 待確認 | INA219 SCL | 未接線 |
+| INA219 VCC / GND | 依 Waveshare 官方說明接上（UPS Power Module (C)），腳位未逐一核對 | 電源，非 bus | 待確認 | UPS 模組 | 已接線（2026-10-11）；UPS 供電給 Jetson |
+| INA219 SDA | 3 | `i2c-7`（`c250000.i2c`）；這兩支 pin 直接接 SoC，不經 TXB0108 | 3.3 V | UPS 模組上的 INA219 SDA | 已接線。Step 6-a：`i2cdetect -y -r 7` 只有 0x41 回應（**要加 `-r`**，不加時 0x40–0x4f 被跳過）；Config / Calibration 讀寫成功 |
+| INA219 SCL | 5 | 同上 | 3.3 V | UPS 模組上的 INA219 SCL | 已接線，同上 |
 | OLED VCC | 待確認 | 電源，非 bus | 待確認 | OLED VCC | 未接線 |
 | OLED GND | 待確認 | GND，非 bus | 0 V | OLED GND | 未接線 |
 | OLED SDA | 待確認 | I2C controller 待確認 | 待確認 | OLED SDA | 未接線 |

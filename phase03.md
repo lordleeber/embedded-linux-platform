@@ -110,7 +110,64 @@ cat /sys/class/hwmon/hwmonX/power1_input
 <!-- STEP_PLAN_START -->
 ## Step 規劃
 
-### Step 6 — INA219 userspace bring-up
+### Step 6-a — 讀懂廠商範例 `ina219.py`（Waveshare UPS Power Module (C)）
+
+**目標**
+
+自己動手讀 register 之前，先把廠商附的 Python 範例逐行讀懂：它對 INA219 寫了什麼、讀了什麼、怎麼換算成電壓 / 電流 / 功率 / 電量百分比。這份範例是之後 Step 6-b（自己的 raw 工具）和 Step 7（kernel driver）的對照組。
+
+**實作範圍**
+
+- 把 `~/UPS_Power_Module_C/ina219.py` 原樣複製進 `third_party/waveshare_ups_c/`（SHA-256 釘住、不修改）
+- 用假的 `smbus` 模組重播它的 register 讀寫，把章裡的每個說法寫成測試；實機測試讀真的 INA219
+- 驗收腳本：bus 掃描、實機測試、範例輸出、拔掉 UPS 的 DC adapter 看電流
+
+<!-- STEP_DETAIL_START -->
+### 這一步到底要做什麼
+
+拆分紀錄：原 Step 6（手動 `i2cget` / `i2cset`、C++ raw 工具）移到 6-b。使用者指出廠商範例 `python3 ina219.py` 已經能直接讀到數值，先把它讀懂，6-b 再拿掉 Python library 自己做。
+
+誰和誰互動：
+
+```text
+ina219.py ── python3-smbus ── /dev/i2c-7（i2c-dev）── i2c-tegra（c250000.i2c）
+                                                          │ SCL / SDA = header pin 5 / 3
+                                                          ▼
+                                    UPS Power Module (C) 上的 INA219（7-bit 位址 0x41）
+```
+
+- controller：Jetson 的 `c250000.i2c`（Linux `i2c-7`）；target：INA219，位址 0x41（類別預設 0x40，`__main__` 傳 0x41）
+- 資料流：啟動時寫 Calibration（0x05 = 26868）再寫 Config（0x00 = 0x0EEF），之後每 2 秒讀 Bus Voltage / Current / Power（Shunt Voltage 也讀，但輸出那行被註解掉），每個 register 是 MSB 先送的 16-bit
+- 用到的 API：`smbus.SMBus.read_i2c_block_data` / `write_i2c_block_data`（底層是 i2c-dev 的 `I2C_SMBUS` ioctl，I2C block 傳輸）
+
+### 實作決策（Step 6-a 落地時裁決）
+
+- 範例原樣入庫（`third_party/waveshare_ups_c/ina219.py`），教材的程式碼節錄要能被 `check_listings.py` 核對，不能只指向板上的家目錄
+- 範例的註解和程式不一致（註解寫 Cal 13434、Current LSB 100 µA、Power LSB 2 mW；程式是 26868、0.1524 mA、3.048 mW），以程式為準，測試把兩者都釘住
+- 實機上 `i2cdetect -y 7` 看不到 0x41：Tegra 的 i2c 不支援 SMBus Quick Write，0x30–0x37、0x50–0x5f 以外的位址都被跳過；要用 `-r`
+- 不需要 root：使用者在 `i2c` 群組
+
+### 預期檔案
+
+```text
+third_party/waveshare_ups_c/ina219.py
+third_party/waveshare_ups_c/README.md
+tests/test_ina219_sample.py
+scripts/verify_ina219_sample.sh
+```
+
+### 這一步不做
+
+- 不改範例、不寫自己的工具（Step 6-b）
+- 不手動 `i2cget` / `i2cset`（Step 6-b）
+- 不寫 kernel driver、不用 hwmon（Step 7、8）
+<!-- STEP_DETAIL_END -->
+
+**驗收條件**
+
+`python3 ina219.py` 讀到合理的電池電壓；章裡對每個 register 值、換算公式的說法都有測試核對；拔掉 DC adapter 時電流不再是 0。
+
+### Step 6-b — INA219 userspace bring-up
 
 **目標**
 
@@ -180,6 +237,11 @@ converted current
 - register value 不應全是 `0xffff` 或 `0x0000`
 - 拔掉 INA219 後程式要明確回報 I/O error
 
+### 附帶（Step 6-a 發現，範圍外）
+
+- 修 `docs/step05b.html` 第 142–150 行殘留的 Step 4-b `<nav>` 與章首（渲染時頁首多一列導覽和錯的標題）
+- 在板子旁邊補跑 `bash scripts/verify_ina219_sample.sh`（不加 `--no-unplug`），記錄拔掉 DC adapter 時的電流與正負號；6-b 的「有負載時數值變化」也靠這個情境
+
 ### 這一步不做
 
 - 不寫 kernel driver
@@ -208,7 +270,7 @@ converted current
 <!-- STEP_DETAIL_START -->
 ### 這一步到底要做什麼
 
-把 Step 6 的 userspace register 操作搬到 Linux I2C driver 裡。此時 Jetson 是 I2C controller，INA219 是 I2C target。
+把 Step 6-b 的 userspace register 操作搬到 Linux I2C driver 裡。此時 Jetson 是 I2C controller，INA219 是 I2C target。
 
 driver 要註冊：
 
@@ -257,7 +319,7 @@ kernel/edge_ina219/
 
 ### 驗證
 
-kernel driver 讀到的 raw value 要和 Step 6 userspace tool 比較，同一時間量測不能差得離譜。
+kernel driver 讀到的 raw value 要和 Step 6-b userspace tool 比較，同一時間量測不能差得離譜。
 
 ### 這一步不做
 
@@ -267,7 +329,7 @@ kernel driver 讀到的 raw value 要和 Step 6 userspace tool 比較，同一�
 
 **驗收條件**
 
-driver probe 成功，而且能由 kernel path 讀到與 Step 6 接近的數值。
+driver probe 成功，而且能由 kernel path 讀到與 Step 6-b 接近的數值。
 
 ### Step 8 — INA219 hwmon integration
 
