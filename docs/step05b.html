@@ -152,7 +152,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><span class="disabled">Step 6 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step05a.html">← Step 5-a</a><span class="disabled">Step 6 →</span></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 5-b · GPIO IRQ + wait queue（kernel driver）</div>
     <h1>按下按鍵，叫醒睡著的 read()</h1>
@@ -173,7 +173,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <h2>不要一直問，按了再叫我</h2>
       <p>最直覺的寫法是迴圈裡一直讀 GPIO：讀到 0 就是按下。問題是要多久讀一次？讀太慢會漏掉短按，讀太快就是 CPU 一直空轉，大部分時間都在問「按了沒？沒有。按了沒？沒有。」</p>
       <p>Linux 的做法是讓硬體主動通知：GPIO controller 偵測到電位<b>變化</b>（邊緣）時發出中斷，CPU 暫停手邊的事去執行 driver 的 IRQ handler。另一邊，userspace 的 <code>read()</code> 在 driver 裡找不到事件時，就把自己掛在一個 <b class="hl-key">wait queue</b> 上睡覺，排程器不再分 CPU 給它；事件來了，driver 叫醒這個 queue 上的人，<code>read()</code> 才返回。</p>
-      <p>同樣的事其實完全可以在 userspace 做：GPIO character device 本身就支援邊緣事件，請求 line 時要求 rising / falling 並設 debounce，對 line 的 fd 呼叫 <code>read()</code> 一樣會睡，事件裡也有時間戳和序號。那一版是 <b>Step 5-a</b>（另一個 PR，學習順序排在這章前面）；它背後的 IRQ handler、佇列、wait queue 是 kernel 的 <code>gpiolib-cdev</code> 寫好的。這一章刻意把這些在自己的 driver 裡親手寫一遍。實務上要做成 kernel driver，通常是因為事件要交給其他 kernel 子系統（例如 <code>gpio-keys</code> 把按鍵變成鍵盤輸入），或 policy 必須留在 kernel 裡。</p>
+      <p>同樣的事其實完全可以在 userspace 做：GPIO character device 本身就支援邊緣事件，請求 line 時要求 rising / falling 並設 debounce，對 line 的 fd 呼叫 <code>read()</code> 一樣會睡，事件裡也有時間戳和序號。那一版是 <a href="step05a.html"><b>Step 5-a</b></a>（學習順序排在這章前面）；它背後的 IRQ handler、佇列、wait queue 是 kernel 的 <code>gpiolib-cdev</code> 寫好的。這一章刻意把這些在自己的 driver 裡親手寫一遍。實務上要做成 kernel driver，通常是因為事件要交給其他 kernel 子系統（例如 <code>gpio-keys</code> 把按鍵變成鍵盤輸入），或 policy 必須留在 kernel 裡。</p>
       <p><b>互動雙方</b>：硬體端是按鍵和 GPIO controller（中斷來源），中間是我們的 kernel driver <code>edge_button.ko</code>（處理中斷、排事件），另一端是 userspace 的 <code>edge_button_wait</code>（blocking <code>read()</code>）。kernel 這邊沒有 master / slave 的匯流排關係，是「硬體通知 driver、driver 通知 reader」。<b>這一步不做</b>：<code>poll()</code> / <code>select()</code>（Phase 8 的 Step 19）。</p>
       <dl class="terms">
         <dt>IRQ</dt><dd>中斷請求。GPIO controller 偵測到邊緣時發出，CPU 跳去執行登記好的 handler。每個中斷源有一個號碼，這次是 278（<code>/proc/interrupts</code> 看得到）。</dd>
@@ -247,7 +247,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <ul>
         <li>放開時 pin 讀到 0；probe 時 dmesg 就印出 <code>pressed</code>。</li>
         <li>按了 30 多秒，<code>irq_count=0</code>：一個邊緣都沒有。</li>
-        <li>把按鍵拔掉，pin 33 什麼都不接，<code>gpioget</code> 還是 0。</li>
+        <li>把按鍵拔掉，pin 33 什麼都不接，<code>gpioget</code> 也讀到 0。（<a href="step05a.html">Step 5-a</a> 後來發現：請求 line 之後約 20 ms 內 pin 一律讀到 0，單次 <code>gpioget</code> 就是在這段時間讀的，所以<b class="hl-bad">這一條不能當證據</b>。前兩條是 driver 持有 line 好幾秒時的結果，不受影響。）</li>
       </ul>
       <p>原因在載板。Orin Nano devkit 載板規格書（SP-11324-001 v1.3，Table 3-3）的 40-pin 表，pin 33 那一列是 <code>GPIO13 … PH.00 … ±20uA … z … Note 3</code>，Note 3 寫著：「These pins connect to TI TXB0108 level translators. Due to the design of these devices, the output drivers are very weak…」。SoC 是 1.8 V、header 是 3.3 V，中間隔了一顆電平轉換晶片。整張表裡，除了 I2C 的 pin 3/5/27/28，<b>所有 GPIO 都是這樣</b>。</p>
       <figure class="figure">
@@ -307,10 +307,14 @@ TXB 要認成「高」：  &gt; 0.65 × 3.3 V ≈ 2.15 V</pre>
       <div class="callout"><p>規格書確實寫著「上拉 / 下拉要 &gt; 50 kΩ」。那條規定保護的是 pin 當<b>輸出</b>的時候：太強的上拉會和 TXB 的 buffer 拉扯，讓 Jetson 輸出的低電位不夠低。按鍵 pin 只當輸入，我們要的正是「拉贏 TXB」，所以刻意偏離。按下時 330 Ω 的電流是 10 mA，3.3 V 電源（1 A）和電阻都承受得了。</p></div>
       <h3>為什麼是 pin 33</h3>
       <p>第一版選的是 pin 31（PQ.06），只因為它和 LED 的 PQ.05 是同一個 port、編號相鄰。實體上 pin 31 和最近的 GND（pin 34）是斜對角，pin 33 和 34 才是左右並排，按鍵直接跨上去就好。至於「直接接 SoC、模組上已有上拉」的 I2C pin：27/28 是 <code>i2c-1</code>，上面有板上的電源監測 <code>ina3221</code> 和 USB-C 控制器 <code>fusb301</code>，不能挪用；3/5 是 <code>i2c-7</code>，留給 Phase 3 起的 INA219、OLED、STM32。完整接線見 <a href="hardware-wiring.md">hardware-wiring.md</a>。</p>
-      <p>接好之後先用 <code>gpioget</code> 確認，不需要 root（使用者在 <code>gpio</code> 群組即可）、也不需要載入 driver。放開時執行：</p>
-<pre class="cmd">gpioget gpiochip0 43</pre>
-<pre class="out">1</pre>
-      <p>按住再執行一次要是 <code>0</code>，放開後要回到 <code>1</code>。讀到 0 又按不出變化，就是上拉不夠（或四腳按鍵接到同一側、內部永遠導通的兩支腳）。這個指令會短暫請求 line 43，driver 載入時它會得到 busy。</p>
+      <p>接好之後用 <a href="step05a.html">Step 5-a</a> 的 userspace 程式確認，不需要 root（使用者在 <code>gpio</code> 群組即可）、也不需要載入 driver（載入時 line 43 被它佔用，這個程式會拿到 busy）。執行後<b>按兩下按鍵</b>：</p>
+<pre class="cmd">./build/edge_gpio_button 4</pre>
+<pre class="out">ignored 1 edge(s) while the line settled
+seq=1 pressed t=1396.230767131
+seq=2 released t=1396.393764653
+seq=3 pressed t=1397.585802443
+seq=4 released t=1397.750802063</pre>
+      <p>（2026-10-10 實測，重開機後、沒有載入 driver。）每按一下要有一筆 pressed、一筆 released；完全沒有輸出，就是上拉不夠，或四腳按鍵接到同一側、內部永遠導通的兩支腳。第一行的原因見 5-a。不要用單次 <code>gpioget gpiochip0 43</code> 確認：它在請求 line 後立刻讀，放開時也常常讀到 0（5-a 實測）。</p>
     </div>
   </section>
 
@@ -914,7 +918,7 @@ PASS dmesg shows 1 probe / 1 remove
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step04b.html">← Step 4-b</a><span class="disabled">Step 6 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step05a.html">← Step 5-a</a><span class="disabled">Step 6 →</span></nav>
 </main>
 
 <script>

@@ -273,6 +273,22 @@ userspace 程式 ── ioctl(GPIO_V2_GET_LINE_IOCTL) ──▶ gpiolib-cdev
 - 硬體與接線沿用 5-b（pin 33 → 按鍵 → pin 34，330 Ω 上拉到 pin 1）
 - 先確認：沒有 `edge_button` driver probe（pinctrl 狀態沒被套用）時，pin 33 的開機預設 pad 能不能讀到按鍵；不能的話要記錄並決定怎麼設 pad
 
+### 實作決策（Step 5-a 落地時裁決）
+
+- 程式 `apps/edge_gpio_button.cpp`：固定 gpiochip0 line 43，`INPUT | ACTIVE_LOW | EDGE_RISING | EDGE_FALLING`，debounce 20 ms（和 `edge_button.c` 相同）；輸出格式和 5-b 的 `edge_button_wait` 相同，驗收腳本用同一套檢查
+- 開機預設 pad（這次開機沒有 `edge_button` probe）：`pull=1`（下拉）`tristate=1 enable-input=1`，輸入有開，不需要任何 pad 設定；外接 330 Ω 上拉蓋過內部下拉
+- 實測：請求 line 後約 20 ms 內實體電位讀到 0（看起來是「按下」），之後才是真實的 1，gpiolib 把這次上升報成一筆事件；line 剛被釋放不久（< 0.3 s）再請求時不會發生。程式在請求後等 50 ms、丟掉這段時間的事件、用之後讀到的電位當初始狀態，並略過不改變狀態的事件（和 5-b driver 的 `val == last` 同一個作法）。原因未查證
+- 印出的 `seq` 是程式自己的計數（只算印出的 pressed / released）；kernel 的 `seqno` 用來偵測佇列溢位，有缺口就在 stderr 印 `lost`（code review 修正，第一版直接印 kernel 的 seqno，被丟掉的事件會變成 seq 跳號）
+- 50 ms 穩定期內開始的按壓會被當成初始狀態，第一筆印出的就是它的 released（行為已定義，驗收腳本在穩定之後才提示人按）
+
+### 預期檔案
+
+```text
+apps/edge_gpio_button.cpp
+scripts/verify_edge_gpio_button.sh
+tests/test_edge_gpio_button.py
+```
+
 ### 這一步不做
 
 - 不寫 kernel driver、不改 Device Tree
