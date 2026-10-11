@@ -24,3 +24,7 @@ target_include_directories(edge_button_wait PRIVATE include)
 
 # Step 5-a: the same button through gpiolib-cdev edge events (GPIO v2 uAPI, no driver).
 add_executable(edge_gpio_button apps/edge_gpio_button.cpp)
+
+# Step 6-b: INA219 registers through i2c-dev (I2C_RDWR), no Python library, no driver.
+add_executable(ina219_raw tools/ina219_raw.cpp)
+add_executable(test_ina219_decode tests/test_ina219_decode.cpp)

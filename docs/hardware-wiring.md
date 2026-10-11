@@ -5,7 +5,7 @@
 | 元件 / 訊號 | Jetson 40-pin header 實體 pin | Linux controller / bus | 電壓 | 對端 pin | 狀態 / 驗證 |
 |---|---|---|---|---|---|
 | INA219 VCC / GND | 依 Waveshare 官方說明接上（UPS Power Module (C)），腳位未逐一核對 | 電源，非 bus | 待確認 | UPS 模組 | 已接線（2026-10-11）；UPS 供電給 Jetson |
-| INA219 SDA | 3 | `i2c-7`（`c250000.i2c`）；這兩支 pin 直接接 SoC，不經 TXB0108 | 3.3 V | UPS 模組上的 INA219 SDA | 已接線。Step 6-a：`i2cdetect -y -r 7` 只有 0x41 回應（**要加 `-r`**，不加時 0x40–0x4f 被跳過）；Config / Calibration 讀寫成功 |
+| INA219 SDA | 3 | `i2c-7`（`c250000.i2c`）；這兩支 pin 直接接 SoC，不經 TXB0108 | 3.3 V | UPS 模組上的 INA219 SDA | 已接線。Step 6-a：`i2cdetect -y -r 7` 只有 0x41 回應（**要加 `-r`**，不加時 0x40–0x4f 被跳過）；Config / Calibration 讀寫成功。Step 6-b：`i2cdetect -l` 確認 `c250000.i2c` = `i2c-7`，`build/ina219_raw` 讀到六個 register（見 [ina219-registers.md](ina219-registers.md)） |
 | INA219 SCL | 5 | 同上 | 3.3 V | UPS 模組上的 INA219 SCL | 已接線，同上 |
 | OLED VCC | 待確認 | 電源，非 bus | 待確認 | OLED VCC | 未接線 |
 | OLED GND | 待確認 | GND，非 bus | 0 V | OLED GND | 未接線 |
