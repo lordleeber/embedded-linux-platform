@@ -36,7 +36,12 @@ cmake -S "$REPO" -B "$REPO/build" >/dev/null && cmake --build "$REPO/build" --ta
     || die "build of ina219_raw failed"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
-trap 'exit 2' INT TERM
+UNPLUGGED=0
+on_int() {
+    [[ $UNPLUGGED -eq 1 ]] && echo ">>> Interrupted: PLUG the DC adapter back in (the Jetson is on battery)."
+    exit 2
+}
+trap on_int INT TERM
 
 swap16() { printf '0x%04X' $(( ($1 & 0xFF) << 8 | $1 >> 8 )); }
 tool() { timeout -k 1 5 "$TOOL" --bus "$BUS" "$@"; }
@@ -62,7 +67,11 @@ fi
 echo "== i2cget, word mode (SMBus sends the low byte first; swapped = the chip's value)"
 declare -A word
 for reg in 0 1 2 3 4 5; do
-    word[$reg]="$(i2cget -y "$BUS" $ADDR $reg w 2>&1)" || { fail "i2cget reg $reg: ${word[$reg]}"; continue; }
+    if ! word[$reg]="$(i2cget -y "$BUS" $ADDR $reg w 2>&1)"; then
+        fail "i2cget reg $reg: ${word[$reg]}"
+        unset 'word[$reg]'
+        continue
+    fi
     echo "  reg 0x0$reg  i2cget ${word[$reg]}  swapped $(swap16 "${word[$reg]}")"
 done
 
@@ -94,7 +103,7 @@ else
 fi
 
 echo "== unit tests against the real chip"
-if EDGE_INA219_HW=1 python3 -m unittest discover -s "$REPO/tests" -p test_ina219_raw.py >"$tmpdir/ut" 2>&1; then
+if EDGE_INA219_HW=1 EDGE_INA219_BUS="$BUS" python3 -m unittest discover -s "$REPO/tests" -p test_ina219_raw.py >"$tmpdir/ut" 2>&1; then
     pass "test_ina219_raw.py ($(tail -1 "$tmpdir/ut"))"
 else
     cat "$tmpdir/ut"
@@ -113,10 +122,11 @@ fi
 if [[ $UNPLUG -eq 1 ]]; then
     echo
     echo ">>> UNPLUG the UPS's DC adapter now (the battery takes over the Jetson). Sampling ${WINDOW} s ..."
+    UNPLUGGED=1
     max=0
     for ((i = 0; i < WINDOW / 2; i++)); do
         sleep 2
-        snap="$(tool)"
+        snap="$(tool)" || { fail "ina219_raw failed on battery (error above)"; continue; }
         echo "    $(grep -E '^(bus voltage|current)' <<<"$snap" | awk '{ printf "%s %s %s %s  ", $1, $2, $3, $4 }')"
         ma="$(awk '/^current \(shunt\):/ { print $3 }' <<<"$snap")"
         max="$(awk -v a="$ma" -v m="$max" 'BEGIN { b = a < 0 ? -a : a; c = m < 0 ? -m : m; print (b > c ? a : m) }')"
@@ -127,6 +137,7 @@ if [[ $UNPLUG -eq 1 ]]; then
         fail "current stayed ~0 on battery ($max mA)"
     fi
     echo ">>> PLUG the DC adapter back in now."
+    UNPLUGGED=0
 fi
 
 pgrep -x ina219_raw >/dev/null && fail "ina219_raw still running after the checks"

@@ -24,7 +24,9 @@ DECODE = REPO / "tools" / "ina219_decode.h"
 BUILD = REPO / "build"
 TOOL = BUILD / "ina219_raw"
 DECODE_TEST = BUILD / "test_ina219_decode"
-BUS, ADDR = 7, 0x41
+# verify_ina219_raw.sh finds the bus by controller name and passes it down (code review, PR #10).
+BUS = int(os.environ.get("EDGE_INA219_BUS", "7"))
+ADDR = 0x41
 HW = os.environ.get("EDGE_INA219_HW") == "1"
 REG_LINE = re.compile(r"^0x0([0-5]) (\w+)\s+0x([0-9A-F]{4})$", re.M)
 
@@ -83,6 +85,14 @@ class SourceContractTest(unittest.TestCase):
         # change what the sample (or the driver later) configured.
         self.assertRegex(self.src, r"\.len\s*=\s*1\b")
         self.assertNotRegex(self.src, r"\.len\s*=\s*3\b")
+        # Nor any other way to put bytes on the bus (code review, PR #10).
+        self.assertNotIn("I2C_SLAVE", self.src)
+        self.assertNotRegex(self.src, r"(?<![\w.])write\s*\(")
+
+    def test_partial_transfer_is_an_error_with_errno_set(self):
+        # ioctl(I2C_RDWR) may return a positive count < 2 without touching errno; the
+        # message must not then say "Success" (code review, PR #10).
+        self.assertRegex(self.src, r"errno\s*=\s*EIO")
 
     def test_byte_order_is_explicit(self):
         # Assemble with be16(), never by copying the two bytes into a uint16_t (host order).
@@ -116,6 +126,16 @@ class CliTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("/dev/i2c-99", r.stderr)
 
+    def test_bus_is_decimal(self):
+        # i2c-N is a decimal number: a leading zero is not octal (code review, PR #10).
+        # stderr names the bus whether it fails at open() or at the first read.
+        for arg, dev in (("08", "/dev/i2c-8"), ("010", "/dev/i2c-10")):
+            r = run_tool("--bus", arg, "--addr", "0x45")
+            self.assertEqual(r.returncode, 1, arg)
+            self.assertRegex(r.stderr, re.escape(dev) + r"(?!\d)", arg)
+        r = run_tool("--bus", "0x7")
+        self.assertEqual(r.returncode, 2)
+
 
 class VerifyScriptTest(unittest.TestCase):
     SCRIPT = REPO / "scripts" / "verify_ina219_raw.sh"
@@ -135,6 +155,27 @@ class VerifyScriptTest(unittest.TestCase):
         # Step 6-a: Tegra i2c has no SMBus Quick Write; plain `i2cdetect -y 7` skips 0x41.
         self.assertRegex(self.SCRIPT.read_text(), r"i2cdetect -y -r")
 
+    def test_unit_tests_get_the_bus_found_by_name(self):
+        # Not a hard-coded 7 inside the tests either (code review, PR #10).
+        self.assertRegex(self.SCRIPT.read_text(), r'EDGE_INA219_BUS="\$BUS"')
+
+    def test_tool_failure_while_unplugged_counts(self):
+        # An I/O error in the sampling loop gives empty output, which awk reads as 0 mA;
+        # it must be a FAIL instead (code review, PR #10).
+        self.assertRegex(self.SCRIPT.read_text(), r'snap="\$\(tool\)"\s*\|\|\s*\{?\s*fail')
+
+    def test_ctrl_c_while_unplugged_says_plug_back_in(self):
+        # Interrupting the unplug window must not leave the Jetson on battery unnoticed.
+        text = self.SCRIPT.read_text()
+        m = re.search(r"^on_int\(\)\s*\{.*?^\}", text, re.M | re.S)
+        self.assertIsNotNone(m, "no on_int() handler")
+        self.assertIn("PLUG", m.group(0))
+        self.assertRegex(text, r"trap on_int INT")
+
+    def test_failed_i2cget_leaves_no_error_text_as_a_value(self):
+        # The error text must not reach swap16's arithmetic later (code review, PR #10).
+        self.assertRegex(self.SCRIPT.read_text(), r"unset 'word\[\$reg\]'")
+
     def test_i2cset_writes_back_the_value_already_there(self):
         # The i2cset round trip must not change the configuration: it writes Calibration
         # with what was just read (word mode, so LSB first), never a constant.
@@ -149,7 +190,7 @@ class HardwareTest(unittest.TestCase):
         build()
 
     def read_all(self):
-        r = run_tool()
+        r = run_tool("--bus", str(BUS))
         self.assertEqual(r.returncode, 0, r.stderr)
         regs = registers(r.stdout)
         self.assertEqual(sorted(regs), [0, 1, 2, 3, 4, 5], r.stdout)
@@ -178,7 +219,7 @@ class HardwareTest(unittest.TestCase):
 
     def test_absent_address_is_an_io_error(self):
         # What the tool reports when the module is unplugged: no ACK -> EREMOTEIO.
-        r = run_tool("--addr", "0x45")
+        r = run_tool("--bus", str(BUS), "--addr", "0x45")
         self.assertEqual(r.returncode, 1)
         self.assertIn(os.strerror(errno.EREMOTEIO), r.stderr)
         self.assertIn("0x45", r.stderr)

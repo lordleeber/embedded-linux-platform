@@ -307,8 +307,8 @@ exit 0 «1»
     <div class="content">
       <h2>ina219_raw：一次 ioctl 讀一個 register</h2>
       <p>工具的核心是 <code>read_reg()</code>：兩個 <code>i2c_msg</code>，第一個寫 1 byte（register pointer），第二個讀 2 byte，一起交給 <code>I2C_RDWR</code>。kernel 把它們接成一筆傳輸，中間是 repeated start，和圖 6.1 控制器那一格一樣。</p>
-      <figure class="listing"><figcaption>tools/ina219_raw.cpp:49–67 — 寫 pointer、repeated start、讀 2 byte，再用 be16() 拼成高位在前</figcaption>
-<pre data-start="49" data-hot="56,59,60,62,63,65">// Pointer write + repeated start + 2-byte read, in one transaction.
+      <figure class="listing"><figcaption>tools/ina219_raw.cpp:50–72 — 寫 pointer、repeated start、讀 2 byte，再用 be16() 拼成高位在前</figcaption>
+<pre data-start="50" data-hot="57,60,61,63,64,67,70">// Pointer write + repeated start + 2-byte read, in one transaction.
 bool read_reg(int fd, std::uint16_t addr, std::uint8_t reg, std::uint16_t *value)
 {
     std::uint8_t buf[2];
@@ -322,20 +322,27 @@ bool read_reg(int fd, std::uint16_t addr, std::uint8_t reg, std::uint16_t *value
     msgs[1].len = 2;
     msgs[1].buf = buf;
     i2c_rdwr_ioctl_data xfer{msgs, 2};
-    if (ioctl(fd, I2C_RDWR, &amp;xfer) != 2)
+    int done = ioctl(fd, I2C_RDWR, &amp;xfer);
+    if (done != 2) {
+        if (done &gt;= 0)
+            errno = EIO;   // only part of the transfer happened; errno was not set
         return false;
+    }
     *value = ina219::be16(buf);
     return true;
 }</pre></figure>
       <ul>
         <li><b>不用 <code>ioctl(fd, I2C_SLAVE, addr)</code></b>：<code>I2C_RDWR</code> 的每個 message 自帶位址，所以不需要先綁定位址。</li>
-        <li><b><code>ioctl()</code> 回傳成功送出的 message 數</b>，要等於 2 才算成功。位址沒有回 ACK 時 ioctl 失敗，<code>errno</code> 是 <code>EREMOTEIO</code>（6b.8）。</li>
+        <li><b><code>ioctl()</code> 回傳成功送出的 message 數</b>，要等於 2 才算成功。位址沒有回 ACK 時 ioctl 回 −1，<code>errno</code> 是 <code>EREMOTEIO</code>（6b.8）。介面也允許只完成一部分、回傳 0 或 1，這時 kernel 不會設 <code>errno</code>，錯誤訊息會印出上一次留下的值（例如「Success」），所以自己設成 <code>EIO</code>（code review 指出；實務上沒遇過）。</li>
         <li><b>只讀不寫</b>：唯一寫出的 byte 是 register pointer（<code>len = 1</code>），寫入 register 要 3 byte（pointer + 2 byte 值），工具沒有這種 message。測試也把這條寫成規則。</li>
         <li><b>byte order 只在 <code>be16()</code> 一處</b>：不把 <code>buf</code> 用 <code>memcpy</code> 複製進 <code>uint16_t</code>，那樣得到的是 CPU 的 byte order（little-endian），結果和 <code>i2cget ... w</code> 一樣是反的。</li>
       </ul>
       <p>六個 register 依序讀，任何一個失敗就印出是哪個 bus、位址、register，結束碼 1：</p>
-      <figure class="listing"><figcaption>tools/ina219_raw.cpp:104–114 — 讀不到就明確回報，不印半套數字</figcaption>
-<pre data-start="104" data-hot="106,107,108,109,111">    std::uint16_t r[6];
+      <figure class="listing"><figcaption>tools/ina219_raw.cpp:109–122 — 一次讀一個 register；讀不到就明確回報，不印半套數字</figcaption>
+<pre data-start="109" data-hot="109,110,111,114,115,116,117,119">    // One register per transaction: the six values can come from different ADC
+    // conversions (one every ~34 ms), so under a changing load the two current
+    // paths below may differ by more than one Current_LSB.
+    std::uint16_t r[6];
     for (std::uint8_t reg = 0; reg &lt; 6; ++reg) {
         if (!read_reg(fd, static_cast&lt;std::uint16_t&gt;(addr), reg, &amp;r[reg])) {
             // No ACK (module unplugged, wrong address) is EREMOTEIO, "Remote I/O error".
@@ -401,7 +408,7 @@ inline std::int64_t power_uW(std::uint16_t raw, std::uint16_t cal, std::int32_t 
       <ul>
         <li><b>只用整數</b>，單位是 mV / µV / µA / µW。Step 7 會把同樣的算式搬進 kernel，而 kernel 裡不用浮點數。Current_LSB 寫成 <code>40960000 / (Cal × R[mΩ])</code> µA：Cal 26868、R 10 mΩ 時是 152.45 µA。範例用的 0.1524 mA 是四捨五入過的（6a.5），所以兩者在大電流時差約 0.03 %。</li>
         <li><b>有號數用 <code>static_cast&lt;std::int16_t&gt;</code></b>，取代範例手寫的 <code>value -= 65536</code>。Shunt 和 Current 有號；Power 依 datasheet 是無號，不做符號轉換（範例有做，6a.6）。</li>
-        <li><b>電流有兩條路</b>：<code>current_uA_from_shunt()</code> 直接用歐姆定律（V<sub>shunt</sub> / R），不需要 Calibration；<code>current_uA()</code> 用晶片算好的 Current register。晶片內部算的是 Current = Shunt × Cal / 4096，所以兩者應該相差不到一個 Current_LSB。Calibration 是 0（剛上電）時，Current register 恆為 0，工具改印 <code>n/a</code>，只剩第一條路可用。</li>
+        <li><b>電流有兩條路</b>：<code>current_uA_from_shunt()</code> 直接用歐姆定律（V<sub>shunt</sub> / R），不需要 Calibration；<code>current_uA()</code> 用晶片算好的 Current register。晶片內部算的是 Current = Shunt × Cal / 4096，所以<b>同一次轉換</b>的兩個值相差不到一個 Current_LSB（測試向量驗的就是這個）。但工具讀到的不一定是同一次轉換：INA219 讀一次只回傳 pointer 指到的那一個 register，六個 register 要分六次讀；一次轉換約 34 ms、讀一個 register 不到 1 ms，有機會剛好跨過。負載在變動時，輸出的兩行可能差超過 1 LSB（code review 指出；還沒有電流，沒有實測）。Calibration 是 0（剛上電）時，Current register 恆為 0，工具改印 <code>n/a</code>，只剩第一條路可用。</li>
       </ul>
       <p>R<sub>shunt</sub> = 0.01 Ω 仍是範例註解的假設，這一步沒有拆模組量電阻，<b>沒有查證</b>。register 的完整說明整理在 <code>docs/ina219-registers.md</code>，Step 7 寫 driver 時以它為對照。</p>
     </div>
@@ -440,7 +447,7 @@ usage: build/ina219_raw [--bus N] [--addr 0x03..0x77] «2»
 exit 2</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>沒有 ACK → <code>EREMOTEIO</code>（errno 121）。訊息指出是哪條 bus、哪個位址、讀到第幾個 register 時失敗，沒有印出任何數字。真的把模組拔掉時應該是同一個錯誤，但<b>沒有實測</b>。</span></li>
-        <li><span class="mk">2</span><span>0x80 不是 7-bit 位址，算用法錯誤，結束碼 2。0x00–0x02、0x78–0x7f 是 I2C 保留位址，也不接受。</span></li>
+        <li><span class="mk">2</span><span>0x80 不是 7-bit 位址，算用法錯誤，結束碼 2。0x00–0x02、0x78–0x7f 是 I2C 保留位址，也不接受。<code>--addr</code> 可以寫 <code>0x41</code> 或 <code>65</code>；<code>--bus</code> 只收十進位，<code>--bus 010</code> 是 <code>i2c-10</code>（第一版用了 <code>strtol(s, &amp;end, 0)</code>，前導 0 被當成八進位，<code>010</code> 開到 <code>i2c-8</code>，code review 指出）。</span></li>
       </ol>
       <p>跑出來不一樣時：<code>open /dev/i2c-7: Permission denied</code> 代表使用者不在 <code>i2c</code> 群組；0x41 也是 <code>Remote I/O error</code> 代表模組沒接上或位址不同（先 <code>i2cdetect -y -r 7</code>）；<code>current (reg): n/a</code> 代表晶片剛上電、還沒有人寫 Calibration，跑一次 6-a 的範例就會有值。</p>
     </div>
@@ -453,9 +460,9 @@ exit 2</pre>
       <p>兩個測試檔，都在工具寫好之前寫：</p>
       <ul>
         <li><b><code>tests/test_ina219_decode.cpp</code></b>：7 組換算向量，期望值取自 datasheet 和 6-a 在實機讀到的值（<code>0x0E 0xEF</code> → <code>0x0EEF</code>、<code>0x609A</code> → 12364 mV），不是從 decoder 的輸出抄。包括狀態位（CNVR、OVF）、有號數的邊界（<code>0x8000</code> → −327680 µV）、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 個 LSB。結束碼 0 / 1。</li>
-        <li><b><code>tests/test_ina219_raw.py</code></b>：共 <span data-tests="tests/test_ina219_raw.py">16</span> 個案例。建置並跑上面的向量（1）；原始碼契約（4）：用 <code>I2C_RDWR</code>、不用 <code>I2C_SMBUS</code>、唯一的寫入長度是 1、byte order 只靠 <code>be16()</code>、decoder 裡沒有 <code>float</code> / <code>double</code>；CLI（3）：參數錯回 2、位址要是 7-bit、bus 不存在回 1；驗收腳本（4）；實機（4，<code>EDGE_INA219_HW=1</code> 才跑）：六個值不是全 <code>0xFFFF</code> 或全 0、Config 和 Calibration 等於 <code>i2cget</code> 對調後的值、電壓在 9～12.8 V、0x45 回報 <code>Remote I/O error</code>。</li>
+        <li><b><code>tests/test_ina219_raw.py</code></b>：共 <span data-tests="tests/test_ina219_raw.py">22</span> 個案例。建置並跑上面的向量（1）；原始碼契約（5）：用 <code>I2C_RDWR</code>、不用 <code>I2C_SMBUS</code>、唯一的寫入長度是 1 且沒有 <code>I2C_SLAVE</code> / <code>write()</code>、只完成一部分時設 <code>EIO</code>、byte order 只靠 <code>be16()</code>、decoder 裡沒有 <code>float</code> / <code>double</code>；CLI（4）：參數錯回 2、位址要是 7-bit、bus 不存在回 1、bus 是十進位；驗收腳本（8）：含把找到的 bus 傳給測試、拔插時工具失敗要算 FAIL、拔插時按 Ctrl-C 要提醒插回、<code>i2cget</code> 失敗不留錯誤字串；實機（4，<code>EDGE_INA219_HW=1</code> 才跑）：六個值不是全 <code>0xFFFF</code> 或全 0、Config 和 Calibration 等於 <code>i2cget</code> 對調後的值、電壓在 9～12.8 V、0x45 回報 <code>Remote I/O error</code>。</li>
       </ul>
-      <p>紅燈紀錄：工具和 header 不存在時 4 failures + 3 errors；驗收腳本的 4 條在腳本寫好前 1 failure + 3 errors。寫好之後只有一條紅：是我自己把向量算錯（6b.11）。為了確認向量真的守得住，把 decoder 改壞 7 種（兩個 byte 對調、右移 2 位、CNVR 看錯 bit、shunt 和 current 當無號、power 少乘 10、歐姆定律少一個 0），每一種都讓向量測試失敗。</p>
+      <p>紅燈紀錄：工具和 header 不存在時 4 failures + 3 errors；code review（PR #10）之後補的 6 條，修正前 6 failures；驗收腳本的 4 條在腳本寫好前 1 failure + 3 errors。寫好之後只有一條紅：是我自己把向量算錯（6b.11）。為了確認向量真的守得住，把 decoder 改壞 7 種（兩個 byte 對調、右移 2 位、CNVR 看錯 bit、shunt 和 current 當無號、power 少乘 10、歐姆定律少一個 0），每一種都讓向量測試失敗。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -v
 EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -v</pre>
       <p>第一行不碰硬體（會自己用 CMake 建置，實機 4 個 skip）；第二行要有 UPS 模組接在 bus 7，全程只讀。</p>
@@ -471,7 +478,7 @@ EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
           <tr><td>先建置 <code>build/ina219_raw</code></td><td>腳本自己跑 <code>cmake</code>（第 35 行起）</td></tr>
-          <tr><td>知道 bus 是 7</td><td>腳本用 <code>i2cdetect -l</code> 找名稱是 <code>c250000.i2c</code> 的 bus</td></tr>
+          <tr><td>知道 bus 是 7</td><td>腳本用 <code>i2cdetect -l</code> 找名稱是 <code>c250000.i2c</code> 的 bus，並用 <code>EDGE_INA219_BUS</code> 傳給實機測試</td></tr>
           <tr><td>i2cset 要寫什麼值</td><td>腳本把剛讀到的 Calibration 原樣寫回，<b>會寫入晶片</b>，但值不變</td></tr>
         </tbody>
       </table>
@@ -509,6 +516,7 @@ PASS 0x45: exit 1, Remote I/O error «3»
         <li><span class="mk">2</span><span>只比 Config 和 Calibration：這兩個不會在兩次讀之間變；Bus Voltage 會（CNVR 狀態位和電池電壓都可能變）。</span></li>
         <li><span class="mk">3</span><span>「拔掉 INA219 要回報 I/O error」的模擬版本。</span></li>
       </ol>
+      <p>拔插那 20 秒裡按 Ctrl-C，腳本會立刻結束並印出 <code>&gt;&gt;&gt; Interrupted: PLUG the DC adapter back in</code>，免得 Jetson 一直吃電池（code review 後補；用虛擬終端送 Ctrl-C 實測：0.0 秒結束、結束碼 2、沒有殘留的程序）。</p>
       <div class="callout"><p><b class="hl-bad">沒有實測</b>：拔掉 DC adapter 時的電流（大小、正負號、兩條路是否一致），以及實際拔掉 INA219 時的錯誤訊息。phase03.md 的「UPS 無負載 / 有負載時數值有合理變化」要靠前者，下次有人在板子旁邊時跑 <code>bash scripts/verify_ina219_raw.sh</code>（不加參數）補上，結果記進 <code>docs/baseline.md</code>。</p></div>
     </div>
   </section>
@@ -536,7 +544,7 @@ PASS 0x45: exit 1, Remote I/O error «3»
         <li class="y">用 <code>i2cdetect -l</code> 由控制器名稱找到 bus 7，<code>i2cdetect -y -r 7</code> 找到 0x41。</li>
         <li class="y">用 <code>i2cget</code> 讀完六個 register，看清楚 SMBus word 的 byte 順序；<code>i2cset</code> 寫回原值。</li>
         <li class="y">不用 Python library 的 <code>ina219_raw</code>：<code>I2C_RDWR</code> 讀、<code>be16()</code> 拼、整數換算，結果和 <code>i2cget</code> 對調後一致；位址沒回應時明確回報 I/O error。</li>
-        <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">16</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
+        <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">22</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
         <li class="n">沒有實測：拔掉 DC adapter 時的電流、實際拔掉 INA219 時的錯誤（遠端登入）。</li>
         <li class="n">沒有查證：shunt 電阻值（0.01 Ω 是範例註解的假設）。</li>
       </ul>

@@ -35,11 +35,12 @@ int usage(const char *argv0)
     return 2;
 }
 
-bool parse(const char *s, long lo, long hi, long *out)
+// base 10 for the bus (i2c-N; "010" is not octal), 0 for the address ("0x41").
+bool parse(const char *s, int base, long lo, long hi, long *out)
 {
     char *end = nullptr;
     errno = 0;
-    long v = std::strtol(s, &end, 0);
+    long v = std::strtol(s, &end, base);
     if (errno || end == s || *end || v < lo || v > hi)
         return false;
     *out = v;
@@ -60,8 +61,12 @@ bool read_reg(int fd, std::uint16_t addr, std::uint8_t reg, std::uint16_t *value
     msgs[1].len = 2;
     msgs[1].buf = buf;
     i2c_rdwr_ioctl_data xfer{msgs, 2};
-    if (ioctl(fd, I2C_RDWR, &xfer) != 2)
+    int done = ioctl(fd, I2C_RDWR, &xfer);
+    if (done != 2) {
+        if (done >= 0)
+            errno = EIO;   // only part of the transfer happened; errno was not set
         return false;
+    }
     *value = ina219::be16(buf);
     return true;
 }
@@ -83,10 +88,10 @@ int main(int argc, char **argv)
         if (i + 1 >= argc)
             return usage(argv[0]);
         if (!std::strcmp(argv[i], "--bus")) {
-            if (!parse(argv[i + 1], 0, 255, &bus))
+            if (!parse(argv[i + 1], 10, 0, 255, &bus))
                 return usage(argv[0]);
         } else if (!std::strcmp(argv[i], "--addr")) {
-            if (!parse(argv[i + 1], 0x03, 0x77, &addr))
+            if (!parse(argv[i + 1], 0, 0x03, 0x77, &addr))
                 return usage(argv[0]);
         } else {
             return usage(argv[0]);
@@ -101,6 +106,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // One register per transaction: the six values can come from different ADC
+    // conversions (one every ~34 ms), so under a changing load the two current
+    // paths below may differ by more than one Current_LSB.
     std::uint16_t r[6];
     for (std::uint8_t reg = 0; reg < 6; ++reg) {
         if (!read_reg(fd, static_cast<std::uint16_t>(addr), reg, &r[reg])) {

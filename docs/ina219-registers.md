@@ -23,7 +23,7 @@ Step 6-b 實測。來源：TI INA219 datasheet（SBOS448）與 `build/ina219_raw
 
 - Current_LSB = 0.04096 / (26868 × 0.01) = 152.45 µA；Power_LSB = 3.049 mW。範例用的是四捨五入的 0.1524 mA / 3.048 mW。
 - 不靠 Calibration 的電流：I = V_shunt / R = shunt_raw × 10 µV / 0.01 Ω = shunt_raw × 1 mA。
-- 晶片內部算的是 Current = Shunt × Cal / 4096，所以兩條路徑差在 1 個 Current_LSB 以內。
+- 晶片內部算的是 Current = Shunt × Cal / 4096，所以**同一次轉換**的兩條路徑差在 1 個 Current_LSB 以內。INA219 讀一次只回 pointer 指到的那一個 register，`ina219_raw` 的六個值要分六次讀，可能跨兩次轉換（約 34 ms 一次）；負載變動時兩條路徑可能差更多（未實測）。
 - Integer 運算（`tools/ina219_decode.h`）：Current_LSB[µA] = 40960000 / (Cal × R[mΩ])，給 Step 7 的 kernel 用（kernel 不用浮點）。
 
 ## 錯誤

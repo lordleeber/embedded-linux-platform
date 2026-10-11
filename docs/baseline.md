@@ -220,7 +220,7 @@
   - 不存在的位址 0x45：結束碼 1，`/dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error`。
   - 容差：電壓「9.0～12.8 V」（同 6-a）；工具與 `i2cget` 只比 Config / Calibration，要完全相同（Bus Voltage 兩次讀之間會變）。拔掉 adapter 時判定「|I| ≥ 50 mA」（以 V_shunt / R 這條路徑）。
 - **未實測**：拔掉 DC adapter 後的電流（遠端）、實際拔掉 INA219 時的錯誤（以 0x45 模擬；UPS 同時供電給 Jetson，不拔）。下次在板子旁邊跑 `bash scripts/verify_ina219_raw.sh`（不加參數）。
-- 自動測試：`tests/test_ina219_decode.cpp` 7 組向量（`be16` MSB 先、bus 電壓去掉狀態位、CNVR / OVF、shunt 有號 10 µV、歐姆定律、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 LSB），由 `tests/test_ina219_raw.py` 16 個案例中的一個執行（另有原始碼契約 4、CLI 3、驗收腳本 4、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`；全套 167 個，`OK (skipped=43)`。
+- 自動測試：`tests/test_ina219_decode.cpp` 7 組向量（`be16` MSB 先、bus 電壓去掉狀態位、CNVR / OVF、shunt 有號 10 µV、歐姆定律、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 LSB），由 `tests/test_ina219_raw.py` 16 個案例中的一個執行（另有原始碼契約 4、CLI 3、驗收腳本 4、實機 4；code review 後 22 個：原始碼契約 5、CLI 4、驗收腳本 8）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`；全套 167 個，`OK (skipped=43)`。
 - 紅燈紀錄：工具與 header 不存在時 4 failures + 3 errors；驗收腳本的測試在腳本寫好前 1 failure + 3 errors。變異測試：bytes 對調、bus 位移改 2、CNVR 改看 bit 0、shunt / current 當無號、power 少乘 10、歐姆定律少一個 0，7 種都讓向量測試失敗。
 - 規模：新增程式約 640 行（工具 139、header 69、C++ 測試 104、Python 測試 188、驗收腳本 134、CMake 4），在上限內；實作前估約 550 行。
 
@@ -229,3 +229,14 @@
 - 原本以為 `i2cget ... w` 讀到的就是 register 值；SMBus 的 word 是低位 byte 先送，INA219 是高位先送，所以 Config 讀成 `0xef0e`。用 `i2cset ... w` 寫值時也要先對調，不然寫進去的是反的（這次只寫回讀到的原值，所以沒事）。
 - 測試向量自己算錯一個：`0xFFF8 >> 3` 是 8191，× 4 mV = 32764 mV，第一版寫 32760，實作正確卻紅。改正後才跑變異測試。
 - 原本以為「不用 Python library」就要自己拼 SMBus 指令；i2c-dev 的 `I2C_RDWR` 一次送「寫 pointer + 讀 2 byte」兩個 message，和範例的 `read_i2c_block_data(addr, reg, 2)` 在線上是同一件事，還不用處理 byte order 以外的協定。
+- code review（PR #10）找出的 8 項，原本都以為沒事：
+  - 原本以為驗收腳本用名稱找 bus 就夠了；它呼叫的實機測試卻寫死 `BUS = 7`。現在腳本以 `EDGE_INA219_BUS="$BUS"` 傳下去，測試把 `--bus` 傳給工具。
+  - 原本以為 `strtol(s, &end, 0)` 對 bus 和位址都適用；前導 0 被當成八進位，`--bus 08` 變成 usage error、`--bus 010` 開到 `i2c-8`（實測重現）。bus 改成十進位，只有 `--addr` 收 `0x`。
+  - 原本以為拔插迴圈裡讀不到就算了；輸出空白時 awk 當成 0 mA，偶發的 I/O error 不會記 FAIL。現在 `snap="$(tool)" || fail`。
+  - 原本以為拔插時按 Ctrl-C 直接結束沒關係；這時 Jetson 在吃電池，沒人提醒插回。改成 `on_int()` 在拔插段印 `PLUG the DC adapter back in`。用 Python `pty` 送真的 Ctrl-C 實測：0.0 s 結束、結束碼 2、無殘留。先試的 `setsid … &` 加 `kill -INT` 測不到：非互動 shell 的背景工作一開始就忽略 SIGINT，而開始時就被忽略的訊號 trap 不到，是測法的問題。
+  - 原本以為「兩條電流路徑差 ≤ 1 LSB」在工具輸出上也成立；那是同一次轉換的關係，工具分六次讀，可能跨兩次轉換。INA219 不會自動讀下一個 register，沒辦法「一次讀完」，所以只在註解、章、register 筆記補上說明（未實測）。
+  - 原本以為 `ioctl(I2C_RDWR)` 不是 2 就一定有 `errno`；回傳 0 / 1（部分完成）時沒有，訊息可能印「Success」。改成自己設 `EIO`。
+  - 原本以為 `i2cget` 失敗時 `continue` 就好；錯誤字串留在 `word[reg]`，之後被 `swap16` 拿去做算術，冒出 bash 錯誤（FAIL 仍會記到，只是輸出亂）。失敗時 `unset`。
+  - 原本以為「只讀不寫」看 `.len` 就夠；加上禁止 `I2C_SLAVE` 與 `write(`。
+  - 新增 6 條測試，修正前 6 failures；另外 4 種程式變異（bus 用 base 0、加 `write()`、加 `I2C_SLAVE`、拿掉 `errno = EIO`）都讓測試失敗。`test_ina219_raw.py` 由 16 個變 22 個；修正後 `bash scripts/verify_ina219_raw.sh --no-unplug` 仍是 `=== 0 failure(s)`。
+  - 第一次寫的 `test_bus_is_decimal` 期望 `/dev/i2c-8 `（後面有空白），但開檔失敗的訊息是 `/dev/i2c-8:`；改成「後面不是數字」。用 `pkill -f verify_ina219_raw.sh` 清場時比對到自己的指令列、把自己殺掉（結束碼 144）；`pgrep -f` 要錨定整行。
