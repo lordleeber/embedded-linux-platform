@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 6-b　不用 Python library 讀 INA219 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step06a). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+table.num td, table.num th { font-family: var(--font-mono); font-size: 0.85rem; text-align: right; width: auto; }
+table.num td:first-child, table.num th:first-child { text-align: left; }
+table.num tr.hit td { color: var(--hw); font-weight: 600; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06a.html">← Step 6-a</a><span class="disabled">Step 7 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 6-b · I2C（userspace，自己讀 register）</div>
+    <h1>不用 Python library 讀 INA219</h1>
+    <p class="lede">6-a 讀懂了廠商範例，但它靠 <code>python3-smbus</code> 幫忙收發 byte。寫 kernel driver 之前，這一步把那層拿掉：先用 i2c-tools 的 <code>i2cget</code> / <code>i2cset</code> 手動讀寫 register，再寫一支 C++ 小工具 <code>ina219_raw</code> 直接對 <code>/dev/i2c-7</code> 發 ioctl，自己把兩個 byte 拼成 16-bit 值、自己換算成電壓和電流。目的是在寫 driver 前確認<b class="hl-key">線、bus、位址、register map、byte order</b> 都對。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">tools/{ina219_raw.cpp, ina219_decode.h}</span>、<span class="new">tests/{test_ina219_decode.cpp, test_ina219_raw.py}</span>、<span class="new">scripts/verify_ina219_raw.sh</span>、<span class="new">docs/ina219-registers.md</span>；修改 CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, step06a.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（這一章沒有）</span>
+      <span style="--c: var(--hw)">硬體（SoC、UPS 模組、INA219）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">6b.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>寫 driver 之前，先證明硬體這端沒問題</h2>
+      <p>Step 7 的 kernel driver 一旦讀出奇怪的數字，可能的原因很多：DT 節點寫錯、probe 沒跑、位址錯、byte 順序錯、換算公式錯，或者線根本沒接好。這些問題混在一起就很難查。這一步先在 userspace 把「bus、位址、register 的值、換算」逐項確認，Step 7 出問題時，就只剩 driver 本身要查。</p>
+      <p><b>互動雙方</b>：controller 仍是 Jetson 的 <code>c250000.i2c</code>（<code>i2c-7</code>，header pin 3 / 5），target 仍是 UPS 模組上的 INA219，位址 <code>0x41</code>。userspace 這一側換成兩種程式：i2c-tools 的指令，以及我們自己的 <code>build/ina219_raw</code>。兩者都透過 kernel 的 i2c-dev 打開 <code>/dev/i2c-7</code>。<b>這一步不做</b>：不寫 kernel driver、不用 hwmon（Step 7、8），工具也不寫入任何 register。</p>
+      <dl class="terms">
+        <dt>i2c-tools</dt><dd>Ubuntu 套件，包含 <code>i2cdetect</code>（掃描）、<code>i2cget</code>（讀）、<code>i2cset</code>（寫）等指令，都是直接打開 <code>/dev/i2c-N</code> 的 userspace 程式。</dd>
+        <dt>SMBus word</dt><dd>SMBus 規格定義的 16-bit 傳輸：「寫 register 編號、再讀 2 byte」。SMBus 規定<b class="hl-key">低位 byte 先送</b>，而 INA219 是高位先送，所以 <code>i2cget ... w</code> 讀到的值高低位是反的（6b.4）。</dd>
+        <dt>I2C_RDWR</dt><dd>i2c-dev 的 ioctl，一次送出一串 <code>struct i2c_msg</code>（每個 message 指定位址、方向、長度、buffer），kernel 把它們接成一筆 I2C transaction，中間用 repeated start 連接。它不解讀資料，byte 怎麼拼由我們自己決定。</dd>
+        <dt>repeated start</dt><dd>在同一筆傳輸中，不送 STOP、直接再送一次 START 並改變方向（寫→讀）。讀 INA219 register 就是「寫 pointer → repeated start → 讀 2 byte」。</dd>
+        <dt>big-endian</dt><dd>多 byte 數值的高位 byte 放前面（先送）。Jetson 的 CPU 是 little-endian（低位在前），所以不能把兩個 byte 直接當成一個 <code>uint16_t</code> 讀。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">6b.2</span><b>路徑</b>兩種讀法</div>
+    <div class="content">
+      <h2>i2cget 和 ina219_raw 走同一條路，差在 ioctl</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 380" role="img" aria-label="i2cget 和 i2cset 用 I2C_SMBUS ioctl，ina219_raw 用 I2C_RDWR ioctl，兩者都經過 /dev/i2c-7、I2C core、i2c-tegra，到 c250000.i2c 控制器，再到位址 0x41 的 INA219；INA219 先送高位 byte">
+          <defs>
+            <marker id="m6bDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <a href="#i2cget"><rect class="s-box" x="130" y="20" width="210" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="235" y="45" text-anchor="middle">i2cget / i2cset</text>
+          <text class="s-sm" x="235" y="67" text-anchor="middle">I2C_SMBUS（word：低位先）</text></a>
+          <a href="#rdwr"><rect class="s-box" x="360" y="20" width="210" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="465" y="45" text-anchor="middle">build/ina219_raw</text>
+          <text class="s-sm" x="465" y="67" text-anchor="middle">I2C_RDWR + be16()</text></a>
+          <text class="s-mono" x="14" y="152">I2C-DEV</text>
+          <rect class="s-box" x="130" y="120" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="145" text-anchor="middle">/dev/i2c-7 → I2C core → i2c-tegra</text>
+          <text class="s-sm" x="350" y="166" text-anchor="middle">只負責送 byte，不知道 0x41 是什麼晶片</text>
+          <text class="s-mono" x="14" y="242">CONTROLLER</text>
+          <rect class="s-box" x="130" y="210" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="235" text-anchor="middle">c250000.i2c：pin 5 SCL、pin 3 SDA</text>
+          <text class="s-sm" x="350" y="256" text-anchor="middle">START · 0x41+W · reg · RESTART · 0x41+R · 2 bytes · STOP</text>
+          <text class="s-mono" x="14" y="332">TARGET</text>
+          <rect class="s-box" x="130" y="300" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="325" text-anchor="middle">INA219 @ 0x41</text>
+          <text class="s-sm" x="350" y="346" text-anchor="middle">Config 回 0x0E 0xEF：高位 byte 先送</text>
+          <line class="sv-down" x1="235" y1="83" x2="235" y2="116" marker-end="url(#m6bDown)"/>
+          <line class="sv-down" x1="465" y1="83" x2="465" y2="116" marker-end="url(#m6bDown)"/>
+          <line class="sv-down" x1="350" y1="179" x2="350" y2="206" marker-end="url(#m6bDown)"/>
+          <line class="sv-down" x1="350" y1="269" x2="350" y2="296" marker-end="url(#m6bDown)"/>
+          <text class="s-sm" x="590" y="146">Step 7：換成</text>
+          <text class="s-sm" x="590" y="164">我們的 I2C driver</text>
+        </svg>
+        <figcaption>圖 6.1 — 線上的傳輸兩者一樣（格式，沒接邏輯分析儀實測）；差別全在 userspace：SMBus word 規定低位 byte 先，所以 i2cget 看到的值是反的，ina219_raw 自己決定高位在前。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>6-a 的 <code>python3-smbus</code> 用的是 <code>I2C_SMBUS</code> ioctl 的「I2C block read」，讀回的 byte 按線上的順序排，範例再自己拼成高位在前。這一步兩種工具各用一種 ioctl，正好對照出 byte order 是誰決定的。</p>
+    </div>
+  </section>
+
+  <section id="bus">
+    <div class="rail"><span class="no">6b.3</span><b>找 bus</b><span class="dot" style="background: var(--hw)"></span>i2cdetect</div>
+    <div class="content">
+      <h2>先確認是哪一條 bus、哪個位址</h2>
+      <p><code>i2c-N</code> 的編號是開機時依序配的，換 kernel 或 DT 可能改變，認 bus 要看控制器的名稱。在 repo 根目錄執行（使用者要在 <code>i2c</code> 群組，不需要 root）：</p>
+<pre class="cmd">i2cdetect -l</pre>
+<pre class="out" data-marks>i2c-0	i2c       	3160000.i2c                     	I2C adapter
+i2c-1	i2c       	c240000.i2c                     	I2C adapter «1»
+i2c-2	i2c       	3180000.i2c                     	I2C adapter
+i2c-4	i2c       	Tegra BPMP I2C adapter          	I2C adapter
+i2c-5	i2c       	31b0000.i2c                     	I2C adapter
+i2c-7	i2c       	c250000.i2c                     	I2C adapter «2»
+i2c-9	i2c       	i2c-2-mux (chan_id 0)           	I2C adapter
+i2c-10	i2c       	i2c-2-mux (chan_id 0)           	I2C adapter
+i2c-11	i2c       	NVIDIA SOC i2c adapter 0        	I2C adapter</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>c240000.i2c</code> 是 header pin 27 / 28，上面有板上的 <code>ina3221</code>（也是 TI 的電流感測器，位址 0x40），不要搞混（5-b 查過）。</span></li>
+        <li><span class="mk">2</span><span><code>c250000.i2c</code> 是 pin 3 / 5，Linux 編號 7。驗收腳本就是用這個名稱找 bus，不寫死 7。</span></li>
+      </ol>
+      <p>掃描要加 <code>-r</code>（6a.8：Tegra 不支援 Quick Write，不加的話 0x40 那一列整列被跳過）：</p>
+<pre class="cmd">i2cdetect -y -r 7</pre>
+<pre class="out" data-marks>     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- --
+…
+40: -- 41 -- -- -- -- -- -- -- -- -- -- -- -- -- -- «1»
+…</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>只有 0x41 回應。phase03.md 原本寫「INA219 常見位址 0x40」，這塊模組是 0x41（6a.7），以掃描結果為準。</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="i2cget">
+    <div class="rail"><span class="no">6b.4</span><b>手動讀</b><span class="dot" style="background: var(--user)"></span>i2cget</div>
+    <div class="content">
+      <h2>i2cget 讀到的 Config 是 0xef0e，不是 0x0EEF</h2>
+      <p>用 <code>i2cget</code> 的 word 模式（最後一個參數 <code>w</code>）把六個 register 讀一遍：</p>
+<pre class="cmd">for r in 0 1 2 3 4 5; do i2cget -y 7 0x41 $r w; done</pre>
+<pre class="out" data-marks>0xef0e «1»
+0x0000
+0x9260 «2»
+0x0000
+0x0000
+0xf468 «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>Config。6-a 確認過範例寫進去的是 <code>0x0EEF</code>，這裡高低 byte 對調了。</span></li>
+        <li><span class="mk">2</span><span>Bus Voltage。對調後是 <code>0x6092</code>，(0x6092 &gt;&gt; 3) × 4 mV = 3090 × 4 mV = 12.360 V。如果不對調，<code>0x9260 &gt;&gt; 3</code> = 4684，換算是 18.736 V，超過 3S 電池的 12.6 V 上限。</span></li>
+        <li><span class="mk">3</span><span>Calibration，對調後 <code>0x68F4</code> = 26868，和範例寫的一樣。</span></li>
+      </ol>
+      <p>原因是 SMBus 規格：word 傳輸的第一個 byte 是低位。<code>i2cget</code> 照規格把「先到的 byte」當成低位，而 INA219 先送的是高位。改用 <code>i</code> 模式（I2C block read，照線上的順序列出 byte）就看得出晶片真正送了什麼：</p>
+<pre class="cmd">i2cget -y 7 0x41 0x00 i 2</pre>
+<pre class="out" data-marks>0x0e 0xef «1»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>先 <code>0x0E</code> 再 <code>0xEF</code>：高位先送。照 big-endian 拼起來就是 <code>0x0EEF</code>。</span></li>
+      </ol>
+      <figure class="figure">
+        <svg viewBox="0 0 720 250" role="img" aria-label="INA219 先送 0x0E 再送 0xEF。SMBus word 把第一個 byte 當低位，得到 0xEF0E，是錯的；be16 把第一個 byte 當高位，得到 0x0EEF，是對的">
+          <text class="s-mono" x="14" y="50">ON THE WIRE</text>
+          <rect class="s-box" x="200" y="20" width="120" height="50" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-key" x="260" y="44" text-anchor="middle">0x0E</text>
+          <text class="s-sm" x="260" y="62" text-anchor="middle">第 1 個 byte</text>
+          <rect class="s-box" x="400" y="20" width="120" height="50" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-key" x="460" y="44" text-anchor="middle">0xEF</text>
+          <text class="s-sm" x="460" y="62" text-anchor="middle">第 2 個 byte</text>
+          <defs>
+            <marker id="m6bDown2" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <line class="sv-down" x1="330" y1="76" x2="200" y2="146" marker-end="url(#m6bDown2)"/>
+          <line class="sv-down" x1="390" y1="76" x2="520" y2="146" marker-end="url(#m6bDown2)"/>
+          <rect class="s-box" x="60" y="150" width="280" height="86" rx="9" style="stroke: var(--bad)"/>
+          <text class="s-lbl" x="200" y="174" text-anchor="middle">SMBus word（i2cget w）</text>
+          <text class="s-sm" x="200" y="196" text-anchor="middle">高位 = 第 2 個、低位 = 第 1 個</text>
+          <text class="s-key" x="200" y="222" text-anchor="middle" style="fill: var(--bad)">0xEF0E（錯）</text>
+          <rect class="s-box" x="380" y="150" width="280" height="86" rx="9" style="stroke: var(--ok)"/>
+          <text class="s-lbl" x="520" y="174" text-anchor="middle">be16()（ina219_raw）</text>
+          <text class="s-sm" x="520" y="196" text-anchor="middle">高位 = 第 1 個、低位 = 第 2 個</text>
+          <text class="s-key" x="520" y="222" text-anchor="middle" style="fill: var(--ok)">0x0EEF（對）</text>
+        </svg>
+        <figcaption>圖 6.2 — 同樣兩個 byte，誰當高位由讀的一方決定。INA219 的 datasheet 規定高位先送，所以要用右邊的拼法。</figcaption>
+      </figure>
+      <p>這不只是顯示的問題：拿 <code>i2cget ... w</code> 的值直接換算，電壓會錯成 18.736 V；寫 driver 時用 SMBus word 的 API（kernel 的 <code>i2c_smbus_read_word_data()</code>）也有同樣的問題，要再對調一次（kernel 有 <code>i2c_smbus_read_word_swapped()</code> 專門處理這種晶片，Step 7 會用到）。</p>
+      <p>這幾個值在你的板子上會不同：Bus Voltage 隨電池電量變，Shunt / Current / Power 在有電流時不是 0。Config 和 Calibration 是 <code>0x0EEF</code> / <code>0x68F4</code> 的前提是範例跑過；剛上電、沒跑過範例時是上電預設值（Config <code>0x399F</code>，datasheet；Calibration 0）。</p>
+    </div>
+  </section>
+
+  <section id="i2cset">
+    <div class="rail"><span class="no">6b.5</span><b>手動寫</b><span class="dot" style="background: var(--bad)"></span>i2cset</div>
+    <div class="content">
+      <h2>i2cset 也是低位先：只把原值寫回去</h2>
+      <p><code>i2cset ... w</code> 一樣照 SMBus 先送低位 byte。所以要讓晶片收到 <code>0x68F4</code>，指令要寫 <code>0xf468</code>，也就是 <code>i2cget</code> 讀到的那個樣子。這一步只做一次「寫回原值」的練習，不改任何設定：</p>
+<pre class="cmd">i2cget -y 7 0x41 0x05 w; i2cset -y 7 0x41 0x05 0xf468 w; echo "exit $?"; i2cget -y 7 0x41 0x05 w</pre>
+<pre class="out" data-marks>0xf468
+exit 0 «1»
+0xf468 «2»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>i2cset</code> 成功時不印東西，結束碼 0。</span></li>
+        <li><span class="mk">2</span><span>寫進去再讀回來一樣。因為讀和寫都用 SMBus word，兩次對調互相抵消；值本身沒變。</span></li>
+      </ol>
+      <div class="callout"><p><b class="hl-bad">不要照 datasheet 的寫法直接 <code>i2cset ... 0x68F4 w</code></b>：晶片會收到 <code>0xF468</code>（62568），Current_LSB 變成原本的 0.43 倍，電流和功率都會算錯，直到再跑一次範例。這次沒有這樣寫過，數字是推算的。你的板子上 Calibration 不是 <code>0xf468</code> 時，把第一個 <code>i2cget</code> 讀到的值原樣放進 <code>i2cset</code>，才是「寫回原值」。</p></div>
+    </div>
+  </section>
+
+  <section id="rdwr">
+    <div class="rail"><span class="no">6b.6</span><b>工具</b><span class="dot" style="background: var(--user)"></span>I2C_RDWR</div>
+    <div class="content">
+      <h2>ina219_raw：一次 ioctl 讀一個 register</h2>
+      <p>工具的核心是 <code>read_reg()</code>：兩個 <code>i2c_msg</code>，第一個寫 1 byte（register pointer），第二個讀 2 byte，一起交給 <code>I2C_RDWR</code>。kernel 把它們接成一筆傳輸，中間是 repeated start，和圖 6.1 控制器那一格一樣。</p>
+      <figure class="listing"><figcaption>tools/ina219_raw.cpp:49–67 — 寫 pointer、repeated start、讀 2 byte，再用 be16() 拼成高位在前</figcaption>
+<pre data-start="49" data-hot="56,59,60,62,63,65">// Pointer write + repeated start + 2-byte read, in one transaction.
+bool read_reg(int fd, std::uint16_t addr, std::uint8_t reg, std::uint16_t *value)
+{
+    std::uint8_t buf[2];
+    i2c_msg msgs[2]{};
+    msgs[0].addr = addr;
+    msgs[0].flags = 0;
+    msgs[0].len = 1;
+    msgs[0].buf = &amp;reg;
+    msgs[1].addr = addr;
+    msgs[1].flags = I2C_M_RD;
+    msgs[1].len = 2;
+    msgs[1].buf = buf;
+    i2c_rdwr_ioctl_data xfer{msgs, 2};
+    if (ioctl(fd, I2C_RDWR, &amp;xfer) != 2)
+        return false;
+    *value = ina219::be16(buf);
+    return true;
+}</pre></figure>
+      <ul>
+        <li><b>不用 <code>ioctl(fd, I2C_SLAVE, addr)</code></b>：<code>I2C_RDWR</code> 的每個 message 自帶位址，所以不需要先綁定位址。</li>
+        <li><b><code>ioctl()</code> 回傳成功送出的 message 數</b>，要等於 2 才算成功。位址沒有回 ACK 時 ioctl 失敗，<code>errno</code> 是 <code>EREMOTEIO</code>（6b.8）。</li>
+        <li><b>只讀不寫</b>：唯一寫出的 byte 是 register pointer（<code>len = 1</code>），寫入 register 要 3 byte（pointer + 2 byte 值），工具沒有這種 message。測試也把這條寫成規則。</li>
+        <li><b>byte order 只在 <code>be16()</code> 一處</b>：不把 <code>buf</code> 用 <code>memcpy</code> 複製進 <code>uint16_t</code>，那樣得到的是 CPU 的 byte order（little-endian），結果和 <code>i2cget ... w</code> 一樣是反的。</li>
+      </ul>
+      <p>六個 register 依序讀，任何一個失敗就印出是哪個 bus、位址、register，結束碼 1：</p>
+      <figure class="listing"><figcaption>tools/ina219_raw.cpp:104–114 — 讀不到就明確回報，不印半套數字</figcaption>
+<pre data-start="104" data-hot="106,107,108,109,111">    std::uint16_t r[6];
+    for (std::uint8_t reg = 0; reg &lt; 6; ++reg) {
+        if (!read_reg(fd, static_cast&lt;std::uint16_t&gt;(addr), reg, &amp;r[reg])) {
+            // No ACK (module unplugged, wrong address) is EREMOTEIO, "Remote I/O error".
+            std::fprintf(stderr, "%s addr 0x%02lx reg 0x%02x: %s\n", path, addr, reg,
+                         std::strerror(errno));
+            close(fd);
+            return 1;
+        }
+    }
+    close(fd);</pre></figure>
+    </div>
+  </section>
+
+  <section id="decode">
+    <div class="rail"><span class="no">6b.7</span><b>換算</b><span class="dot" style="background: var(--user)"></span>整數</div>
+    <div class="content">
+      <h2>換算只用整數，兩條路算電流</h2>
+      <p>換算放在 <code>tools/ina219_decode.h</code>，公式和 6-a 的範例相同，但寫法有兩點不同：</p>
+      <figure class="listing"><figcaption>tools/ina219_decode.h:25–67 — 每個函式對應 datasheet 的一條規則</figcaption>
+<pre data-start="25" data-hot="28,33,48,54,61,66">// The chip sends every register MSB first, whatever the host's byte order.
+inline std::uint16_t be16(const std::uint8_t b[2])
+{
+    return static_cast&lt;std::uint16_t&gt;(b[0] &lt;&lt; 8 | b[1]);
+}
+
+inline std::int32_t bus_mV(std::uint16_t raw)
+{
+    return (raw &gt;&gt; 3) * 4;
+}
+
+inline bool conversion_ready(std::uint16_t raw)
+{
+    return raw &amp; 0x2;
+}
+
+inline bool overflow(std::uint16_t raw)
+{
+    return raw &amp; 0x1;
+}
+
+inline std::int32_t shunt_uV(std::uint16_t raw)
+{
+    return static_cast&lt;std::int16_t&gt;(raw) * 10;
+}
+
+// Ohm's law on the shunt voltage: needs no calibration, only the resistor value.
+inline std::int64_t current_uA_from_shunt(std::uint16_t shunt_raw, std::int32_t shunt_mohm)
+{
+    return std::int64_t{shunt_uV(shunt_raw)} * 1000 / shunt_mohm;
+}
+
+// Current_LSB in uA = 0.04096 / (Cal x R[ohm]) x 1e6 = 40960000 / (Cal x R[mohm]).
+// cal must be non-zero (0 is the power-on value: the chip then reports no current).
+inline std::int64_t current_uA(std::uint16_t raw, std::uint16_t cal, std::int32_t shunt_mohm)
+{
+    return std::int64_t{static_cast&lt;std::int16_t&gt;(raw)} * 40960000 / (std::int64_t{cal} * shunt_mohm);
+}
+
+inline std::int64_t power_uW(std::uint16_t raw, std::uint16_t cal, std::int32_t shunt_mohm)
+{
+    return std::int64_t{raw} * 20 * 40960000 / (std::int64_t{cal} * shunt_mohm);
+}</pre></figure>
+      <ul>
+        <li><b>只用整數</b>，單位是 mV / µV / µA / µW。Step 7 會把同樣的算式搬進 kernel，而 kernel 裡不用浮點數。Current_LSB 寫成 <code>40960000 / (Cal × R[mΩ])</code> µA：Cal 26868、R 10 mΩ 時是 152.45 µA。範例用的 0.1524 mA 是四捨五入過的（6a.5），所以兩者在大電流時差約 0.03 %。</li>
+        <li><b>有號數用 <code>static_cast&lt;std::int16_t&gt;</code></b>，取代範例手寫的 <code>value -= 65536</code>。Shunt 和 Current 有號；Power 依 datasheet 是無號，不做符號轉換（範例有做，6a.6）。</li>
+        <li><b>電流有兩條路</b>：<code>current_uA_from_shunt()</code> 直接用歐姆定律（V<sub>shunt</sub> / R），不需要 Calibration；<code>current_uA()</code> 用晶片算好的 Current register。晶片內部算的是 Current = Shunt × Cal / 4096，所以兩者應該相差不到一個 Current_LSB。Calibration 是 0（剛上電）時，Current register 恆為 0，工具改印 <code>n/a</code>，只剩第一條路可用。</li>
+      </ul>
+      <p>R<sub>shunt</sub> = 0.01 Ω 仍是範例註解的假設，這一步沒有拆模組量電阻，<b>沒有查證</b>。register 的完整說明整理在 <code>docs/ina219-registers.md</code>，Step 7 寫 driver 時以它為對照。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">6b.8</span><b>執行</b>實測輸出</div>
+    <div class="content">
+      <h2>跑起來：和 i2cget 對調後一致</h2>
+      <p>在 repo 根目錄建置並執行（<code>build/</code> 不入庫，第一次要先跑 <code>cmake -S . -B build</code>）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target ina219_raw &amp;&amp; build/ina219_raw</pre>
+<pre class="out" data-marks>[100%] Built target ina219_raw
+INA219 on /dev/i2c-7 at 0x41
+reg  name           raw
+0x00 config         0x0EEF «1»
+0x01 shunt_voltage  0x0000
+0x02 bus_voltage    0x6092
+0x03 power          0x0000
+0x04 current        0x0000
+0x05 calibration    0x68F4
+bus voltage:     12.360 V   (raw 3090 x 4 mV, CNVR=1 OVF=0) «2»
+shunt voltage:   0.000 mV  (10 uV per bit, signed)
+current (shunt): 0.000 mA  (V_shunt / 0.01 ohm) «3»
+current (reg):   0.000 mA  (Current_LSB = 0.04096 / (Cal x 0.01 ohm))
+power (reg):     0.000 mW  (20 x Current_LSB, unsigned)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>六個值正好是 6b.4 <code>i2cget</code> 讀到的對調：<code>0xef0e</code> → <code>0x0EEF</code>、<code>0x9260</code> → <code>0x6092</code>、<code>0xf468</code> → <code>0x68F4</code>。兩種工具各用一種 ioctl，結果互相印證。</span></li>
+        <li><span class="mk">2</span><span>3090 × 4 mV = 12.360 V，在 3S 電池的 9～12.6 V 內。6-a 用範例讀到 12.364 V（3091），差 1 個 LSB，是電池電壓本身的變化。</span></li>
+        <li><span class="mk">3</span><span>電流 0：DC adapter 接著、電池已充飽，shunt 上沒有電流（同 6a.11）。兩條路都是 0，所以這次<b>沒辦法驗證兩條路在有電流時一致</b>，要等拔掉 adapter（6b.10）。</span></li>
+      </ol>
+      <p>模組不在時要明確回報錯誤。遠端登入時沒辦法拔線（而且 UPS 正在供電給 Jetson），所以用一個沒有裝置的位址 0x45 模擬「沒有 ACK」：</p>
+<pre class="cmd">build/ina219_raw --addr 0x45; echo "exit $?"; build/ina219_raw --addr 0x80; echo "exit $?"</pre>
+<pre class="out" data-marks>/dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error «1»
+exit 1
+usage: build/ina219_raw [--bus N] [--addr 0x03..0x77] «2»
+exit 2</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>沒有 ACK → <code>EREMOTEIO</code>（errno 121）。訊息指出是哪條 bus、哪個位址、讀到第幾個 register 時失敗，沒有印出任何數字。真的把模組拔掉時應該是同一個錯誤，但<b>沒有實測</b>。</span></li>
+        <li><span class="mk">2</span><span>0x80 不是 7-bit 位址，算用法錯誤，結束碼 2。0x00–0x02、0x78–0x7f 是 I2C 保留位址，也不接受。</span></li>
+      </ol>
+      <p>跑出來不一樣時：<code>open /dev/i2c-7: Permission denied</code> 代表使用者不在 <code>i2c</code> 群組；0x41 也是 <code>Remote I/O error</code> 代表模組沒接上或位址不同（先 <code>i2cdetect -y -r 7</code>）；<code>current (reg): n/a</code> 代表晶片剛上電、還沒有人寫 Calibration，跑一次 6-a 的範例就會有值。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">6b.9</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="content">
+      <h2>測試向量從 datasheet 和實機讀值來</h2>
+      <p>兩個測試檔，都在工具寫好之前寫：</p>
+      <ul>
+        <li><b><code>tests/test_ina219_decode.cpp</code></b>：7 組換算向量，期望值取自 datasheet 和 6-a 在實機讀到的值（<code>0x0E 0xEF</code> → <code>0x0EEF</code>、<code>0x609A</code> → 12364 mV），不是從 decoder 的輸出抄。包括狀態位（CNVR、OVF）、有號數的邊界（<code>0x8000</code> → −327680 µV）、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 個 LSB。結束碼 0 / 1。</li>
+        <li><b><code>tests/test_ina219_raw.py</code></b>：共 <span data-tests="tests/test_ina219_raw.py">16</span> 個案例。建置並跑上面的向量（1）；原始碼契約（4）：用 <code>I2C_RDWR</code>、不用 <code>I2C_SMBUS</code>、唯一的寫入長度是 1、byte order 只靠 <code>be16()</code>、decoder 裡沒有 <code>float</code> / <code>double</code>；CLI（3）：參數錯回 2、位址要是 7-bit、bus 不存在回 1；驗收腳本（4）；實機（4，<code>EDGE_INA219_HW=1</code> 才跑）：六個值不是全 <code>0xFFFF</code> 或全 0、Config 和 Calibration 等於 <code>i2cget</code> 對調後的值、電壓在 9～12.8 V、0x45 回報 <code>Remote I/O error</code>。</li>
+      </ul>
+      <p>紅燈紀錄：工具和 header 不存在時 4 failures + 3 errors；驗收腳本的 4 條在腳本寫好前 1 failure + 3 errors。寫好之後只有一條紅：是我自己把向量算錯（6b.11）。為了確認向量真的守得住，把 decoder 改壞 7 種（兩個 byte 對調、右移 2 位、CNVR 看錯 bit、shunt 和 current 當無號、power 少乘 10、歐姆定律少一個 0），每一種都讓向量測試失敗。</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -v
+EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -v</pre>
+      <p>第一行不碰硬體（會自己用 CMake 建置，實機 4 個 skip）；第二行要有 UPS 模組接在 bus 7，全程只讀。</p>
+    </div>
+  </section>
+
+  <section id="verify">
+    <div class="rail"><span class="no">6b.10</span><b>驗收</b>i2c-tools ↔ 工具</div>
+    <div class="content">
+      <h2>驗收：同一個值，用兩種方法讀</h2>
+      <p><code>scripts/verify_ina219_raw.sh</code> 把這一章的步驟串起來。它做的事比章裡手動做的多一些：</p>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先建置 <code>build/ina219_raw</code></td><td>腳本自己跑 <code>cmake</code>（第 35 行起）</td></tr>
+          <tr><td>知道 bus 是 7</td><td>腳本用 <code>i2cdetect -l</code> 找名稱是 <code>c250000.i2c</code> 的 bus</td></tr>
+          <tr><td>i2cset 要寫什麼值</td><td>腳本把剛讀到的 Calibration 原樣寫回，<b>會寫入晶片</b>，但值不變</td></tr>
+        </tbody>
+      </table>
+      <p>最後一段會請人<b>拔掉 UPS 的 DC adapter</b>，每 2 秒讀一次、共 20 秒，檢查電流至少 50 mA。在 repo 根目錄執行（沒辦法碰到板子時加 <code>--no-unplug</code>）：</p>
+<pre class="cmd">bash scripts/verify_ina219_raw.sh --no-unplug</pre>
+      <p>2026-10-11 的實測輸出（遠端登入；<code>i2cdetect</code> 的兩張表同 6b.3、工具輸出同 6b.8，略）：</p>
+<pre class="out" data-marks>== which bus is c250000.i2c (i2cdetect -l)
+…
+PASS c250000.i2c is i2c-7
+== bus scan (i2cdetect -y -r 7)
+…
+PASS INA219 answers at 0x41
+== i2cget, word mode (SMBus sends the low byte first; swapped = the chip's value)
+  reg 0x00  i2cget 0xef0e  swapped 0x0EEF
+  reg 0x01  i2cget 0x0000  swapped 0x0000
+  reg 0x02  i2cget 0x9260  swapped 0x6092
+  reg 0x03  i2cget 0x0000  swapped 0x0000
+  reg 0x04  i2cget 0x0000  swapped 0x0000
+  reg 0x05  i2cget 0xf468  swapped 0x68F4
+== i2cset round trip: write Calibration back with the value just read
+PASS Calibration still 0x68F4 after i2cset «1»
+== build/ina219_raw
+…
+PASS reg 0x00: tool 0x0EEF = i2cget swapped «2»
+PASS reg 0x05: tool 0x68F4 = i2cget swapped
+PASS bus voltage 12.360 V (accepted 9.0 .. 12.8 V; a 3S pack is 9.0 .. 12.6 V)
+== unit tests against the real chip
+PASS test_ina219_raw.py (OK)
+== absent address (what an unplugged module looks like)
+  /dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error
+PASS 0x45: exit 1, Remote I/O error «3»
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>SMBus word 的寫入和讀回互相抵消，原值不變。</span></li>
+        <li><span class="mk">2</span><span>只比 Config 和 Calibration：這兩個不會在兩次讀之間變；Bus Voltage 會（CNVR 狀態位和電池電壓都可能變）。</span></li>
+        <li><span class="mk">3</span><span>「拔掉 INA219 要回報 I/O error」的模擬版本。</span></li>
+      </ol>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：拔掉 DC adapter 時的電流（大小、正負號、兩條路是否一致），以及實際拔掉 INA219 時的錯誤訊息。phase03.md 的「UPS 無負載 / 有負載時數值有合理變化」要靠前者，下次有人在板子旁邊時跑 <code>bash scripts/verify_ina219_raw.sh</code>（不加參數）補上，結果記進 <code>docs/baseline.md</code>。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">6b.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>相信 i2cget w 印出來的值</h4><dl><dt>症狀</dt><dd>Config 讀到 <code>0xef0e</code>、Bus Voltage <code>0x9260</code>。</dd><dt>後果</dt><dd>以為晶片設定被改了；電壓算成 18.736 V。</dd><dt>正解</dt><dd class="fix">SMBus word 是低位先；對調，或用 <code>i</code> 模式看線上的 byte。</dd></dl></div>
+        <div class="pit"><h4>i2cset 照 datasheet 的值寫</h4><dl><dt>症狀</dt><dd><code>i2cset ... 0x05 0x68F4 w</code>。</dd><dt>後果</dt><dd>晶片收到 <code>0xF468</code>，電流和功率全錯（推算，沒有真的寫過）。</dd><dt>正解</dt><dd class="fix">word 模式的值要先對調；這一步只寫回讀到的原值。</dd></dl></div>
+        <div class="pit"><h4>把兩個 byte memcpy 進 uint16_t</h4><dl><dt>症狀</dt><dd>程式裡 <code>memcpy(&amp;v, buf, 2)</code>。</dd><dt>後果</dt><dd>在 little-endian 的 Jetson 上得到和 <code>i2cget w</code> 一樣的反值。</dd><dt>正解</dt><dd class="fix"><code>be16()</code>：<code>b[0] &lt;&lt; 8 | b[1]</code>，和 CPU 無關；測試禁止 <code>memcpy(&amp;</code>。</dd></dl></div>
+        <div class="pit"><h4>測試向量自己算錯</h4><dl><dt>症狀</dt><dd><code>bus_mV(0xFFF8)</code> 期望 32760，實作回 32764，測試紅。</dd><dt>後果</dt><dd>差點去「修」正確的實作。</dd><dt>正解</dt><dd class="fix">0xFFF8 &gt;&gt; 3 = 8191，× 4 = 32764，錯的是向量。改完再做變異測試，確認向量守得住。</dd></dl></div>
+        <div class="pit"><h4>Current 是 0 就以為沒電流</h4><dl><dt>症狀</dt><dd>剛上電讀 Current register 一直是 0。</dd><dt>後果</dt><dd>誤判成負載沒在耗電。</dd><dt>正解</dt><dd class="fix">Calibration 是 0 時晶片不算電流；工具印 <code>n/a</code>，改看 V<sub>shunt</sub> / R 那一行。</dd></dl></div>
+        <div class="pit"><h4>讀不到時印出一堆 0</h4><dl><dt>症狀</dt><dd>模組不在，程式照樣印表格。</dd><dt>後果</dt><dd>0 V、0 A 看起來像「電池沒電」。</dd><dt>正解</dt><dd class="fix">任一 register 讀失敗就印 <code>Remote I/O error</code> 並以 1 結束，不印數字。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">6b.12</span><b>收尾</b>6-b → 7</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">用 <code>i2cdetect -l</code> 由控制器名稱找到 bus 7，<code>i2cdetect -y -r 7</code> 找到 0x41。</li>
+        <li class="y">用 <code>i2cget</code> 讀完六個 register，看清楚 SMBus word 的 byte 順序；<code>i2cset</code> 寫回原值。</li>
+        <li class="y">不用 Python library 的 <code>ina219_raw</code>：<code>I2C_RDWR</code> 讀、<code>be16()</code> 拼、整數換算，結果和 <code>i2cget</code> 對調後一致；位址沒回應時明確回報 I/O error。</li>
+        <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">16</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
+        <li class="n">沒有實測：拔掉 DC adapter 時的電流、實際拔掉 INA219 時的錯誤（遠端登入）。</li>
+        <li class="n">沒有查證：shunt 電阻值（0.01 Ω 是範例註解的假設）。</li>
+      </ul>
+      <p>下一章 Step 7 把這一章的操作搬進 kernel：寫一個 <code>struct i2c_driver</code>，在 overlay 裡為 <code>c250000.i2c</code> 加一個 <code>ina219@41</code> 節點讓 kernel 建立 I2C client、呼叫 <code>probe()</code>，預計用 kernel 的 SMBus API 讀 register（要處理和 6b.4 同樣的 byte order），換算沿用 <code>ina219_decode.h</code> 的整數算式。這一章的工具就是它的對照組：driver 讀到的值應該和 <code>ina219_raw</code> 一樣。</p>
+      <details class="quiz"><summary>1. <code>i2cget -y 7 0x41 0x02 w</code> 印出 <code>0x9260</code>。電池電壓是多少？</summary><p>先對調成 <code>0x6092</code>，右移 3 位得 3090，× 4 mV = 12.360 V。不對調會算成 18.736 V。</p></details>
+      <details class="quiz"><summary>2. 為什麼 <code>ina219_raw</code> 不需要先 <code>ioctl(fd, I2C_SLAVE, 0x41)</code>？</summary><p><code>I2C_RDWR</code> 的每個 <code>i2c_msg</code> 都自帶位址；<code>I2C_SLAVE</code> 是給 <code>read()</code> / <code>write()</code> 和 <code>I2C_SMBUS</code> 用的「預設位址」。</p></details>
+      <details class="quiz"><summary>3. Calibration 是 0 時，還有辦法算出電流嗎？</summary><p>有。Shunt Voltage 是直接量到的，I = V<sub>shunt</sub> / R<sub>shunt</sub>，不需要 Calibration；只是要知道 R<sub>shunt</sub>（這裡假設 0.01 Ω）。Current register 則一直是 0。</p></details>
+      <details class="quiz"><summary>4. 想用 <code>i2cset</code> 把 Calibration 設成 26868（<code>0x68F4</code>），word 模式要給什麼值？</summary><p><code>0xf468</code>。SMBus word 先送低位 byte，所以要先對調，晶片才會先收到 <code>0x68</code>。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06a.html">← Step 6-a</a><span class="disabled">Step 7 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>
