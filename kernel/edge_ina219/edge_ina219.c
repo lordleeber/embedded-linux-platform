@@ -5,7 +5,7 @@
  *
  *   DT node ina219@41 under hdr40_i2c1 (c250000.i2c = i2c-7)
  *     -> I2C core creates client 7-0041 at boot
- *     -> insmod: compatible "edge,ina219" matches -> edge_ina219_probe()
+ *     -> insmod: compatible "edge,edge-ina219" matches -> edge_ina219_probe()
  *     -> sysfs attributes in /sys/bus/i2c/devices/7-0041/ read the chip on
  *        every access (no cache, no polling)
  *
@@ -155,7 +155,7 @@ ATTRIBUTE_GROUPS(edge_ina219);
 
 static int edge_ina219_probe(struct i2c_client *client)
 {
-	int config, ret;
+	int config, cal, ret;
 
 	/* Is anyone there? No ACK at this address fails here with -EREMOTEIO. */
 	config = read_reg16(client, EDGE_INA219_REG_CONFIG);
@@ -173,6 +173,19 @@ static int edge_ina219_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(&client->dev, ret, "cannot write Config\n");
 
+	/*
+	 * INA219 has no ID register: an ACK only proves something answers. A chip
+	 * that does not hand back what we just wrote is not the one we expect.
+	 */
+	cal = read_reg16(client, EDGE_INA219_REG_CAL);
+	ret = read_reg16(client, EDGE_INA219_REG_CONFIG);
+	if (cal < 0 || ret < 0)
+		return dev_err_probe(&client->dev, cal < 0 ? cal : ret, "cannot read back\n");
+	if (cal != EDGE_INA219_CAL || ret != EDGE_INA219_CONFIG)
+		return dev_err_probe(&client->dev, -ENODEV,
+				     "read back Cal 0x%04X Config 0x%04X: not an INA219?\n",
+				     cal, ret);
+
 	dev_info(&client->dev, "probed: Config 0x%04X -> 0x%04X, Cal %u, shunt %d mohm\n",
 		 config, EDGE_INA219_CONFIG, EDGE_INA219_CAL, EDGE_INA219_SHUNT_MOHM);
 	return 0;
@@ -186,7 +199,7 @@ static int edge_ina219_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id edge_ina219_of_match[] = {
-	{ .compatible = "edge,ina219" },
+	{ .compatible = "edge,edge-ina219" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, edge_ina219_of_match);

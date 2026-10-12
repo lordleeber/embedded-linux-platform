@@ -8,7 +8,8 @@ EDGE_INA219_BUS overrides the bus number (the script finds it by name).
 Comparison with ina219_raw happens in the same second but not the same
 conversion: the bus voltage may move a few LSB (4 mV each) and the current
 with the load. Tolerances: 40 mV, 50 mA (Step 6-b's discharge readings moved
-about 40 mA within 20 s).
+about 40 mA within 20 s), and what 50 mA means for the other two: 0.5 mV across
+the 0.01 ohm shunt, 700 mW at up to 12.8 V plus margin.
 """
 
 import os
@@ -29,12 +30,17 @@ ATTRS = ("registers", "bus_mv", "shunt_uv", "current_ua", "power_uw")
 
 
 def ina219_raw():
-    """Six raw registers and the two current paths from build/ina219_raw."""
+    """Six raw registers and the decoded values (mV / mA / mW) from build/ina219_raw."""
     out = subprocess.run([str(RAW), "--bus", str(BUS)], capture_output=True, text=True,
                          check=True, timeout=10).stdout
     regs = [int(v, 16) for v in re.findall(r"^0x0\d \S+\s+(0x[0-9A-F]{4})$", out, re.M)]
-    cur = re.search(r"^current \(reg\):\s+(-?\d+\.\d+) mA", out, re.M)
-    return regs, (float(cur.group(1)) if cur else None)
+    values = {}
+    for key, label, unit in (("shunt_mv", r"shunt voltage:", "mV"),
+                             ("current_ma", r"current \(reg\):", "mA"),
+                             ("power_mw", r"power \(reg\):", "mW")):
+        m = re.search(r"^" + label + r"\s+(-?\d+\.\d+) " + unit, out, re.M)
+        values[key] = float(m.group(1)) if m else None
+    return regs, values
 
 
 class EdgeIna219DeviceTest(unittest.TestCase):
@@ -79,17 +85,23 @@ class EdgeIna219DeviceTest(unittest.TestCase):
     def test_matches_ina219_raw(self):
         if not RAW.exists():
             self.skipTest(f"{RAW} not built")
-        tool_regs, tool_ma = ina219_raw()
+        tool_regs, tool = ina219_raw()
         regs = self.registers()
         bus_mv = int(self.attr("bus_mv"))
+        shunt_mv = int(self.attr("shunt_uv")) / 1000
         cur_ma = int(self.attr("current_ua")) / 1000
+        power_mw = int(self.attr("power_uw")) / 1000
         self.assertEqual(len(tool_regs), 6)
         self.assertEqual(regs[0], tool_regs[0], "Config")
         self.assertEqual(regs[5], tool_regs[5], "Calibration")
         tool_mv = (tool_regs[2] >> 3) * 4
         self.assertLessEqual(abs(bus_mv - tool_mv), 40, f"driver {bus_mv} mV, tool {tool_mv} mV")
-        self.assertIsNotNone(tool_ma)
-        self.assertLessEqual(abs(cur_ma - tool_ma), 50, f"driver {cur_ma} mA, tool {tool_ma} mA")
+        for key, mine, tol in (("shunt_mv", shunt_mv, 0.5), ("current_ma", cur_ma, 50),
+                               ("power_mw", power_mw, 700)):
+            with self.subTest(value=key):
+                self.assertIsNotNone(tool[key], f"ina219_raw printed no {key}")
+                self.assertLessEqual(abs(mine - tool[key]), tol,
+                                     f"driver {mine}, tool {tool[key]}")
 
     def test_repeated_reads_do_not_fail(self):
         for _ in range(100):

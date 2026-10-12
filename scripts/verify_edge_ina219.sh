@@ -82,7 +82,20 @@ else
     echo "--- $NODE present: checking probe, sysfs values and unbind"
     echo "    DT node: compatible '$(tr -d '\0' < "$NODE/compatible")', reg $(od -An -tx1 "$NODE/reg" | tr -s ' ')"
     if [[ -e $CLIENT && ! -e $CLIENT/driver ]]; then pass "client $BUS-0041 exists, unbound, before insmod"; else fail "client $BUS-0041 missing or already bound"; fi
-    if [[ "$(cat "$CLIENT/name")" == ina219 ]]; then pass "client name 'ina219' (from the node name)"; else echo "    client name '$(cat "$CLIENT/name")'"; fi
+    if [[ "$(tr -d '\0' < "$NODE/compatible")" != edge,edge-ina219 ]]; then
+        fail "node compatible is not edge,edge-ina219: rebuild and reinstall the overlay (make -C dts), then reboot"
+        exit 1
+    fi
+    # The I2C core names the client after the compatible minus the vendor prefix and also
+    # matches that name against every driver's i2c_device_id table: it must not be "ina219",
+    # which the upstream ina2xx driver lists.
+    name="$(cat "$CLIENT/name")"
+    if [[ $name == edge-ina219 ]]; then pass "client name '$name' (compatible minus vendor prefix)"; else fail "client name '$name'"; fi
+    if grep -q "^alias i2c:$name " "/lib/modules/$(uname -r)/modules.alias"; then
+        fail "another module claims i2c:$name"
+    else
+        pass "no installed module claims i2c:$name"
+    fi
     if "$RAW" --bus "$BUS" >"$tmpdir/raw0"; then
         echo "    before insmod: $(grep -E '^0x0[05]' "$tmpdir/raw0" | tr -s ' \n' ' ')"
     fi

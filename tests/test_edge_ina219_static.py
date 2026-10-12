@@ -26,7 +26,12 @@ VERIFY = REPO / "scripts" / "verify_edge_ina219.sh"
 KDIR = Path("/lib/modules") / subprocess.run(
     ["uname", "-r"], capture_output=True, text=True, check=True).stdout.strip() / "build"
 
-COMPATIBLE = "edge,ina219"
+COMPATIBLE = "edge,edge-ina219"
+# The I2C core names a DT client after its compatible minus the vendor prefix
+# (of_modalias_node), and falls back to matching that name against every driver's
+# i2c_device_id table. "ina219" is in the upstream ina2xx table (i2c:ina219 in
+# modules.alias), so that name would let ina2xx bind our chip once loaded.
+CLIENT_NAME = COMPATIBLE.split(",", 1)[1]
 ADDR = 0x41
 
 
@@ -122,6 +127,15 @@ class Ina219OverlayTest(unittest.TestCase):
         self.assertEqual(get(str(merged), node, "compatible"), COMPATIBLE)
         self.assertEqual(get("-tx", str(merged), node, "reg"), "41")
 
+    def test_client_name_is_no_other_drivers_i2c_id(self):
+        aliases = Path("/lib/modules") / KDIR.parent.name / "modules.alias"
+        if not aliases.exists():
+            self.skipTest(f"{aliases} missing")
+        taken = {line.split()[1][len("i2c:"):]: line.split()[2]
+                 for line in aliases.read_text().splitlines() if line.startswith("alias i2c:")}
+        self.assertIn("ina219", taken, "sanity: upstream ina2xx should claim i2c:ina219")
+        self.assertNotIn(CLIENT_NAME, taken, f"client name {CLIENT_NAME} matches {taken.get(CLIENT_NAME)}")
+
     def test_gpio_nodes_are_still_there(self):
         dts = decompile(self.dtbos[0])
         self.assertIn('compatible = "edge,gpio-led";', dts)
@@ -168,6 +182,17 @@ class Ina219DriverContractTest(unittest.TestCase):
         cal = body.find("EDGE_INA219_REG_CAL")
         cfg = body.find("EDGE_INA219_REG_CONFIG, EDGE_INA219_CONFIG")
         self.assertTrue(0 <= read < cal < cfg, "probe: read first, then Cal, then Config")
+
+    def test_probe_reads_back_what_it_wrote(self):
+        # INA219 has no ID register; an ACK only proves something answers at 0x41.
+        # Reading Calibration and Config back after writing them rejects a chip that
+        # does not keep them (probe fails with -ENODEV instead of binding).
+        body = function_body(self.src, "edge_ina219_probe")
+        cfg = body.find("EDGE_INA219_REG_CONFIG, EDGE_INA219_CONFIG")
+        after = body[cfg:]
+        self.assertRegex(after, r"read_reg16\(client, EDGE_INA219_REG_CAL\)")
+        self.assertRegex(after, r"read_reg16\(client, EDGE_INA219_REG_CONFIG\)")
+        self.assertIn("-ENODEV", after)
 
     def test_read_errors_are_returned_not_hidden(self):
         # A failed transfer is a negative errno from the SMBus helper; the attribute must

@@ -107,7 +107,7 @@
 			#size-cells = <0>;
 
 			ina219@41 {
-				compatible = "edge,ina219";
+				compatible = "edge,edge-ina219";
 				reg = <0x41>;
 			};
 		};
