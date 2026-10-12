@@ -28,3 +28,6 @@ add_executable(edge_gpio_button apps/edge_gpio_button.cpp)
 # Step 6-b: INA219 registers through i2c-dev (I2C_RDWR), no Python library, no driver.
 add_executable(ina219_raw tools/ina219_raw.cpp)
 add_executable(test_ina219_decode tests/test_ina219_decode.cpp)
+
+# Step 7: the kernel driver's arithmetic (include/edge_ina219_conv.h) against Step 6-b's decoder.
+add_executable(test_edge_ina219_conv tests/test_edge_ina219_conv.cpp)

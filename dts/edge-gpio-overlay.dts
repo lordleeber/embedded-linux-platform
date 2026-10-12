@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Step 4: describe one LED on the 40-pin header so edge_gpio.ko can probe.
+ * (Step 5-b adds the button, Step 7 the INA219 on the header I2C bus.)
  *
  *   header pin 29 (GPIO01, SoC pad PQ.05) --[330R..1k]-->|-- pin 30 (GND)
  *
@@ -90,6 +91,25 @@
 					nvidia,tristate = <TEGRA_PIN_ENABLE>;
 					nvidia,enable-input = <TEGRA_PIN_ENABLE>;
 				};
+			};
+		};
+	};
+
+	/*
+	 * Step 7: the INA219 on the UPS Power Module (C), header pins 3 (SDA) /
+	 * 5 (SCL). hdr40_i2c1 is the base tree's label for /bus@0/i2c@c250000,
+	 * which Linux numbers i2c-7. At boot the I2C core turns this child into
+	 * client 7-0041; it stays unbound until edge_ina219.ko is loaded.
+	 */
+	fragment@4 {
+		target = <&hdr40_i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ina219@41 {
+				compatible = "edge,ina219";
+				reg = <0x41>;
 			};
 		};
 	};
