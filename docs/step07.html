@@ -206,7 +206,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">7.3</span><b>描述</b><span class="dot" style="background: var(--hw)"></span>Device Tree</div>
     <div class="content">
       <h2>在 header I2C 底下加一個 ina219@41</h2>
-      <p>INA219 不會自己報到：I2C 沒有「列舉」機制，kernel 不知道 bus 上有什麼，只能靠 Device Tree 告訴它。節點加在 4-b / 5-b 用的同一份 overlay 裡，第五個 fragment：</p>
+      <p>INA219 不會自己報到：I2C 沒有「列舉」機制，kernel 不知道 bus 上有什麼，得有人告訴它「這個位址有一顆什麼晶片」，kernel 才會建立 client、driver 才有東西可以 probe。告訴它的方法不只一種（本節最後比較），這一步用 Device Tree。節點加在 4-b / 5-b 用的同一份 overlay 裡，第五個 fragment：</p>
       <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:97–114 — 掛在 hdr40_i2c1 底下，reg 就是 7-bit 位址</figcaption>
 <pre data-start="97" data-hot="104,106,107,109,110,111">	/*
 	 * Step 7: the INA219 on the UPS Power Module (C), header pins 3 (SDA) /
@@ -244,6 +244,22 @@ ina219 «3»</pre>
         <li><span class="mk">3</span><span>client 的名字取自節點名 <code>ina219@41</code> 的 <code>@</code> 前面。</span></li>
       </ol>
       <p>你的板子如果還沒裝這份 overlay，第一行會是 <code>No such file or directory</code>，<code>7-0041</code> 也不存在；裝 overlay 的指令在 7.10。</p>
+      <h3>一定要 overlay 嗎？</h3>
+      <p>6-b 的 <code>ina219_raw</code> 沒有裝任何 overlay 就讀得到晶片，是因為它打開的 <code>/dev/i2c-7</code> 代表的是<b>整條 bus</b>（控制器 <code>c250000.i2c</code>），這個控制器本來就在 NVIDIA 的基底 DT 裡。「0x41 是一顆 INA219、register 怎麼換算」這些知識寫在程式自己身上，kernel 只負責送 byte。換成 kernel driver，這些知識搬進了 kernel，kernel 就得先知道「哪裡有一顆什麼晶片」，也就是要先有一個 client。建立 client 有三種方法：</p>
+      <table>
+        <thead><tr><th>建立 client 的方法</th><th>要 overlay？要重開機？</th><th>特點</th></tr></thead>
+        <tbody>
+          <tr><td>DT 節點（這一步）</td><td>要；這台沒有 runtime overlay，所以也要重開機</td><td>開機就有 client，不用任何指令；節點可以帶屬性（例如之後的 shunt 電阻值）；Phase 10 的 Yocto image 也是這樣把硬體描述打包進去</td></tr>
+          <tr><td>userspace 寫 <code>new_device</code></td><td>都不用</td><td><code>echo &lt;名字&gt; &lt;位址&gt; &gt; /sys/bus/i2c/devices/i2c-7/new_device</code>，driver 靠 <code>i2c_device_id</code> 的名字配對。重開機就消失，也沒有 DT 屬性可讀</td></tr>
+          <tr><td>另一段 kernel 程式呼叫 <code>i2c_new_client_device()</code></td><td>都不用</td><td>位址和名字寫死在 C 裡（DT 普及前的 board file 做法），換板子就要改 code</td></tr>
+        </tbody>
+      </table>
+      <p>第二種在這一章用過：7.10 的驗收腳本就是用 <code>new_device</code> 在 0x45 建 client，沒有任何 DT 節點，<code>edge_ina219</code> 的 probe 照樣被呼叫（只是沒人回應而失敗）。所以想快速試 driver 時，<code>echo edge_ina219 0x41 &gt; /sys/bus/i2c/devices/i2c-7/new_device</code> 不必改 overlay、不必重開機，就能把 driver 接到真的晶片上（這個指令在 0x41 上<b class="hl-bad">沒有實測</b>，0x45 實測過）。這一步仍選 DT，是因為 phase03 規劃要求 Device Tree binding，之後 Step 8、Phase 10 也都假設硬體描述在 DT 裡、driver 不寫死位址。</p>
+      <p>前幾章也對得上這個分界：</p>
+      <ul>
+        <li><b>Step 2 / 3 的 <code>edge_test</code></b>：沒有硬體，module 載入時自己建 <code>/dev/edge_test</code>，不需要 DT。USB、PCI 這類能自己列舉的 bus 也不需要，插上就有裝置。</li>
+        <li><b>4-a 的 userspace GPIO 沒有 overlay</b>：<code>/dev/gpiochip0</code> 本來就在，但 pin 29 的 pad 開機是 tristate，得另外跑 <code>scripts/pad_pin29.py</code> 直接改 pad register，重開機就失效。4-b 改用 overlay，pad 設定就寫在節點的 pinctrl 狀態裡，driver probe 前由 kernel 自動套用。</li>
+      </ul>
     </div>
   </section>
 
