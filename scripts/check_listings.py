@@ -25,13 +25,16 @@ LISTING = re.compile(
 
 
 def source_lines(root, path):
-    """Lines of PATH or PATH@REV, or None when the file (or revision) does not exist."""
-    if "@" in path:
+    """Lines of PATH or PATH@REV, or None when the file (or revision) does not exist.
+
+    An existing file wins: device-tree style names such as bus@0 are not revisions.
+    """
+    src = Path(path) if path.startswith("/") else root / path
+    if "@" in path and not src.is_file():
         path, rev = path.rsplit("@", 1)
         r = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{path}"],
                            capture_output=True, text=True)
         return r.stdout.splitlines() if r.returncode == 0 else None
-    src = Path(path) if path.startswith("/") else root / path
     return src.read_text(encoding="utf-8").splitlines() if src.is_file() else None
 
 

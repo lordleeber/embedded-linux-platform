@@ -24,13 +24,15 @@ CLAIM = re.compile(r'data-tests="([^"]+)"[^>]*>([^<]*)<')
 
 def count_cases(path):
     loader = unittest.TestLoader()
-    # Same module name from another directory (PATH@REV vs PATH): load it afresh.
+    # Same module name from another directory (PATH@REV vs PATH): load it afresh,
+    # and take back out only the sys.path entry discover() added.
+    added = str(path.parent) not in sys.path
     sys.modules.pop(path.stem, None)
     try:
         suite = loader.discover(str(path.parent), pattern=path.name, top_level_dir=str(path.parent))
     finally:
         sys.modules.pop(path.stem, None)
-        if str(path.parent) in sys.path:
+        if added and str(path.parent) in sys.path:
             sys.path.remove(str(path.parent))
     if loader.errors:
         raise ImportError(loader.errors[0].strip().splitlines()[-1])
@@ -38,20 +40,25 @@ def count_cases(path):
 
 
 def count_at(root, rel):
-    """Cases in REL (or REL@REV, from git); None when the file or revision does not exist."""
-    if "@" not in rel:
-        path = root / rel
+    """Cases in REL (or REL@REV, from git); None when the file or revision does not exist.
+
+    An existing file wins over the REV reading (a name may contain @). For REV the
+    file's whole directory is extracted from that commit, so the test can import
+    its sibling helpers as they were then.
+    """
+    path = root / rel
+    if "@" not in rel or path.is_file():
         return count_cases(path) if path.is_file() else None
     rel, rev = rel.rsplit("@", 1)
-    r = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{rel}"], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
+    folder = str(Path(rel).parent)
     with tempfile.TemporaryDirectory() as tmp:
-        # Same place under the temp root, so the file's own parents[1] paths still resolve sensibly.
+        archive = subprocess.run(["git", "-C", str(root), "archive", rev, folder],
+                                 capture_output=True)
+        if archive.returncode != 0:
+            return None
+        subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
         path = Path(tmp) / rel
-        path.parent.mkdir(parents=True)
-        path.write_text(r.stdout)
-        return count_cases(path)
+        return count_cases(path) if path.is_file() else None
 
 
 def main(argv):

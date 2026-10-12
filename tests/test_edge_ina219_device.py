@@ -37,6 +37,15 @@ LABELS = {"in0_label": "shunt", "in1_label": "bus"}
 STEP7_ATTRS = ("registers", "bus_mv", "shunt_uv", "current_ua", "power_uw")
 
 
+def hwmon_name(path):
+    """The name file of a /sys/class/hwmon entry; devices registered with the old
+    hwmon_device_register() API may have none."""
+    try:
+        return (path / "name").read_text()
+    except FileNotFoundError:
+        return None
+
+
 def ina219_raw():
     """Six raw registers and the decoded values (mV / mA / mW) from build/ina219_raw."""
     out = subprocess.run([str(RAW), "--bus", str(BUS)], capture_output=True, text=True,
@@ -75,7 +84,7 @@ class EdgeIna219HwmonTest(unittest.TestCase):
 
     def test_exactly_one_edge_ina219_in_the_class(self):
         names = [p.name for p in Path("/sys/class/hwmon").iterdir()
-                 if (p / "name").read_text() == "edge_ina219\n"]
+                 if hwmon_name(p) == "edge_ina219\n"]
         self.assertEqual(names, [self.hwmon.name])
 
     def test_files_are_read_only(self):
@@ -106,17 +115,31 @@ class EdgeIna219HwmonTest(unittest.TestCase):
         # Same window as Step 6-a / 6-b: 3S lithium 9.0 .. 12.6 V, plus 0.2 V; in mV, not V.
         self.assertTrue(9000 <= self.value("in1_input") <= 12800, self.read("in1_input"))
 
-    def test_matches_ina219_raw(self):
+    def need_raw_tool(self):
+        # The acceptance script builds it; under EDGE_INA219_REQUIRE a missing tool must
+        # not turn the probe and value checks into skips.
         if not RAW.exists():
+            if REQUIRED:
+                self.fail(f"{RAW} not built but EDGE_INA219_REQUIRE=1")
             self.skipTest(f"{RAW} not built")
+
+    def test_probe_left_the_sample_settings(self):
+        # hwmon has no file for Config / Calibration: read them over i2c-dev (I2C_RDWR is
+        # allowed while the driver is bound).
+        self.need_raw_tool()
+        regs, _ = ina219_raw()
+        self.assertEqual(len(regs), 6)
+        self.assertEqual(regs[0], 0x0EEF, "Config")
+        self.assertEqual(regs[5], 26868, "Calibration")
+
+    def test_matches_ina219_raw(self):
+        self.need_raw_tool()
         tool_regs, tool = ina219_raw()
         bus_mv = self.value("in1_input")
         shunt_mv = self.value("in0_input")
         cur_ma = self.value("curr1_input")
         power_mw = self.value("power1_input") / 1000
         self.assertEqual(len(tool_regs), 6)
-        self.assertEqual(tool_regs[0], 0x0EEF, "Config")
-        self.assertEqual(tool_regs[5], 26868, "Calibration")
         tool_mv = (tool_regs[2] >> 3) * 4
         self.assertLessEqual(abs(bus_mv - tool_mv), 40, f"hwmon {bus_mv} mV, tool {tool_mv} mV")
         for key, mine, tol in (("shunt_mv", shunt_mv, 1.0), ("current_ma", cur_ma, 50),

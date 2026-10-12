@@ -320,3 +320,16 @@
 - 原本以為 `check_test_counts.py` 對同名檔案跑兩次 `discover` 沒事；工作目錄和暫存目錄都有 `test_edge_ina219_static.py`，`sys.modules` 和 `sys.path` 會留著前一個。每次計數前後都 pop 掉 module、移除 `sys.path` 裡那個目錄。
 - 原本以為 hwmon 的 shunt 用 µV 比較精確；`sysfs-interface.rst` 規定 `in*_input` 是 mV，10 µV 一格的 shunt 只剩整數 mV（−6.13 mV → −6）。要看細的值用 `ina219_raw`。
 - 跑變異測試時用 `git stash -- include/edge_ina219_conv.h` 想還原，結果把還沒 commit 的新函式一起收走了。之後改成先把原檔複製到 scratchpad，每次變異前蓋回去。
+- code review（PR #12）找出 7 項，6 項修正、1 項不改。原本都以為沒事：
+  - 原本以為在 Step 7 章首加一段「節錄釘在 `c818fea`」就夠了；章裡要讀者跑的 `verify_edge_ina219.sh` 與貼出的輸出（`registers`、`bus_mv 12124`…）也是當時的樣子，現在跑會印 hwmon 版。章首說明擴大到「指令與輸出」，7.10 的指令下補一句「這是 Step 7 版，要重現得 `git checkout c818fea`」（切回去重跑沒有實測）。
+  - 原本以為把 Config / Cal 的檢查併進 `test_matches_ina219_raw` 不影響覆蓋；那個測試在 `build/ina219_raw` 沒建好時 skip，單獨跑 device 測試時 probe 不寫入也會過。拆回 `test_probe_left_the_sample_settings`，`EDGE_INA219_REQUIRE=1` 下缺工具直接 fail。device 測試由 10 個變 11 個。
+  - 原本以為每個 hwmon 裝置都有 `name`；用舊 API `hwmon_device_register()` 註冊的可以沒有，測試讀它會丟 `FileNotFoundError`（這台每個都有，所以沒出事）。改用 `hwmon_name()`，沒有就略過，和驗收腳本的 `grep -lx` 一致。
+  - 原本以為釘版本的測試檔單獨複製出來就能數；它要是 import 同目錄的 helper 就載入失敗。改成用 `git archive REV <目錄>` 解出整個目錄。新增測試（舊 commit 的 `tests/helper.py` 被 import）先紅。
+  - `count_cases()` 會移除本來就在 `sys.path` 裡的目錄；改成只移除自己加的。新增測試先紅。
+  - `path@REV` 用最後一個 `@` 切，`bus@0.c` 這種存在的檔名會被當成版本；改成「檔案存在就直接讀」。兩支工具都改，`check_listings` 新增的測試先紅。
+  - 不改：`power1_input` 仍是截斷。header 只宣稱 shunt 與電流做四捨五入；Power 一格約 3049 µW，截斷誤差 < 1 µW，上游 `ina2xx` 的功率也是整數相乘。章裡補上這句說明。
+  - device 測試的兩項修正沒有紅燈紀錄：要 root 綁定 driver，而且這台的 hwmon 裝置都有 `name`。
+- 修正後重跑（2026-10-12）`sudo bash scripts/verify_edge_ina219.sh` 兩輪，都是 `=== 0 failure(s)`、`device unittest ... Ran 11 tests`：
+  - 第一輪電池在放電：`in1_input 11532`、`curr1_input -633`、`power1_input 7299258`；`ina219_raw`：11.532 V、−632.968 mA、7299.258 mW。
+  - 第二輪使用者插回 adapter、電池在充電：`in0_input 14`（`ina219_raw` 13.730 mV，四捨五入為 14）、`in1_input 11832`、`curr1_input 1373`、`power1_input 16251064`；`ina219_raw`：11.836 V（差 1 LSB）、1372.955 mA、16251.064 mW。**hwmon 這條路上放電（負）與充電（正）兩個方向都實測過了。**
+  - 全套 `python3 -m unittest discover -s tests`：221 個，`OK (skipped=54)`。

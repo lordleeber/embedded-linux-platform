@@ -80,6 +80,13 @@ class CheckListingsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("ERROR p.html: src/x.c@deadbeef", result.stderr)
 
+    def test_at_sign_in_an_existing_path_is_not_a_revision(self):
+        # Device-tree style names (bus@0) are file names, not PATH@REV.
+        (self.root / "src/bus@0.c").write_text("int x;\n")
+        self.page(listing("src/bus@0.c", 1, 1, "int x;"))
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -345,7 +345,7 @@ static inline s64 edge_ina219_current_ma(u16 raw, u16 cal, s32 shunt_mohm)
       <ul>
         <li><b>為什麼四捨五入、而不是直接整數除法</b>：C 的整數除法往 0 截斷，−6.99 mV 會變成 −6。上游 hwmon driver 普遍用 kernel 的 <code>DIV_ROUND_CLOSEST()</code>；這份 header 也要在 userspace 編譯，不能用 kernel 的巨集，所以自己寫了一個同樣規則的 <code>edge_ina219_div_round()</code>。</li>
         <li><b>電流直接從 raw 算到 mA</b>：40960000 µA 除以 1000 是 40960，整除，所以 <code>edge_ina219_current_ma()</code> 不先算出 µA 再捨入，避免捨入兩次。</li>
-        <li><b>功率不必捨入</b>：hwmon 的功率單位是 µW，Step 7 的 <code>edge_ina219_power_uw()</code> 原樣使用。</li>
+        <li><b>功率不另外捨入</b>：hwmon 的功率單位是 µW，Step 7 的 <code>edge_ina219_power_uw()</code> 原樣使用。它的整數除法同樣往 0 截斷，但 Power register 一格約 3049 µW，截掉的不到 1 µW，四捨五入也只差這 1 µW；上游 <code>ina2xx</code> 的功率也是整數相乘、不做捨入。</li>
       </ul>
       <p>新的向量在 <code>tests/test_edge_ina219_conv.cpp</code>：6-b 放電實測的 <code>0xFD9B</code>（−6.130 mV）要變成 −6、<code>0xF04B</code>（−612.997 mA）要變成 −613；6.50 / −6.50 / 6.49 mV 三個邊界；另外對 65536 個值 × 4 個 Calibration 檢查「mV / mA 結果和 µV / µA 結果差不超過半個單位」。把捨入改成截斷、只往正向進位、shunt 當無號、常數少一個 0，四種改法都讓它失敗。在 repo 根目錄自己跑：</p>
 <pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_edge_ina219_conv &gt;/dev/null &amp;&amp; build/test_edge_ina219_conv</pre>
@@ -436,8 +436,8 @@ EOF
       <p>期望值來自 driver 以外的地方：檔名、單位、編號規則照 <code>sysfs-interface.rst</code>，channel 順序照上游 <code>ina2xx</code>，數值照 6-b 的實測與 <code>ina219_raw</code>。實作前先跑，靜態測試 9 個紅、換算向量編不過（函式還不存在）。</p>
       <ul>
         <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個，不需要硬體。Step 7 的「沒有 hwmon」「屬性唯讀」兩個換成五個：用 <code>devm_hwmon_device_register_with_info</code> 註冊且名字是 <code>edge_ina219</code>、channel 宣告正好是兩路 in（含 label）加 curr1、power1、<code>is_visible</code> 只回 <code>0444</code>、read callback 遇錯 return 且沒有 static 數值、沒有任何私有屬性；算式改成檢查 hwmon 單位的函式；驗收腳本多兩個（<code>i2cset</code> 只寫 Cal 0 與還原值、有 hwmon / ENODEV / unbind / bind 檢查）。</li>
-        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">10</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑：<code>name</code> 與 class 連結、class 裡只有一個 <code>edge_ina219</code>、檔案 0444、只有宣告的 channel、label、私有屬性已消失、整數加換行、電壓 9.0～12.8 V、和 <code>ina219_raw</code> 比（電壓 ≤ 40 mV、shunt ≤ 1 mV、電流 ≤ 50 mA、功率 ≤ 700 mW；shunt 比 Step 7 寬 0.5 mV，是取整數 mV 的捨入）、四個檔各讀 1000 次。這一份<b class="hl-bad">沒有看過紅燈</b>：要用 root 載入 Step 7 的 module 才跑得起來，這次沒做。</li>
-        <li><b>文件工具</b>：<code>scripts/check_listings.py</code> 與 <code>check_test_counts.py</code> 加了 <code>path@REV</code>（8.10 的第一個坑），各多一個測試（<span data-tests="tests/test_check_listings.py">6</span> 個與 <span data-tests="tests/test_check_test_counts.py">5</span> 個）。</li>
+        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">11</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑：<code>name</code> 與 class 連結、class 裡只有一個 <code>edge_ina219</code>（沒有 <code>name</code> 檔的 hwmon 裝置略過）、probe 寫入的 Config / Cal 是範例值（hwmon 沒有對應的檔，用 <code>ina219_raw</code> 讀；驗收模式下沒建好工具算失敗，不 skip）、檔案 0444、只有宣告的 channel、label、私有屬性已消失、整數加換行、電壓 9.0～12.8 V、和 <code>ina219_raw</code> 比（電壓 ≤ 40 mV、shunt ≤ 1 mV、電流 ≤ 50 mA、功率 ≤ 700 mW；shunt 比 Step 7 寬 0.5 mV，是取整數 mV 的捨入）、四個檔各讀 1000 次。這一份<b class="hl-bad">沒有看過紅燈</b>：要用 root 載入 Step 7 的 module 才跑得起來，這次沒做。</li>
+        <li><b>文件工具</b>：<code>scripts/check_listings.py</code> 與 <code>check_test_counts.py</code> 加了 <code>path@REV</code>（8.10 的第一個坑），加了測試（<span data-tests="tests/test_check_listings.py">7</span> 個與 <span data-tests="tests/test_check_test_counts.py">7</span> 個）。</li>
       </ul>
       <p>在 repo 根目錄跑不需硬體的那一份（約 1 秒，會順便在 <code>kernel/edge_ina219/</code> 裡編 module）：</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p test_edge_ina219_static.py</pre>
@@ -530,6 +530,17 @@ PASS probe at 0x45 failed with -EREMOTEIO
         <li><span class="mk">7</span><span>rmmod 前讀到 11760，rmmod 後同一個 fd 得到 <code>ENODEV</code>：<b class="hl-ok">沒有 stale node</b>。</span></li>
         <li><span class="mk">8</span><span>兩次 probe / remove：一次是 unbind / bind，一次是最後的 rmmod。0x45 的 probe 失敗和 Step 7 相同。這次開機已經載入過 module，所以沒有 <code>module verification failed</code> 那行（Step 7 的 7.10 說明過）。</span></li>
       </ol>
+      <p>code review 修正後（device 測試多了一個，變 11 個）又跑了兩輪，都是 <code>=== 0 failure(s)</code>、<code>Ran 11 tests</code>。第二輪 adapter 插回、電池在充電，hwmon 的那幾行是：</p>
+<pre class="out" data-marks>    in0_label    shunt
+    in0_input    14 «1»
+    in1_label    bus
+    in1_input    11832
+    curr1_input  1373 «2»
+    power1_input 16251064</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>緊接著的 <code>ina219_raw</code> 是 13.730 mV，四捨五入為 14。</span></li>
+        <li><span class="mk">2</span><span>充電是<b class="hl-ok">正的</b>：工具讀到 1372.955 mA，功率 16251.064 mW 和 hwmon 完全相同。加上前面放電的 −666 mA，兩個方向都經 hwmon 實測過。</span></li>
+      </ol>
       <p>你跑出來的數字會不同：電壓隨電池變；adapter 接著、電池沒在充電時電流與功率是 0（Step 7 的情況），充電時是正值。<code>hwmon4</code> 的號碼、dmesg 時間戳、<code>verify</code> 那行的數字每次都可能不同。沒裝 overlay 時腳本走「no node」那一支，只檢查 driver 不綁定任何東西和 0x45。</p>
     </div>
   </section>
@@ -555,9 +566,9 @@ PASS probe at 0x45 failed with -EREMOTEIO
       <h2>這一步做到了什麼</h2>
       <ul class="checks">
         <li class="y"><code>edge_ina219</code> 以 <code>devm_hwmon_device_register_with_info()</code> 註冊 hwmon：<code>in0</code>（shunt）、<code>in1</code>（bus）、<code>curr1</code>、<code>power1</code>，單位 mV / mA / µW，全部 0444；Step 7 的私有屬性拿掉。</li>
-        <li class="y">hwmon 讀到的電壓、<b class="hl-ok">非 0 的放電電流</b>、功率都和 <code>ina219_raw</code> 一致；四個檔各讀 1000 次不出錯；驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">hwmon 讀到的電壓、<b class="hl-ok">放電（負）與充電（正）電流</b>、功率都和 <code>ina219_raw</code> 一致；四個檔各讀 1000 次不出錯；驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">Calibration 0 時 <code>curr1</code> / <code>power1</code> 回 ENODATA，不回 0 或舊值；unbind / bind、rmmod 後 hwmon 裝置不殘留，rmmod 前打開的 fd 讀到 ENODEV。</li>
-        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py">10</span> 個（需綁定），5 組換算向量。</li>
+        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py">11</span> 個（需綁定），5 組換算向量。</li>
         <li class="n">沒有實測：hwmon 讀取途中 I2C 傳輸失敗、INA219 被實體拔除；device 測試沒看過紅燈。</li>
         <li class="n">沒有試：<code>sensors</code>（這台沒裝 lm-sensors）。</li>
       </ul>
