@@ -184,7 +184,18 @@
   - raw register（範例跑過之後讀）：Config `0x0EEF`、Shunt `0x0000`、Bus `0x609A`（3091 × 4 mV = 12.364 V，CNVR=1、OVF=0）、Power `0x0000`、Current `0x0000`、Calibration `0x68F4`（26868）。
   - 讀不存在的位址（0x45）：`OSError(121, 'Remote I/O error')`。
   - 容差：電壓判定「9.0～12.8 V」（3S 鋰電池 9～12.6 V，留 0.2 V）；電量和公式 `(V − 9) / 3.6` 差 ≤ 0.01 %。拔掉 adapter 時判定「|I| ≥ 0.05 A」。
-- **未實測**：拔掉 DC adapter 後的電流與正負號（遠端登入，沒人能拔）。腳本那一段已寫好，下次在板子旁邊跑 `bash scripts/verify_ina219_sample.sh`（不加參數）補記。adapter 接著時電流 0 是因為電池已充飽（使用者確認，2026-10-11）：不充不放；加上 bus 電壓等於電池電壓，推論 INA219 量的是電池側（未查證）。電池沒滿時，adapter 接著也該看到充電電流，可以順便驗方向；shunt 0.01 Ω 是範例註解的假設，也未查證。
+- 拔掉 DC adapter（2026-10-12，在 Step 6-b 的 PR 裡補測，在板子旁邊，`bash scripts/verify_ina219_sample.sh` 不加參數）`=== 0 failure(s)`：
+  - 範例在電池上：`Load Voltage` 12.192～12.208 V，`Current` −0.551～−0.706 A，`Power` 6.74～8.60 W，`Percentage` 88.67～89.11 %。放電為負，和 6-b 的 `ina219_raw` 一致。
+  - 注意：adapter 在腳本開始前就已拔掉，而且整段都沒插回。所以腳本的「current on adapter」（−0.624 A）和最後的「back on adapter」（−0.644 A）其實也是吃電池時的值，**不能**當成接上 adapter 的數據。腳本這兩段只記錄、不判定，所以沒有 FAIL。
+  - 原本以為「拔掉之後再插回」那段只是收尾；腳本會在插回的提示後再取樣 20 秒、把結果標成 on adapter。執行前沒有先提醒使用者要插回，所以這段數據無效。
+- 2026-10-11 寫的「adapter 接著時電流 0 是因為電池已充飽，不充也不放」不完整：電池約 89 % 時接著 adapter 也是 0，要等電壓再低一些才會開始充電（見 6-b 段的充電方向實測，同一天在 6-b 的 PR 裡量的）。範例在充電時的輸出沒有另外跑。
+- 範例在充電時（2026-10-12 12:50 左右，adapter 剛插回、充電燈亮）：`Load Voltage` 12.360～12.364 V、`Current` 1.3756～1.3766 A、`Power` 17.01 W、`Percentage` 93.33～93.44 %；同時 `ina219_raw` 讀到 +1376.0 mA。電流正負號和 6-b 一致。範例的電量只由電壓換算，充電時電壓被往上推：40 分鐘前吃電池時 11.86 V（約 79 %），一接上 adapter 就顯示 93 %，不是真正的剩餘電量。
+- 三段都有效的一次（2026-10-12 12:53，`bash scripts/verify_ina219_sample.sh` 不加參數，`=== 0 failure(s)`）：
+  - 開始時 adapter 接著、正在充電：12.372 V、+1.374 A。
+  - 拔掉段：前 5 筆仍是 +1.37 A（使用者約 10 秒後才拔），之後 12.108→12.080 V、−0.546～−0.599 A。
+  - 插回段：前 6 筆仍在放電，約 12 秒時插回後 12.140～12.144 V、+0.006～+0.007 A，**充電燈沒亮**（使用者確認）：充電一中斷，12.06 V 還在回充門檻之上，充電器不會重新開始充。
+  - 腳本的判定在這次露出兩個漏洞：拔掉段的 PASS 取 |I| 最大的一筆，判到的是還沒拔時的 +1.374 A，所以充電中跑這支腳本，沒人拔也會過；「back on adapter」記的是插回段第一筆的 −0.652 A（還沒插回）。範圍外，延後到 Phase 9 Step 21。6-b 的腳本有同一個判定漏洞，已在 PR #10 修掉。
+- **未查證**：shunt 0.01 Ω 是範例註解的假設。
 - 自動測試：`tests/test_ina219_sample.py` 21 個案例，code review 後 24 個（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 4、讀輸出 helper 1、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：151 個，`OK (skipped=39)`。
 - 紅燈紀錄：範例複製進 repo 前 19 個案例 1 failure + 13 errors（實機模式 14 errors）；「Config 逐欄拆解」「讀不存在的位址」兩條不依賴範例，先就會過，是守門測試。驗收腳本的兩條測試在腳本寫好前 1 failure + 1 error。
 - 規模：新增程式約 440 行（code review 後：測試 324、驗收腳本 103、README 12；第一版寫成「測試 260、腳本 120」是估的，實際是 281 / 101）；範例本身 175 行是第三方原檔，不計。
@@ -208,3 +219,46 @@
   - `FakeSMBus.reads_from` 只寫不讀：改成記錄每次讀取，主程式測試檢查讀寫都對 0x41。建立假 `smbus` 的程式碼抽成 `fake_smbus()`。
   - 授權：README 原本寫「和 Adafruit CircuitPython INA219 相同，推測由它改寫」；查了 Adafruit 目前版本（MIT，2017 Dean Miller），`set_calibration_16V_5A` 的寫法不同，也沒有 `Cal = 13434` 那段註解，出處無法確認。使用者決定保留在 repo（Waveshare 公開提供），README 改成照實寫「沒有授權聲明、出處未確認」。
 
+
+## Step 6-b：INA219 userspace bring-up（i2c-tools、`ina219_raw`，不用 Python library）
+
+- 驗收主機與接線：同 6-a（UPS Power Module (C) 供電給 Jetson，INA219 在 `c250000.i2c` = `i2c-7`，位址 0x41）。使用者在 `i2c` 群組，不需要 root。晶片裡的 Config / Calibration 仍是 6-a 跑範例時寫的值。
+- 對照方法：`bash scripts/verify_ina219_raw.sh --no-unplug`。實測（2026-10-11，遠端登入）`=== 0 failure(s)`：
+  - `i2cdetect -l` 找到 `c250000.i2c` 是 `i2c-7`；`i2cdetect -y -r 7` 只有 0x41。
+  - `i2cget ... w` 六個 register：`0xef0e 0x0000 0x9260 0x0000 0x0000 0xf468`，對調後 `0x0EEF 0x0000 0x6092 0x0000 0x0000 0x68F4`；和 6-a 用範例讀到的值一致（Bus 從 `0x609A` 12.364 V 變成 `0x6092` 12.360 V，差 2 LSB）。
+  - `i2cset -y 7 0x41 0x05 0xf468 w` 寫回原值，再讀仍是 `0xf468`。
+  - `build/ina219_raw`：Config `0x0EEF`、Calibration `0x68F4` 和 `i2cget` 對調後相同；`bus voltage: 12.360 V (raw 3090 x 4 mV, CNVR=1 OVF=0)`；shunt、電流（兩條路徑）、功率都是 0。
+  - 不存在的位址 0x45：結束碼 1，`/dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error`。
+  - 容差：電壓「9.0～12.8 V」（同 6-a）；工具與 `i2cget` 只比 Config / Calibration，要完全相同（Bus Voltage 兩次讀之間會變）。拔掉 adapter 時判定「|I| ≥ 50 mA」（以 V_shunt / R 這條路徑）；2026-10-12 改成「20 秒內至少一筆 I ≤ −50 mA」（放電為負已實測），見下方踩坑。
+- 拔掉 DC adapter（2026-10-12，在板子旁邊，`bash scripts/verify_ina219_raw.sh` 不加參數）`=== 0 failure(s)`。adapter 在腳本開始前就拔掉，Jetson 吃電池：
+  - `build/ina219_raw`：Shunt `0xFD9B` = −6.130 mV、`current (shunt) -613.000 mA`、`current (reg) -612.997 mA`（差 0.003 mA，1 LSB = 0.152 mA）、Power `0x0998` = 7488.295 mW（12.212 V × 0.613 A = 7.486 W）、bus 12.212 V（adapter 接著、充飽時 12.36 V）。
+  - 20 秒 10 筆：bus 12.220～12.224 V，電流 −550～−592 mA；每筆兩條路徑差 ≤ 0.07 mA（< 1 LSB），沒碰到跨轉換。
+  - 正負號：放電為負（充電為正的實測見下一條）。Power register 無號，電流為負時仍是正值。
+  - 原本以為兩條電流路徑可能因為跨轉換差超過 1 LSB（code review 第 5 項）；這 11 筆都沒發生，但負載穩定時本來就不容易遇到，不代表不會。
+- 充電方向（2026-10-12，在板子旁邊；背景每 10 秒跑一次 `build/ina219_raw` 記錄 31 分鐘）：
+  - adapter 接著、電池約 89 %（12.20 V）時，連讀 5 次電流都剛好是 0、充電燈不亮：**沒在充電**。所以 2026-10-11 的「電流 0 = 電池充飽」不完整，比較像充電器有回充門檻：電池電壓要掉到某個值以下才會重新開始充。
+  - 拔掉 adapter 放電 31 分鐘：電壓 12.016 V → 11.864 V，電流 −520～−671 mA。12:25:53 使用者插上 adapter 約 20 秒（使用者確認）：電流 0、電壓升到 12.07 V，充電燈沒亮，沒在充就又拔掉；插上前電池約 11.99 V（出電時量到的）。
+  - 12:45:45 插回 adapter、充電燈亮：電流 −576 mA → **+1372 mA**，20 秒內穩定在 +1377 mA（`current (reg)` 1377.071 mA，兩條路一致），bus 11.864 V → 12.228 V，Power 16.8 W。
+  - 結論：同一個 shunt 上放電為負、充電為正，INA219 量的是電池進出的電流（之前「在電池側」只是由電壓推論，現在有正負兩個方向的實測支持）。回充門檻落在 11.86～11.99 V（插上 adapter 前一刻、電池在出電時量到的電壓）之間，沒有逐步找出確切值，也沒查充電 IC 規格。
+- **未實測**：實際拔掉 INA219 時的錯誤（以 0x45 模擬；UPS 同時供電給 Jetson，不拔）。
+- 自動測試：`tests/test_ina219_decode.cpp` 7 組向量（`be16` MSB 先、bus 電壓去掉狀態位、CNVR / OVF、shunt 有號 10 µV、歐姆定律、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 LSB），由 `tests/test_ina219_raw.py` 16 個案例中的一個執行（另有原始碼契約 4、CLI 3、驗收腳本 4、實機 4；code review 後 22 個：原始碼契約 5、CLI 4、驗收腳本 8）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`；全套 167 個，`OK (skipped=43)`。
+- 紅燈紀錄：工具與 header 不存在時 4 failures + 3 errors；驗收腳本的測試在腳本寫好前 1 failure + 3 errors。變異測試：bytes 對調、bus 位移改 2、CNVR 改看 bit 0、shunt / current 當無號、power 少乘 10、歐姆定律少一個 0，7 種都讓向量測試失敗。
+- 規模：新增程式約 640 行（工具 139、header 69、C++ 測試 104、Python 測試 188、驗收腳本 134、CMake 4），在上限內；實作前估約 550 行。
+
+### 踩坑
+
+- 原本以為 `i2cget ... w` 讀到的就是 register 值；SMBus 的 word 是低位 byte 先送，INA219 是高位先送，所以 Config 讀成 `0xef0e`。用 `i2cset ... w` 寫值時也要先對調，不然寫進去的是反的（這次只寫回讀到的原值，所以沒事）。
+- 測試向量自己算錯一個：`0xFFF8 >> 3` 是 8191，× 4 mV = 32764 mV，第一版寫 32760，實作正確卻紅。改正後才跑變異測試。
+- 原本以為「不用 Python library」就要自己拼 SMBus 指令；i2c-dev 的 `I2C_RDWR` 一次送「寫 pointer + 讀 2 byte」兩個 message，和範例的 `read_i2c_block_data(addr, reg, 2)` 在線上是同一件事，還不用處理 byte order 以外的協定。
+- code review（PR #10）找出的 8 項，原本都以為沒事：
+  - 原本以為驗收腳本用名稱找 bus 就夠了；它呼叫的實機測試卻寫死 `BUS = 7`。現在腳本以 `EDGE_INA219_BUS="$BUS"` 傳下去，測試把 `--bus` 傳給工具。
+  - 原本以為 `strtol(s, &end, 0)` 對 bus 和位址都適用；前導 0 被當成八進位，`--bus 08` 變成 usage error、`--bus 010` 開到 `i2c-8`（實測重現）。bus 改成十進位，只有 `--addr` 收 `0x`。
+  - 原本以為拔插迴圈裡讀不到就算了；輸出空白時 awk 當成 0 mA，偶發的 I/O error 不會記 FAIL。現在 `snap="$(tool)" || fail`。
+  - 原本以為拔插時按 Ctrl-C 直接結束沒關係；這時 Jetson 在吃電池，沒人提醒插回。改成 `on_int()` 在拔插段印 `PLUG the DC adapter back in`。用 Python `pty` 送真的 Ctrl-C 實測：0.0 s 結束、結束碼 2、無殘留。先試的 `setsid … &` 加 `kill -INT` 測不到：非互動 shell 的背景工作一開始就忽略 SIGINT，而開始時就被忽略的訊號 trap 不到，是測法的問題。
+  - 原本以為「兩條電流路徑差 ≤ 1 LSB」在工具輸出上也成立；那是同一次轉換的關係，工具分六次讀，可能跨兩次轉換。INA219 不會自動讀下一個 register，沒辦法「一次讀完」，所以只在註解、章、register 筆記補上說明（未實測）。
+  - 原本以為 `ioctl(I2C_RDWR)` 不是 2 就一定有 `errno`；回傳 0 / 1（部分完成）時沒有，訊息可能印「Success」。改成自己設 `EIO`。
+  - 原本以為 `i2cget` 失敗時 `continue` 就好；錯誤字串留在 `word[reg]`，之後被 `swap16` 拿去做算術，冒出 bash 錯誤（FAIL 仍會記到，只是輸出亂）。失敗時 `unset`。
+  - 原本以為「只讀不寫」看 `.len` 就夠；加上禁止 `I2C_SLAVE` 與 `write(`。
+  - 新增 6 條測試，修正前 6 failures；另外 4 種程式變異（bus 用 base 0、加 `write()`、加 `I2C_SLAVE`、拿掉 `errno = EIO`）都讓測試失敗。`test_ina219_raw.py` 由 16 個變 22 個；修正後 `bash scripts/verify_ina219_raw.sh --no-unplug` 仍是 `=== 0 failure(s)`。
+  - 原本以為「拔掉 adapter 後 |I| 最大的一筆 ≥ 50 mA」就代表有人拔；2026-10-12 電池在充電時跑 6-a 的同型腳本，拔掉段前 5 筆還是 +1.374 A 的充電電流，PASS 判到的是它，沒人拔也會過。6-b 的腳本同一個寫法，改成 `lowest()` 取最小值、要求 ≤ −50 mA。先寫 `test_unplug_check_needs_a_discharge_sample`（用這次的真實讀值：3 筆充電後 2 筆放電、只有充電）並看到紅燈（沒有 `lowest()`）；第一版 `lowest()` 用 awk 的 `print`，只有 6 位有效數字，1373.581 印成 1373.58，改成 `printf "%.3f"`。變異：把 `$1 < m` 改成 `$1 > m`（取最大）測試會紅。`test_ina219_raw.py` 由 22 個變 23 個。
+  - 第一次寫的 `test_bus_is_decimal` 期望 `/dev/i2c-8 `（後面有空白），但開檔失敗的訊息是 `/dev/i2c-8:`；改成「後面不是數字」。用 `pkill -f verify_ina219_raw.sh` 清場時比對到自己的指令列、把自己殺掉（結束碼 144）；`pgrep -f` 要錨定整行。

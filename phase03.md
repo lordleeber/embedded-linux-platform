@@ -214,12 +214,27 @@ Calibration
 
 要理解 INA219 register 是 big-endian 16-bit value，不能直接假設 host byte order。
 
+### 實作決策（Step 6-b 落地時裁決）
+
+- 誰和誰互動：`ina219_raw` ── `ioctl(I2C_RDWR)` ── `/dev/i2c-7`（i2c-dev）── i2c-tegra（`c250000.i2c`，controller）── INA219（target，0x41）。每個 register 一次 transaction：寫 1 byte pointer、repeated start、讀 2 byte
+- 不用 `I2C_SMBUS` / libi2c 的 read word：SMBus word 是低位 byte 先送，`i2cget ... w` 讀到的 Config 是 `0xef0e`；工具自己用 `be16()` 組值，驗收腳本把 `i2cget` 的值對調後和工具比對
+- 工具**只讀不寫**（唯一寫出的 byte 是 pointer）；Calibration 是 0 時印 `n/a`。`i2cset` 的練習只把剛讀到的 Calibration 原值寫回去，不改設定
+- 換算放在 `tools/ina219_decode.h`，只用整數（mV / µV / µA / µW），Step 7 搬進 kernel 時同一套算式；電流同時印「V_shunt / R」與「Current register × Current_LSB」兩條路徑
+- R_shunt 取 0.01 Ω（廠商範例註解的假設，未量測）
+- bus 由 `i2cdetect -l` 的 controller 名稱 `c250000.i2c` 找，不寫死 `7`
+- 「拔掉 INA219 回報 I/O error」以不存在的位址 0x45 模擬（`EREMOTEIO`）；實際拔線未測（UPS 同時在供電給 Jetson）
+
 ### 預期產物
 
 建立小型 userspace tool：
 
 ```text
 tools/ina219_raw.cpp
+tools/ina219_decode.h
+tests/test_ina219_decode.cpp
+tests/test_ina219_raw.py
+scripts/verify_ina219_raw.sh
+docs/ina219-registers.md
 ```
 
 可輸出：
@@ -240,7 +255,7 @@ converted current
 ### 附帶（Step 6-a 發現，範圍外）
 
 - ~~修 `docs/step05b.html` 頁首殘留的 Step 4-b `<nav>` 與章首~~（2026-10-11 已在 main 直接修掉，結案）
-- 在板子旁邊補跑 `bash scripts/verify_ina219_sample.sh`（不加 `--no-unplug`），記錄拔掉 DC adapter 時的電流與正負號；6-b 的「有負載時數值變化」也靠這個情境
+- ~~在板子旁邊補跑 `bash scripts/verify_ina219_sample.sh`（不加 `--no-unplug`），記錄拔掉 DC adapter 時的電流與正負號；6-b 的「有負載時數值變化」也靠這個情境~~（2026-10-12 在 PR #10 補跑，結果在 `docs/baseline.md` 6-a 段；過程中發現的腳本判定漏洞延後到 Phase 9 Step 21）
 
 ### 這一步不做
 

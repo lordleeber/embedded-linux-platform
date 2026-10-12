@@ -597,6 +597,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step05a.html">Step 5-a · userspace 按鍵事件（gpiolib-cdev）</a><p class="toc-desc">不寫 driver：用 GPIO v2 uAPI 請求雙邊緣事件與 debounce，blocking <code>read()</code> 等按鍵；處理請求 line 後約 20 ms 的假事件。</p></li>
     <li><a class="toc-title" href="step05b.html">Step 5-b · GPIO IRQ + blocking read（kernel driver）</a><p class="toc-desc">按鍵經 TXB0108 接到 pin 33：IRQ handler 排 debounce work，事件進 kfifo，<code>wake_up_interruptible()</code> 叫醒睡在 <code>read()</code> 的 userspace。</p></li>
     <li><a class="toc-title" href="step06a.html">Step 6-a · 讀懂廠商範例 ina219.py（I2C）</a><p class="toc-desc">UPS 模組上的 INA219：bus 7、位址 0x41、高位 byte 在前；啟動寫入的 Calibration 與 Config、換算公式，以及註解和程式對不起來的地方。</p></li>
+    <li><a class="toc-title" href="step06b.html">Step 6-b · 不用 Python library 讀 INA219（i2c-tools、I2C_RDWR）</a><p class="toc-desc"><code>i2cget</code> / <code>i2cset</code> 手動讀寫、SMBus word 的 byte 順序是反的；C++ 工具用 <code>I2C_RDWR</code> 讀六個 register、整數換算，位址沒回應時回報 I/O error。</p></li>
   </ol>
 </main>
 <script id="inline-js">
