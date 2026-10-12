@@ -550,7 +550,7 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
       <ol class="notes">
         <li><span class="mk">1</span><span>插上 adapter 的那一筆（背景每 10 秒跑一次 <code>build/ina219_raw</code> 的記錄）：電流由 −576 mA 變成 <b>+1372 mA</b>。同一個 shunt 上放電為負、充電為正，INA219 量的就是進出電池的電流。之後讀一次完整輸出，兩條路是 1377.000 / 1377.071 mA。</span></li>
       </ol>
-      <div class="callout"><p><b class="hl-bad">沒有實測</b>：實際拔掉 INA219 時的錯誤訊息（UPS 同時供電給 Jetson，拔了板子就斷電，只能用 0x45 模擬）。回充門檻只知道在 11.86～12.0 V 之間，沒有找出確切值。</p></div>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：實際拔掉 INA219 時的錯誤訊息（UPS 同時供電給 Jetson，拔了板子就斷電，只能用 0x45 模擬）。回充門檻只知道在 11.86～11.99 V 之間（中途 11.99 V 時插上 adapter 20 秒，仍然沒在充），沒有找出確切值。</p></div>
     </div>
   </section>
 
