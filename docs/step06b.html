@@ -437,7 +437,7 @@ power (reg):     0.000 mW  (20 x Current_LSB, unsigned)</pre>
       <ol class="notes">
         <li><span class="mk">1</span><span>六個值正好是 6b.4 <code>i2cget</code> 讀到的對調：<code>0xef0e</code> → <code>0x0EEF</code>、<code>0x9260</code> → <code>0x6092</code>、<code>0xf468</code> → <code>0x68F4</code>。兩種工具各用一種 ioctl，結果互相印證。</span></li>
         <li><span class="mk">2</span><span>3090 × 4 mV = 12.360 V，在 3S 電池的 9～12.6 V 內。6-a 用範例讀到 12.364 V（3091），差 1 個 LSB，是電池電壓本身的變化。</span></li>
-        <li><span class="mk">3</span><span>電流 0：DC adapter 接著、電池已充飽，shunt 上沒有電流（同 6a.11）。兩條路都是 0，所以這次<b>沒辦法驗證兩條路在有電流時一致</b>，要等拔掉 adapter：結果在 6b.10，兩條路一致。</span></li>
+        <li><span class="mk">3</span><span>電流 0：DC adapter 接著，電池沒在充也沒在放，shunt 上沒有電流（同 6a.11；當時以為是充飽，其實是還沒到回充門檻，見 6b.10）。兩條路都是 0，所以這次<b>沒辦法驗證兩條路在有電流時一致</b>，要等拔掉 adapter：結果在 6b.10，兩條路一致。</span></li>
       </ol>
       <p>模組不在時要明確回報錯誤。遠端登入時沒辦法拔線（而且 UPS 正在供電給 Jetson），所以用一個沒有裝置的位址 0x45 模擬「沒有 ACK」：</p>
 <pre class="cmd">build/ina219_raw --addr 0x45; echo "exit $?"; build/ina219_raw --addr 0x80; echo "exit $?"</pre>
@@ -537,12 +537,20 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
 &gt;&gt;&gt; PLUG the DC adapter back in now.
 === 0 failure(s)</pre>
       <ol class="notes">
-        <li><span class="mk">1</span><span>吃電池時 12.21 V，比 adapter 接著、電池充飽時的 12.36 V 低一點，仍在 3S 的範圍內。</span></li>
-        <li><span class="mk">2</span><span>電流是<b>負的</b>：Shunt register <code>0xFD9B</code> 當有號數是 −613 × 10 µV。放電時電流反向流過 shunt，所以這塊模組的接法是「充電為正、放電為負」（從這次的正負號推得；充電方向還沒看到正值，要等電池沒滿時接上 adapter）。兩條路差 0.003 mA，遠小於 1 個 Current_LSB（0.152 mA）。</span></li>
+        <li><span class="mk">1</span><span>吃電池時 12.21 V，比前一天 adapter 接著、沒在充電時的 12.36 V 低一點，仍在 3S 的範圍內。</span></li>
+        <li><span class="mk">2</span><span>電流是<b>負的</b>：Shunt register <code>0xFD9B</code> 當有號數是 −613 × 10 µV。放電時電流反向流過 shunt，所以這塊模組的接法是「充電為正、放電為負」（充電方向後來也量到了，見下方）。兩條路差 0.003 mA，遠小於 1 個 Current_LSB（0.152 mA）。</span></li>
         <li><span class="mk">3</span><span>Power register 是無號的，電流負的它照樣是正值。12.212 V × 0.613 A = 7.486 W，和 7488 mW 相符：Jetson 這時大約耗 7.5 W。</span></li>
         <li><span class="mk">4</span><span>10 筆都在 −550 ～ −592 mA 之間跳動，是 Jetson 本身負載的變化。腳本只要求 |I| ≥ 50 mA，正負號只印出來不判定。</span></li>
       </ol>
-      <div class="callout"><p><b class="hl-bad">沒有實測</b>：實際拔掉 INA219 時的錯誤訊息（UPS 同時供電給 Jetson，拔了板子就斷電，只能用 0x45 模擬），以及充電方向的正值電流。</p></div>
+      <p>充電方向要電池沒滿才看得到，而且不是一沒滿就會充：電池約 89 %（12.20 V）時接著 adapter，電流仍剛好是 0，充電燈也不亮，看起來充電器有回充門檻。讓 Jetson 吃電池 31 分鐘、電壓降到 11.86 V 後再接上 adapter，充電燈亮了：</p>
+<pre class="out" data-marks>time,bus_V,shunt_mV,current_mA,power_mW
+12:45:35,11.864,-5.760,-576.000,6652.874
+12:45:45,12.172,13.720,1372.000,16699.264 «1»
+12:46:05,12.220,13.760,1376.000,16815.125</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>插上 adapter 的那一筆（背景每 10 秒跑一次 <code>build/ina219_raw</code> 的記錄）：電流由 −576 mA 變成 <b>+1372 mA</b>。同一個 shunt 上放電為負、充電為正，INA219 量的就是進出電池的電流。之後讀一次完整輸出，兩條路是 1377.000 / 1377.071 mA。</span></li>
+      </ol>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：實際拔掉 INA219 時的錯誤訊息（UPS 同時供電給 Jetson，拔了板子就斷電，只能用 0x45 模擬）。回充門檻只知道在 11.86～12.0 V 之間，沒有找出確切值。</p></div>
     </div>
   </section>
 
@@ -571,7 +579,8 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
         <li class="y">不用 Python library 的 <code>ina219_raw</code>：<code>I2C_RDWR</code> 讀、<code>be16()</code> 拼、整數換算，結果和 <code>i2cget</code> 對調後一致；位址沒回應時明確回報 I/O error。</li>
         <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">22</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
         <li class="y">拔掉 DC adapter 後電流約 −550 ～ −640 mA（放電為負），兩條電流路徑一致，功率和 V × I 相符（2026-10-12，不加參數 0 failure）。</li>
-        <li class="n">沒有實測：實際拔掉 INA219 時的錯誤（以 0x45 模擬）、充電方向的正值電流。</li>
+        <li class="y">充電方向：電池放到 11.86 V 後接上 adapter，電流 +1.377 A（充電為正）。</li>
+        <li class="n">沒有實測：實際拔掉 INA219 時的錯誤（以 0x45 模擬）。</li>
         <li class="n">沒有查證：shunt 電阻值（0.01 Ω 是範例註解的假設）。</li>
       </ul>
       <p>下一章 Step 7 把這一章的操作搬進 kernel：寫一個 <code>struct i2c_driver</code>，在 overlay 裡為 <code>c250000.i2c</code> 加一個 <code>ina219@41</code> 節點讓 kernel 建立 I2C client、呼叫 <code>probe()</code>，預計用 kernel 的 SMBus API 讀 register（要處理和 6b.4 同樣的 byte order），換算沿用 <code>ina219_decode.h</code> 的整數算式。這一章的工具就是它的對照組：driver 讀到的值應該和 <code>ina219_raw</code> 一樣。</p>

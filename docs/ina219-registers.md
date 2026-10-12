@@ -30,7 +30,10 @@ Step 6-b 實測。來源：TI INA219 datasheet（SBOS448）與 `build/ina219_raw
 
 - 位址沒有回 ACK（模組拔掉、位址錯）：`ioctl(I2C_RDWR)` 失敗，`errno = EREMOTEIO`（「Remote I/O error」）。實測用不存在的 0x45 模擬；**實際拔線未測**（遠端）。
 
+## 電流方向
+
+- 2026-10-12 實測：放電為負（拔掉 adapter，約 −0.52～−0.67 A），充電為正（電池放到 11.86 V 後接上 adapter，+1.377 A）。adapter 接著但充電器沒在充時是 0（電池約 89 % 時也是 0，有回充門檻）。
+
 ## 還沒驗證
 
-- 電流方向與大小（DC adapter 接著時電池充飽，shunt 0）：拔掉 adapter 的那一段要在板子旁邊跑 `bash scripts/verify_ina219_raw.sh`。
 - R_shunt 是否真的 0.01 Ω。
