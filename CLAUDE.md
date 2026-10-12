@@ -14,7 +14,7 @@ Build / test 指令會隨各 Step 落地而出現；新增時請回來更新本�
 ## 工作單位：Step
 
 - 一個 Step = 一個 branch = 一個 PR。一次只做一個 Step，完成、驗證、review 後才進下一個。
-- Branch 名稱用 `step-N`（拆分的用 `step-10a`），PR 標題用 `step-N: <一句話目標>`。
+- Branch 名稱用 `step-N`（拆分的用 `step-10a`），PR 標題用 `step-N: <一句話目標>`。**PR 的標題與描述一律用繁體中文**（`step-N:` 前綴、指令、程式碼、檔名與實測輸出照原樣）。
 - 動工前先讀對應 `phaseNN.md` 裡該 Step 的區塊（包在 `<!-- STEP_PLAN_START -->` / `<!-- STEP_DETAIL_START -->` 標記內），特別是「預期檔案」「驗證 / 驗收條件」「這一步不做」。**「這一步不做」是硬性範圍邊界**，不要提前實作後面 Step 的功能。
 - Step 編號跨 Phase 連續（Phase 10 是 Step 23–30，而 Phase 11 從 Step 31 開始）。
 
