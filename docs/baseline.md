@@ -219,7 +219,12 @@
   - `build/ina219_raw`：Config `0x0EEF`、Calibration `0x68F4` 和 `i2cget` 對調後相同；`bus voltage: 12.360 V (raw 3090 x 4 mV, CNVR=1 OVF=0)`；shunt、電流（兩條路徑）、功率都是 0。
   - 不存在的位址 0x45：結束碼 1，`/dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error`。
   - 容差：電壓「9.0～12.8 V」（同 6-a）；工具與 `i2cget` 只比 Config / Calibration，要完全相同（Bus Voltage 兩次讀之間會變）。拔掉 adapter 時判定「|I| ≥ 50 mA」（以 V_shunt / R 這條路徑）。
-- **未實測**：拔掉 DC adapter 後的電流（遠端）、實際拔掉 INA219 時的錯誤（以 0x45 模擬；UPS 同時供電給 Jetson，不拔）。下次在板子旁邊跑 `bash scripts/verify_ina219_raw.sh`（不加參數）。
+- 拔掉 DC adapter（2026-10-12，在板子旁邊，`bash scripts/verify_ina219_raw.sh` 不加參數）`=== 0 failure(s)`。adapter 在腳本開始前就拔掉，Jetson 吃電池：
+  - `build/ina219_raw`：Shunt `0xFD9B` = −6.130 mV、`current (shunt) -613.000 mA`、`current (reg) -612.997 mA`（差 0.003 mA，1 LSB = 0.152 mA）、Power `0x0998` = 7488.295 mW（12.212 V × 0.613 A = 7.486 W）、bus 12.212 V（adapter 接著、充飽時 12.36 V）。
+  - 20 秒 10 筆：bus 12.220～12.224 V，電流 −550～−592 mA；每筆兩條路徑差 ≤ 0.07 mA（< 1 LSB），沒碰到跨轉換。
+  - 正負號：放電為負，推論這塊模組接法是充電為正（充電方向的正值尚未看到）。Power register 無號，電流為負時仍是正值。
+  - 原本以為兩條電流路徑可能因為跨轉換差超過 1 LSB（code review 第 5 項）；這 11 筆都沒發生，但負載穩定時本來就不容易遇到，不代表不會。
+- **未實測**：實際拔掉 INA219 時的錯誤（以 0x45 模擬；UPS 同時供電給 Jetson，不拔）；充電方向的正值電流（要等電池沒滿時接上 adapter）。
 - 自動測試：`tests/test_ina219_decode.cpp` 7 組向量（`be16` MSB 先、bus 電壓去掉狀態位、CNVR / OVF、shunt 有號 10 µV、歐姆定律、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 LSB），由 `tests/test_ina219_raw.py` 16 個案例中的一個執行（另有原始碼契約 4、CLI 3、驗收腳本 4、實機 4；code review 後 22 個：原始碼契約 5、CLI 4、驗收腳本 8）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`；全套 167 個，`OK (skipped=43)`。
 - 紅燈紀錄：工具與 header 不存在時 4 failures + 3 errors；驗收腳本的測試在腳本寫好前 1 failure + 3 errors。變異測試：bytes 對調、bus 位移改 2、CNVR 改看 bit 0、shunt / current 當無號、power 少乘 10、歐姆定律少一個 0，7 種都讓向量測試失敗。
 - 規模：新增程式約 640 行（工具 139、header 69、C++ 測試 104、Python 測試 188、驗收腳本 134、CMake 4），在上限內；實作前估約 550 行。
