@@ -323,6 +323,17 @@ read_shunt_voltage()
 
 要特別處理 INA219 register byte order。
 
+### 實作決策（Step 7 落地時裁決）
+
+- 誰和誰互動：`cat /sys/bus/i2c/devices/7-0041/<attr>` → sysfs → `edge_ina219` 的 show callback → `i2c_smbus_read_word_swapped()` → I2C core → i2c-tegra（`c250000.i2c`，controller）→ INA219（target，0x41）
+- DT 節點加在同一份 `dts/edge-gpio-overlay.dts`（`fragment@4`，`target = <&hdr40_i2c1>`，基底 DT 的標籤，指向 `/bus@0/i2c@c250000`），位址用實際的 0x41，不是規劃範例的 0x40
+- byte order 用 `i2c_smbus_read_word_swapped()` / `write_word_swapped()` 處理，不自己對調
+- probe 先讀 Config 確認有 ACK，再寫範例的 Calibration（26868）與 Config（0x0EEF）；換算時每次從晶片讀回 Calibration（同 `ina219_raw`），是 0 就回 `ENODATA`
+- 不註冊 hwmon，userspace 介面是 driver 私有的唯讀 sysfs 屬性（`registers`、`bus_mv`、`shunt_uv`、`current_ua`、`power_uw`），Step 8 換掉
+- 換算放在 C header `include/edge_ina219_conv.h`（kernel 與 userspace 都能 include），C++ 測試把每個 16-bit 值和 6-b 的 `ina219_decode.h` 比
+- 除了 of match 也有 `i2c_device_id`（`edge_ina219`），驗收腳本用 `new_device` 在沒人回應的 0x45 建 client，驗證 probe 失敗（`-EREMOTEIO`）而不綁定
+- 和 6-b 對照用 `ina219_raw`（`I2C_RDWR`），不用 `i2cget`：driver 綁定後 `I2C_SLAVE` 回 `EBUSY`
+
 ### 預期檔案
 
 ```text
@@ -330,6 +341,12 @@ kernel/edge_ina219/
 ├── edge_ina219.c
 ├── Makefile
 └── README.md
+include/edge_ina219_conv.h
+dts/edge-gpio-overlay.dts（加 fragment@4）
+tests/test_edge_ina219_conv.cpp
+tests/test_edge_ina219_static.py
+tests/test_edge_ina219_device.py
+scripts/verify_edge_ina219.sh
 ```
 
 ### 驗證

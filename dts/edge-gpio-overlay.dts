@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Step 4: describe one LED on the 40-pin header so edge_gpio.ko can probe.
- * (Step 5-b adds the button, Step 7 the INA219 on the header I2C bus.)
  *
  *   header pin 29 (GPIO01, SoC pad PQ.05) --[330R..1k]-->|-- pin 30 (GND)
  *

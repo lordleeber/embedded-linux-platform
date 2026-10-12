@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 7　自製 INA219 I2C kernel driver — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step06b). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><span class="disabled">Step 8 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 7 · I2C（kernel，自己的 client driver）</div>
+    <h1>自製 INA219 I2C kernel driver</h1>
+    <p class="lede">6-b 在 userspace 用 <code>/dev/i2c-7</code> 自己讀 register；這一步把同一件事搬進 kernel。在 overlay 裡為 header 的 I2C 控制器加一個 <code>ina219@41</code> 子節點，kernel 開機時就會建立一個 <b class="hl-key">I2C client</b>；我們寫的 <code>edge_ina219.ko</code> 註冊一個 <code>struct i2c_driver</code>，compatible 相符時 kernel 呼叫它的 <code>probe()</code>。之後 userspace 只要 <code>cat</code> 一個 sysfs 檔，driver 就去讀晶片、換算好再回傳。驗收的標準是：<b class="hl-key">driver 讀到的值和 6-b 的 <code>ina219_raw</code> 一致</b>。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ina219/{edge_ina219.c, Makefile, README.md}</span>、<span class="new">include/edge_ina219_conv.h</span>、<span class="new">tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py}</span>、<span class="new">scripts/verify_edge_ina219.sh</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, ina219-registers.md, step06b.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（sysfs、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（edge_ina219）</span>
+      <span style="--c: var(--hw)">硬體（SoC、UPS 模組、INA219）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">7.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>同一個晶片，為什麼要再寫一次 kernel driver</h2>
+      <p><code>ina219_raw</code> 能讀，但每支想知道電池狀態的程式都得自己知道「bus 7、位址 0x41、register 0x02 右移 3 位乘 4 mV」，也都要有開 <code>/dev/i2c-7</code> 的權限。driver 把這些知識收進 kernel：<b>晶片是什麼、在哪裡</b>由 Device Tree 描述，<b>怎麼讀、怎麼換算</b>由 driver 負責，userspace 只看到一個已經換算好的數字。這也是之後 Step 8 接上標準 hwmon 介面的前提。</p>
+      <p><b>互動雙方</b>：controller 仍是 Jetson 的 <code>c250000.i2c</code>（<code>i2c-7</code>，header pin 3 / 5），target 仍是 UPS 模組上的 INA219（0x41）。不同的是發起讀取的一方：從 userspace 程式換成 kernel 裡的 <code>edge_ina219</code>。<b>這一步不做</b>：不註冊 hwmon（Step 8）；userspace 介面是這個 driver 私有的五個 sysfs 檔，Step 8 會換掉。</p>
+      <dl class="terms">
+        <dt>I2C client</dt><dd>kernel 裡代表「某條 bus 上某個位址的一顆裝置」的物件（<code>struct i2c_client</code>），在 sysfs 叫 <code>&lt;bus&gt;-&lt;4 位位址&gt;</code>，這裡是 <code>7-0041</code>。它可以先存在、之後才有 driver 來接管。</dd>
+        <dt>struct i2c_driver</dt><dd>I2C driver 向 I2C core 註冊的結構：支援哪些裝置（match 表）、綁定時呼叫的 <code>probe</code>、解除時呼叫的 <code>remove</code>。4-b / 5-b 的 platform driver 是同一個模式，只是換成 I2C bus。</dd>
+        <dt>bind / unbind</dt><dd>把一個 driver 接到一個 device 上（之後 probe 會被呼叫）或拆開（呼叫 remove）。<code>/sys/bus/i2c/devices/7-0041/driver</code> 這個連結存在，就代表已綁定。</dd>
+        <dt>i2c_device_id</dt><dd>第二種 match 表：用名字比對，給沒有 DT 節點、由 userspace 寫 <code>new_device</code> 建立的 client 用（7.10 用它造一個「沒人回應」的 client）。</dd>
+        <dt>sysfs attribute</dt><dd><code>/sys</code> 底下的一個檔案，讀它時 kernel 呼叫 driver 的 <code>show</code> 函式，函式把文字寫進一頁 buffer 回傳。<code>DEVICE_ATTR_RO(x)</code> 宣告一個唯讀檔 <code>x</code>，對應 <code>x_show()</code>。</dd>
+        <dt>UU</dt><dd><code>i2cdetect</code> 在位址已被某個 driver 綁定時印的標記：它不去探測，直接顯示 <code>UU</code>。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">7.2</span><b>全景</b>一次 cat 的旅程</div>
+    <div class="content">
+      <h2>cat bus_mv：從 sysfs 一路到 INA219</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 470" role="img" aria-label="userspace 的 cat 讀 /sys/bus/i2c/devices/7-0041/bus_mv；sysfs 呼叫 edge_ina219 的 bus_mv_show；它經 read_bus_voltage、read_reg16 呼叫 I2C core 的 i2c_smbus_read_word_swapped；i2c-tegra 在 c250000.i2c 上送出寫 pointer 0x02、repeated start、讀 2 byte；INA219 回傳 MSB 先的值，driver 換算成 mV 後回到 cat">
+          <defs>
+            <marker id="m7Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <a href="#run"><rect class="s-box" x="130" y="20" width="440" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="350" y="45" text-anchor="middle">cat /sys/bus/i2c/devices/7-0041/bus_mv</text>
+          <text class="s-sm" x="350" y="67" text-anchor="middle">不需要 root、不需要 i2c 群組（0444）</text></a>
+          <text class="s-mono" x="14" y="142">SYSFS</text>
+          <a href="#attrs"><rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="135" text-anchor="middle">driver core：dev_groups → bus_mv 檔</text>
+          <text class="s-sm" x="350" y="156" text-anchor="middle">read() 時呼叫這個屬性的 show 函式</text></a>
+          <text class="s-mono" x="14" y="232">DRIVER</text>
+          <a href="#helpers"><rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="350" y="225" text-anchor="middle">bus_mv_show → read_bus_voltage → read_reg16</text>
+          <text class="s-sm" x="350" y="246" text-anchor="middle">edge_ina219.ko：換算用 include/edge_ina219_conv.h</text></a>
+          <text class="s-mono" x="14" y="322">I2C CORE</text>
+          <a href="#swap"><rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="315" text-anchor="middle">i2c_smbus_read_word_swapped → i2c-tegra</text>
+          <text class="s-sm" x="350" y="336" text-anchor="middle">SMBus read word，回來後 swab16 對調成 MSB 在前</text></a>
+          <text class="s-mono" x="14" y="412">TARGET</text>
+          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="405" text-anchor="middle">c250000.i2c → INA219 @ 0x41</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">寫 pointer 0x02 · RESTART · 讀 0x5E 0xBA</text>
+          <line class="sv-down" x1="350" y1="83" x2="350" y2="106" marker-end="url(#m7Down)"/>
+          <line class="sv-down" x1="350" y1="169" x2="350" y2="196" marker-end="url(#m7Down)"/>
+          <line class="sv-down" x1="350" y1="259" x2="350" y2="286" marker-end="url(#m7Down)"/>
+          <line class="sv-down" x1="350" y1="349" x2="350" y2="376" marker-end="url(#m7Down)"/>
+          <text class="s-sm" x="585" y="226">probe() 時先寫好</text>
+          <text class="s-sm" x="585" y="244">Cal 與 Config（7.5）</text>
+          <text class="s-sm" x="585" y="406">0x5EBA → 12124 mV</text>
+          <text class="s-sm" x="585" y="44">回傳 "12124\n"</text>
+        </svg>
+        <figcaption>圖 7.1 — 線上的傳輸和 6-b 的 ina219_raw 是同一種（寫 pointer、repeated start、讀 2 byte）；變的是誰發起、誰管 byte order、誰換算：這些都搬進了 kernel。數字取自 7.10 的實測。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>這張圖只畫了「讀」。在它之前還有兩件事：開機時 kernel 依 Device Tree 建立 client <code>7-0041</code>（7.3），<code>insmod</code> 時 I2C core 把它和我們的 driver 配對、呼叫 <code>probe()</code>（7.4、7.5）。</p>
+    </div>
+  </section>
+
+  <section id="dt">
+    <div class="rail"><span class="no">7.3</span><b>描述</b><span class="dot" style="background: var(--hw)"></span>Device Tree</div>
+    <div class="content">
+      <h2>在 header I2C 底下加一個 ina219@41</h2>
+      <p>INA219 不會自己報到：I2C 沒有「列舉」機制，kernel 不知道 bus 上有什麼，只能靠 Device Tree 告訴它。節點加在 4-b / 5-b 用的同一份 overlay 裡，第五個 fragment：</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:97–114 — 掛在 hdr40_i2c1 底下，reg 就是 7-bit 位址</figcaption>
+<pre data-start="97" data-hot="104,106,107,109,110,111">	/*
+	 * Step 7: the INA219 on the UPS Power Module (C), header pins 3 (SDA) /
+	 * 5 (SCL). hdr40_i2c1 is the base tree's label for /bus@0/i2c@c250000,
+	 * which Linux numbers i2c-7. At boot the I2C core turns this child into
+	 * client 7-0041; it stays unbound until edge_ina219.ko is loaded.
+	 */
+	fragment@4 {
+		target = &lt;&amp;hdr40_i2c1&gt;;
+		__overlay__ {
+			#address-cells = &lt;1&gt;;
+			#size-cells = &lt;0&gt;;
+
+			ina219@41 {
+				compatible = "edge,ina219";
+				reg = &lt;0x41&gt;;
+			};
+		};
+	};</pre></figure>
+      <ul>
+        <li><b><code>target = &lt;&amp;hdr40_i2c1&gt;</code></b>：<code>hdr40_i2c1</code> 是基底 DT 裡的標籤，指向 <code>/bus@0/i2c@c250000</code>，也就是 <code>i2cdetect -l</code> 的 <code>c250000.i2c</code>（6b.3）。用標籤而不寫路徑，overlay 編譯時留下一筆 <code>__fixups__</code>，由 bootloader 合併時解析。在這台板子上可以自己查：<code>tr -d '\0' &lt; /proc/device-tree/__symbols__/hdr40_i2c1</code> 印出 <code>/bus@0/i2c@c250000</code>。</li>
+        <li><b><code>#address-cells = &lt;1&gt;; #size-cells = &lt;0&gt;;</code></b>：I2C 子節點的 <code>reg</code> 只有一格位址、沒有長度。基底 DT 的控制器節點已經這樣寫了，但 <code>dtc</code> 單獨編 overlay 時看不到基底，會用預設的 2 和 1，報 <code>reg_format</code> 等一串 warning（把這兩行刪掉實測過），所以 overlay 裡再寫一次。</li>
+        <li><b><code>reg = &lt;0x41&gt;</code></b>：phase03.md 的範例寫 <code>ina219@40</code>，這塊模組實際掃到的是 0x41（6a），節點名稱 <code>@</code> 後面要和 <code>reg</code> 一致。</li>
+        <li><b><code>compatible = "edge,ina219"</code></b>：故意不用 <code>"ti,ina219"</code>。這台 kernel 有 <code>CONFIG_SENSORS_INA2XX=m</code>，上游的 <code>ina2xx</code> driver 認 <code>ti,ina219</code>，寫了它可能被自動載入搶走裝置。</li>
+      </ul>
+      <p>改完 overlay 要重新編、安裝、重開機（這台沒有 runtime overlay，4-b 的做法）。安裝前先在本機用 <code>fdtoverlay</code> 把「基底 FDT + NVIDIA 的相機 overlay + 我們的 overlay」合併一次，確認節點真的落在 <code>/bus@0/i2c@c250000</code> 底下；這件事寫成了 <code>test_overlay_applies_to_the_boot_fdt</code>。重開機後，在 repo 根目錄看兩個地方：</p>
+<pre class="cmd">ls /proc/device-tree/bus@0/i2c@c250000/ina219@41/
+ls /sys/bus/i2c/devices/7-0041/ &amp;&amp; cat /sys/bus/i2c/devices/7-0041/name</pre>
+<pre class="out" data-marks>compatible  name  reg «1»
+modalias  name  of_node  power  subsystem  uevent «2»
+ina219 «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>節點進了開機時的 DT。</span></li>
+        <li><span class="mk">2</span><span>I2C core 依節點建立了 client <code>7-0041</code>，但目錄裡<b>沒有 <code>driver</code> 連結</b>：還沒有人接管它。這是 <code>edge_ina219.ko</code> 沒載入時的樣子，載入後會多出 <code>driver</code> 和五個屬性檔。</span></li>
+        <li><span class="mk">3</span><span>client 的名字取自節點名 <code>ina219@41</code> 的 <code>@</code> 前面。</span></li>
+      </ol>
+      <p>你的板子如果還沒裝這份 overlay，第一行會是 <code>No such file or directory</code>，<code>7-0041</code> 也不存在；裝 overlay 的指令在 7.10。</p>
+    </div>
+  </section>
+
+  <section id="match">
+    <div class="rail"><span class="no">7.4</span><b>配對</b><span class="dot" style="background: var(--drv)"></span>i2c_driver</div>
+    <div class="content">
+      <h2>i2c_driver：兩張 match 表、probe、remove</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:188–210 — 用 compatible 或名字配對；屬性檔掛在 driver 上</figcaption>
+<pre data-start="188" data-hot="189,195,203,204,206,207,210">static const struct of_device_id edge_ina219_of_match[] = {
+	{ .compatible = "edge,ina219" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, edge_ina219_of_match);
+
+static const struct i2c_device_id edge_ina219_id[] = {
+	{ "edge_ina219", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, edge_ina219_id);
+
+static struct i2c_driver edge_ina219_driver = {
+	.driver = {
+		.name = "edge_ina219",
+		.of_match_table = edge_ina219_of_match,
+		.dev_groups = edge_ina219_groups,
+	},
+	.probe_new = edge_ina219_probe,
+	.remove = edge_ina219_remove,
+	.id_table = edge_ina219_id,
+};
+module_i2c_driver(edge_ina219_driver);</pre></figure>
+      <ul>
+        <li><b><code>of_match_table</code></b>：client <code>7-0041</code> 有 DT 節點（<code>of_node</code>），I2C core 拿節點的 <code>compatible</code> 和這張表比，相符就呼叫 <code>probe</code>。<code>MODULE_DEVICE_TABLE(of, …)</code> 讓 client 的 modalias（<code>cat /sys/bus/i2c/devices/7-0041/modalias</code> 印出 <code>of:Nina219T(null)Cedge,ina219</code>）可以對到這個 module；這個 module 沒有裝進 <code>/lib/modules</code>，所以不會自動載入，要手動 <code>insmod</code>。</li>
+        <li><b><code>id_table</code></b>：沒有 DT 節點的 client 只能靠名字配對。驗收腳本用它在 0x45 建一個 client，證明位址沒回應時 probe 會失敗（7.10）。</li>
+        <li><b><code>.dev_groups</code></b>：屬性檔由 driver core 在 probe 成功後建立、在 remove 時刪除，driver 不必自己呼叫 <code>sysfs_create_group</code>，也就不會漏刪。probe 失敗的 client 不會有這些檔。</li>
+        <li><b><code>.probe_new</code></b>：5.15 的 <code>struct i2c_driver</code> 有兩種 probe：舊的 <code>probe(client, id)</code> 和新的 <code>probe_new(client)</code>。我們不需要 <code>id</code>，用新的（較新的 kernel 已把 <code>probe_new</code> 改名回 <code>probe</code>）。</li>
+        <li><b><code>module_i2c_driver()</code></b>：展開成 module init / exit，分別呼叫 <code>i2c_add_driver</code> / <code>i2c_del_driver</code>。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="probe">
+    <div class="rail"><span class="no">7.5</span><b>綁定</b><span class="dot" style="background: var(--drv)"></span>probe()</div>
+    <div class="content">
+      <h2>probe：先確認有人回應，再寫 Calibration 和 Config</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:156–179 — 讀 Config 當作「有沒有 ACK」的檢查；Cal 先寫、Config 後寫</figcaption>
+<pre data-start="156" data-hot="161,162,163,169,172,176">static int edge_ina219_probe(struct i2c_client *client)
+{
+	int config, ret;
+
+	/* Is anyone there? No ACK at this address fails here with -EREMOTEIO. */
+	config = read_reg16(client, EDGE_INA219_REG_CONFIG);
+	if (config &lt; 0)
+		return dev_err_probe(&amp;client-&gt;dev, config, "cannot read Config\n");
+
+	/*
+	 * Calibration first: Current and Power use it from the next conversion on,
+	 * and writing Config restarts the conversion.
+	 */
+	ret = write_reg16(client, EDGE_INA219_REG_CAL, EDGE_INA219_CAL);
+	if (ret)
+		return dev_err_probe(&amp;client-&gt;dev, ret, "cannot write Calibration\n");
+	ret = write_reg16(client, EDGE_INA219_REG_CONFIG, EDGE_INA219_CONFIG);
+	if (ret)
+		return dev_err_probe(&amp;client-&gt;dev, ret, "cannot write Config\n");
+
+	dev_info(&amp;client-&gt;dev, "probed: Config 0x%04X -&gt; 0x%04X, Cal %u, shunt %d mohm\n",
+		 config, EDGE_INA219_CONFIG, EDGE_INA219_CAL, EDGE_INA219_SHUNT_MOHM);
+	return 0;
+}</pre></figure>
+      <ul>
+        <li><b>第一次讀就是存在檢查</b>：DT 說 0x41 有裝置，不代表線有接、模組有電。位址沒 ACK 時 <code>read_reg16</code> 回 <code>-EREMOTEIO</code>，probe 回傳錯誤，I2C core 就不綁定、不建屬性檔。<code>dev_err_probe()</code> 印錯誤並原樣回傳錯誤碼，dmesg 會出現 <code>error -EREMOTEIO: cannot read Config</code>（7.10 實測）。</li>
+        <li><b>為什麼 probe 要寫入</b>：INA219 上電時 Calibration 是 0，這時晶片不算 Current / Power（6b.7）。6-b 的工具只讀不寫，要靠先跑過廠商範例。driver 在 probe 把範例的值（Cal 26868、Config <code>0x0EEF</code>）寫進去，之後不依賴範例。兩個值放在共用 header，和 6-a 讀範例時一致（7.8 的 header）。</li>
+        <li><b>順序</b>：先寫 Calibration，再寫 Config。Calibration 從下一次轉換開始生效，而寫 Config 會重新開始轉換，這樣第一筆新轉換就用到新的 Calibration。測試把這個順序寫死（反過來會紅）。這個順序的效果沒有在晶片上單獨量過，理由取自 datasheet 的描述。</li>
+        <li><b>沒有 private data</b>：這個 driver 不存任何狀態，所以沒有 <code>devm_kzalloc</code>、<code>i2c_set_clientdata</code>。換算要用的 Calibration 每次都從晶片讀（7.7）。</li>
+      </ul>
+      <div class="callout"><p><b>這次 probe 的寫入其實沒有改變任何值</b>：dmesg 是 <code>Config 0x0EEF -&gt; 0x0EEF</code>，insmod 前 Calibration 也已經是 <code>0x68F4</code>。UPS 模組一直供電給 INA219，Jetson 重開機不會讓它斷電，前幾章範例寫的值一直留著。要看到 probe 從 Cal 0 寫起的效果，得讓 UPS 本身斷電（拔電池），這次沒做。</p></div>
+    </div>
+  </section>
+
+  <section id="swap">
+    <div class="rail"><span class="no">7.6</span><b>byte order</b><span class="dot" style="background: var(--kern)"></span>_swapped</div>
+    <div class="content">
+      <h2>byte order：kernel 已經有現成的對調</h2>
+      <p>6b.4 看過：SMBus word 規定低位 byte 先送，INA219 是高位先送，所以 <code>i2cget ... w</code> 讀到的 Config 是 <code>0xef0e</code>。kernel 的 SMBus API 有同樣的問題，也有現成的解法：</p>
+      <figure class="listing"><figcaption>/lib/modules/5.15.148-tegra/build/include/linux/i2c.h:161–174 — 讀完 word 再 swab16，寫之前先 swab16</figcaption>
+<pre data-start="161" data-hot="165,167,171,173">static inline s32
+i2c_smbus_read_word_swapped(const struct i2c_client *client, u8 command)
+{
+	s32 value = i2c_smbus_read_word_data(client, command);
+
+	return (value &lt; 0) ? value : swab16(value);
+}
+
+static inline s32
+i2c_smbus_write_word_swapped(const struct i2c_client *client,
+			     u8 command, u16 value)
+{
+	return i2c_smbus_write_word_data(client, command, swab16(value));
+}</pre></figure>
+      <p>這就是 6-b 驗收腳本裡「把 <code>i2cget</code> 的值對調」那一步，由 kernel 做。錯誤時（負數）不對調、原樣回傳。我們的兩個 helper 只是包一層，讓 driver 其他地方只看得到「讀 / 寫一個 16-bit register」：</p>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:31–40 — 回傳值 0..0xFFFF 或負的 errno</figcaption>
+<pre data-start="31" data-hot="34,39">/* Returns the register value (0..0xFFFF) or a negative errno. */
+static int read_reg16(struct i2c_client *client, u8 reg)
+{
+	return i2c_smbus_read_word_swapped(client, reg);
+}
+
+static int write_reg16(struct i2c_client *client, u8 reg, u16 value)
+{
+	return i2c_smbus_write_word_swapped(client, reg, value);
+}</pre></figure>
+      <p>如果誤用 <code>i2c_smbus_read_word_data()</code>，Bus Voltage <code>0x5EBA</code> 會讀成 <code>0xBA5E</code>，算出 23.852 V。測試禁止 driver 出現沒有 <code>_swapped</code> 的版本；把它換回去，測試會紅（變異測試做過）。</p>
+    </div>
+  </section>
+
+  <section id="helpers">
+    <div class="rail"><span class="no">7.7</span><b>helper</b><span class="dot" style="background: var(--drv)"></span>錯誤往上傳</div>
+    <div class="content">
+      <h2>helper：讀不到就回傳 errno，不回舊值</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:42–79 — 每個 helper 都是「讀、失敗就 return、成功才換算」</figcaption>
+<pre data-start="42" data-hot="47,48,58,59,67,71,72">/* Bus voltage in mV, status bits dropped. */
+static int read_bus_voltage(struct i2c_client *client, s32 *mv)
+{
+	int ret = read_reg16(client, EDGE_INA219_REG_BUS);
+
+	if (ret &lt; 0)
+		return ret;
+	*mv = edge_ina219_bus_mv(ret);
+	return 0;
+}
+
+/* Shunt voltage in uV, signed. */
+static int read_shunt_voltage(struct i2c_client *client, s32 *uv)
+{
+	int ret = read_reg16(client, EDGE_INA219_REG_SHUNT);
+
+	if (ret &lt; 0)
+		return ret;
+	*uv = edge_ina219_shunt_uv(ret);
+	return 0;
+}
+
+/* A register that needs Current_LSB (Current or Power) plus the Calibration. */
+static int read_calibrated(struct i2c_client *client, u8 reg, u16 *raw, u16 *cal)
+{
+	int ret = read_reg16(client, EDGE_INA219_REG_CAL);
+
+	if (ret &lt; 0)
+		return ret;
+	if (ret == 0)
+		return -ENODATA;	/* power-on value: the chip computes nothing */
+	*cal = ret;
+	ret = read_reg16(client, reg);
+	if (ret &lt; 0)
+		return ret;
+	*raw = ret;
+	return 0;
+}</pre></figure>
+      <ul>
+        <li><b>錯誤一路往上</b>：<code>read_reg16</code> 的負數由 helper 回傳，再由 show 函式回傳給 sysfs，最後變成 userspace <code>read()</code> 的錯誤（<code>cat</code> 會印 <code>Remote I/O error</code>）。沒有快取，所以不會有「I2C 斷了但檔案還印上一次的值」的情況。讀屬性途中 I2C 失敗這一路<b>沒有實測</b>，只實測了 probe 時的 <code>-EREMOTEIO</code>。</li>
+        <li><b><code>read_calibrated()</code></b>：Current 和 Power 要乘 Current_LSB，而 Current_LSB 由 Calibration 算出，所以先讀 Calibration。它是 0 時回 <code>-ENODATA</code>，不然換算會除以 0（6-b 的工具在這時印 <code>n/a</code>）。每次都從晶片讀，而不是相信 probe 寫進去的常數：有人在 driver 綁定時用 <code>i2cset -f</code> 或範例改了 Calibration，driver 和 <code>ina219_raw</code> 也還是用同一個值換算。</li>
+        <li><b>不是同一次轉換</b>：讀 Current 和讀 Calibration 是兩筆 I2C 傳輸，和 6-b 的六次讀一樣，中間可能跨過一次轉換（約 34 ms 一次）。Calibration 不會自己變，所以這裡沒問題；但 <code>current_ua</code> 和 <code>shunt_uv</code> 分兩次 <code>cat</code> 時可能來自不同轉換。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="attrs">
+    <div class="rail"><span class="no">7.8</span><b>介面</b><span class="dot" style="background: var(--kern)"></span>sysfs</div>
+    <div class="content">
+      <h2>五個唯讀屬性，換算在共用 header</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:120–154 — show 函式只做「讀、換算、sysfs_emit」；ATTRIBUTE_GROUPS 產生 edge_ina219_groups</figcaption>
+<pre data-start="120" data-hot="124,126,127,128,129,131,154">static ssize_t current_ua_show(struct device *dev, struct device_attribute *attr,
+			       char *buf)
+{
+	u16 raw, cal;
+	int ret = read_calibrated(to_i2c_client(dev), EDGE_INA219_REG_CURRENT, &amp;raw, &amp;cal);
+
+	if (ret)
+		return ret;
+	return sysfs_emit(buf, "%lld\n",
+			  edge_ina219_current_ua(raw, cal, EDGE_INA219_SHUNT_MOHM));
+}
+static DEVICE_ATTR_RO(current_ua);
+
+static ssize_t power_uw_show(struct device *dev, struct device_attribute *attr,
+			     char *buf)
+{
+	u16 raw, cal;
+	int ret = read_calibrated(to_i2c_client(dev), EDGE_INA219_REG_POWER, &amp;raw, &amp;cal);
+
+	if (ret)
+		return ret;
+	return sysfs_emit(buf, "%lld\n",
+			  edge_ina219_power_uw(raw, cal, EDGE_INA219_SHUNT_MOHM));
+}
+static DEVICE_ATTR_RO(power_uw);
+
+static struct attribute *edge_ina219_attrs[] = {
+	&amp;dev_attr_registers.attr,
+	&amp;dev_attr_bus_mv.attr,
+	&amp;dev_attr_shunt_uv.attr,
+	&amp;dev_attr_current_ua.attr,
+	&amp;dev_attr_power_uw.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(edge_ina219);</pre></figure>
+      <table>
+        <thead><tr><th>檔案（0444）</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td><code>registers</code></td><td>六個 register 原始值，給和 <code>ina219_raw</code> 逐格比對用</td></tr>
+          <tr><td><code>bus_mv</code></td><td>Bus Voltage，mV，去掉 CNVR / OVF 兩個狀態位</td></tr>
+          <tr><td><code>shunt_uv</code></td><td>Shunt Voltage，µV，有號（放電為負，6-b 實測）</td></tr>
+          <tr><td><code>current_ua</code></td><td>Current register × Current_LSB，µA，有號；Calibration 為 0 時 <code>ENODATA</code></td></tr>
+          <tr><td><code>power_uw</code></td><td>Power register × 20 × Current_LSB，µW，無號</td></tr>
+        </tbody>
+      </table>
+      <p>輸出都是整數加換行、用 milli / micro 單位，不印「12.1 V」這種字串。這是 Step 8 hwmon 的單位慣例的前身；檔名和路徑則是這個 driver 自己發明的，Step 8 會換掉。<code>sysfs_emit()</code> 是寫 sysfs buffer 的標準函式，會檢查不超過一頁。</p>
+      <p>換算公式沒有寫在 driver 裡，而是放在一個 kernel 和 userspace 都能 include 的 C header。kernel 沒有浮點運算，6-b 的 <code>ina219_decode.h</code> 本來就只用整數，這裡改寫成 C：</p>
+      <figure class="listing"><figcaption>include/edge_ina219_conv.h:18–26 — 在 kernel 用 linux/types.h，在 userspace 自己 typedef 同名的型別</figcaption>
+<pre data-start="18" data-hot="18,19,21,22">#ifdef __KERNEL__
+#include &lt;linux/types.h&gt;
+#else
+#include &lt;stdint.h&gt;
+typedef uint16_t u16;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+#endif</pre></figure>
+      <figure class="listing"><figcaption>include/edge_ina219_conv.h:45–64 — 和 6-b 同一套整數算式；有號的值先轉 s16</figcaption>
+<pre data-start="45" data-hot="47,52,58,63">static inline s32 edge_ina219_bus_mv(u16 raw)
+{
+	return (raw &gt;&gt; 3) * 4;
+}
+
+static inline s32 edge_ina219_shunt_uv(u16 raw)
+{
+	return (s16)raw * 10;
+}
+
+/* Current_LSB in uA = 40960000 / (Cal x R[mohm]); cal must be non-zero. */
+static inline s64 edge_ina219_current_ua(u16 raw, u16 cal, s32 shunt_mohm)
+{
+	return (s64)(s16)raw * 40960000 / ((s64)cal * shunt_mohm);
+}
+
+static inline s64 edge_ina219_power_uw(u16 raw, u16 cal, s32 shunt_mohm)
+{
+	return (s64)raw * 20 * 40960000 / ((s64)cal * shunt_mohm);
+}</pre></figure>
+      <p>這樣做的好處是可以在 userspace 測 kernel 的算式：<code>tests/test_edge_ina219_conv.cpp</code> 同時 include 這份 header 和 6-b 的 <code>ina219_decode.h</code>，把 0x0000～0xFFFF 每個值、四種 Calibration 都丟進兩邊，結果必須一模一樣：</p>
+      <figure class="listing"><figcaption>tests/test_edge_ina219_conv.cpp:55–72 — 65536 個值 × 4 個 Cal，driver 的算式和 ina219_raw 的算式逐值比較</figcaption>
+<pre data-start="55" data-hot="59,61,62,67,68,69">void test_same_arithmetic_as_ina219_raw()
+{
+    // Every 16-bit value through both decoders, at the sample's Cal and at the extremes.
+    const std::uint16_t cals[] = {1, 4096, 26868, 0xFFFE};
+    for (std::uint32_t r = 0; r &lt;= 0xFFFF; ++r) {
+        const auto raw = static_cast&lt;std::uint16_t&gt;(r);
+        if (edge_ina219_bus_mv(raw) != ina219::bus_mV(raw) ||
+            edge_ina219_shunt_uv(raw) != ina219::shunt_uV(raw)) {
+            std::printf("FAIL voltage differs from ina219_decode.h at 0x%04X\n", raw);
+            ++failures;
+            return;
+        }
+        for (std::uint16_t cal : cals) {
+            if (edge_ina219_current_ua(raw, cal, 10) != ina219::current_uA(raw, cal, 10) ||
+                edge_ina219_power_uw(raw, cal, 10) != ina219::power_uW(raw, cal, 10)) {
+                std::printf("FAIL current/power differs at raw 0x%04X cal %u\n", raw, cal);
+                ++failures;
+                return;</pre></figure>
+      <p>在 repo 根目錄自己跑一次：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_edge_ina219_conv &gt;/dev/null &amp;&amp; build/test_edge_ina219_conv</pre>
+<pre class="out">all edge_ina219_conv checks passed</pre>
+      <p>64-bit 除法在 arm64 可以直接用 <code>/</code>；要搬到 32-bit ARM，kernel 裡要改成 <code>div_s64()</code>（沒有 libgcc 的 64-bit 除法），這份 header 就不能原樣共用了。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">7.9</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：從 6-b 的規格和實測值長出來</h2>
+      <p>測試在 driver 寫好之前就寫好、跑過一次，29 個案例 21 個紅、7 個（實機）skip。期望值來自 driver 以外的地方：基底 DT 的標籤、6-a 掃到的位址、6-b 的 decoder 與實測讀值。</p>
+      <ul>
+        <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py">23</span> 個，不需要硬體。overlay（6）：兩個 dtbo 都有 <code>ina219@41</code>、<code>compatible</code> 與 <code>reg</code>；fragment 的 target 是 <code>hdr40_i2c1</code> 的 fixup；這個標籤在板上指向 <code>/bus@0/i2c@c250000</code>；子節點的 cells；和真正的開機 FDT 合併得起來；LED、按鍵節點還在。driver 原始碼契約（10）：是 <code>i2c_driver</code>、兩張 match 表、probe / remove 有接上、只用 <code>_swapped</code>、規劃列的四個 helper（<code>read_reg16</code> 等）都在、probe 先讀再寫 Cal 再寫 Config、helper 遇到錯誤就 return、算式來自共用 header、Calibration 為 0 要回 <code>-ENODATA</code>、沒有 hwmon、屬性全部唯讀。build（2）：module 對 running kernel 編得過且沒有 warning、換算向量全過。驗收腳本（5）。</li>
+        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">7</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑（驗收腳本設 <code>EDGE_INA219_REQUIRE=1</code>，沒綁定就算失敗）：屬性是 0444、<code>registers</code> 的格式、Config / Cal 是範例值、電壓在 9.0～12.8 V、整數加換行、和 <code>ina219_raw</code> 比（Config / Cal 完全相同，電壓差 ≤ 40 mV、電流差 ≤ 50 mA）、連讀 100 次不出錯。</li>
+        <li><b>變異測試</b>：shunt 當無號、bus 右移 2 位、current 當無號、<code>_swapped</code> 換成 <code>read_word_data</code>、probe 先寫 Config 再寫 Cal，5 種改法都讓測試紅。</li>
+      </ul>
+      <p>在 repo 根目錄跑不需硬體的那一份（約 2 秒，會順便在 <code>kernel/edge_ina219/</code> 裡編 module）：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p test_edge_ina219_static.py</pre>
+<pre class="out">.......................
+----------------------------------------------------------------------
+Ran 23 tests in 1.169s
+
+OK</pre>
+      <p>板子上沒有 <code>/proc/device-tree/__symbols__/hdr40_i2c1</code>、或 <code>/boot</code> 裡沒有這台的 FDT 時，有兩個案例會 skip，結尾變成 <code>OK (skipped=N)</code>；沒有 <code>dtc</code> 時整組 overlay 測試 skip。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">7.10</span><b>驗收</b>driver ↔ ina219_raw</div>
+    <div class="content">
+      <h2>驗收：綁定、比對、0x45、解除綁定</h2>
+      <p>先在 repo 根目錄編 overlay、裝到開機設定、重開機（4-b 的流程，會改 <code>/boot/extlinux/extlinux.conf</code>，第一次會留備份）：</p>
+<pre class="cmd">make -C dts
+sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo
+sudo reboot</pre>
+      <p>重開機後跑驗收（要 root；會自己編 module 和 <code>ina219_raw</code>）。腳本做的事比章裡講的多：</p>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>make -C kernel/edge_ina219</code>、建置 <code>build/ina219_raw</code></td><td>腳本以 <code>sudo</code> 前的使用者身分自己編（第 55–64 行）</td></tr>
+          <tr><td>知道 bus 是 7</td><td>用 <code>i2cdetect -l</code> 找 <code>c250000.i2c</code>，再把 bus 號傳給 device 測試</td></tr>
+          <tr><td><code>insmod</code> / <code>rmmod</code></td><td>腳本自己載入、卸載；中途中斷時 <code>trap</code> 會 <code>rmmod</code>、刪掉 0x45 的 client</td></tr>
+          <tr><td>判斷這次開機有沒有 DT 節點</td><td>看 <code>/proc/device-tree/bus@0/i2c@c250000/ina219@41</code>：沒有就只檢查「什麼都不綁定」</td></tr>
+        </tbody>
+      </table>
+<pre class="cmd">sudo bash scripts/verify_edge_ina219.sh</pre>
+      <p>2026-10-12 重開機後的實測輸出（DC adapter 接著、電池沒在充電）：</p>
+<pre class="out" data-marks>PASS build edge_ina219.ko
+PASS build ina219_raw, test_edge_ina219_conv (CMake)
+PASS conversion vectors
+PASS vermagic matches running kernel
+    bus: c250000.i2c = i2c-7
+--- /proc/device-tree/bus@0/i2c@c250000/ina219@41 present: checking probe, sysfs values and unbind
+    DT node: compatible 'edge,ina219', reg  00 00 00 41
+PASS client 7-0041 exists, unbound, before insmod «1»
+PASS client name 'ina219' (from the node name)
+    before insmod: 0x00 config 0x0EEF 0x05 calibration 0x68F4 «2»
+PASS 7-0041 bound to edge_ina219
+PASS i2cdetect shows UU at 0x41 «3»
+PASS i2cget without -f refused while bound: Error: Could not set address to 0x41: Device or resource busy «4»
+    registers   0x0EEF 0x0000 0x5EBA 0x0000 0x0000 0x68F4 «5»
+    bus_mv      12124
+    shunt_uv    0
+    current_ua  0
+    power_uw    0
+PASS ina219_raw still reads with the driver bound
+    INA219 on /dev/i2c-7 at 0x41
+    reg  name           raw
+    0x00 config         0x0EEF
+    0x01 shunt_voltage  0x0000
+    0x02 bus_voltage    0x5EBA
+    0x03 power          0x0000
+    0x04 current        0x0000
+    0x05 calibration    0x68F4
+    bus voltage:     12.124 V   (raw 3031 x 4 mV, CNVR=1 OVF=0)
+    shunt voltage:   0.000 mV  (10 uV per bit, signed)
+    current (shunt): 0.000 mA  (V_shunt / 0.01 ohm)
+    current (reg):   0.000 mA  (Current_LSB = 0.04096 / (Cal x 0.01 ohm))
+    power (reg):     0.000 mW  (20 x Current_LSB, unsigned)
+PASS device unittest as nvidia (Ran 7 tests in 0.090s)
+PASS client at 0x45 created and left unbound «6»
+PASS module and /sys/bus/i2c/drivers/edge_ina219 gone
+PASS client stays, unbound, attributes gone «7»
+PASS i2cdetect shows 41 again
+PASS dmesg free of Oops/BUG/WARNING
+PASS dmesg shows 1 probe / 1 remove for 7-0041
+PASS probe at 0x45 failed with -EREMOTEIO
+    [  269.931706] edge_ina219 verify 4447 1791787070
+    [  269.954081] edge_ina219: module verification failed: signature and/or required key missing - tainting kernel «8»
+    [  269.955255] edge_ina219 7-0041: probed: Config 0x0EEF -&gt; 0x0EEF, Cal 26868, shunt 10 mohm
+    [  270.276707] edge_ina219 7-0045: error -EREMOTEIO: cannot read Config
+    [  270.276723] edge_ina219: probe of 7-0045 failed with error -121
+    [  270.276786] i2c i2c-7: new_device: Instantiated device edge_ina219 at 0x45
+    [  270.287136] i2c i2c-7: delete_device: Deleting device edge_ina219 at 0x45
+    [  270.289756] edge_ina219 7-0041: removed
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>client 先於 driver 存在：DT 描述的是硬體，和 module 有沒有載入無關。</span></li>
+        <li><span class="mk">2</span><span>insmod 前 Calibration 已經是 <code>0x68F4</code>：INA219 沒有隨 Jetson 重開機斷電（7.5 的 callout）。</span></li>
+        <li><span class="mk">3</span><span>綁定後 <code>i2cdetect</code> 不再探測 0x41，直接印 <code>UU</code>。</span></li>
+        <li><span class="mk">4</span><span>i2c-dev 的 <code>I2C_SLAVE</code> 會檢查這個位址有沒有被 driver 綁定，有就回 <code>EBUSY</code>（<code>i2cget -f</code> 用的 <code>I2C_SLAVE_FORCE</code> 才會略過）。所以 6-b 的 <code>verify_ina219_raw.sh</code> 要在 driver 卸載時跑。<code>ina219_raw</code> 用 <code>I2C_RDWR</code>，每個 message 自帶位址、不做這個檢查，所以下面照樣讀得到。</span></li>
+        <li><span class="mk">5</span><span><b class="hl-ok">六個 register 和 ina219_raw 完全相同</b>，<code>bus_mv</code> 12124 = <code>0x5EBA</code> 右移 3 位（3031）× 4 mV，和工具的 12.124 V 一致。電流與功率兩邊都是 0：adapter 接著、電池約 12.12 V 還在回充門檻之上，沒在充也沒在放（6-b）。</span></li>
+        <li><span class="mk">6</span><span>腳本用 <code>new_device</code> 在 0x45 建一個名字是 <code>edge_ina219</code> 的 client，靠 <code>id_table</code> 配對；probe 第一次讀就沒 ACK，dmesg 是 <code>error -EREMOTEIO: cannot read Config</code>，I2C core 接著印 <code>failed with error -121</code>（<code>EREMOTEIO</code> 的數值）。這是「模組沒接上時 driver 不會假裝成功」的模擬。</span></li>
+        <li><span class="mk">7</span><span>rmmod 後 client <code>7-0041</code> 還在（DT 還在），只是沒有 driver、屬性檔跟著消失，<code>i2cdetect</code> 回到 <code>41</code>。</span></li>
+        <li><span class="mk">8</span><span>out-of-tree module 沒有簽章，每次開機第一次載入都會出現這行並把 kernel 標成 tainted，不是錯誤（前幾章的 module 也一樣）。</span></li>
+      </ol>
+      <p>你跑出來的數字會不同：<code>bus_mv</code> 隨電池電壓變；電池在充電或 adapter 拔掉時，<code>current_ua</code> 會是正（充電）或負（放電）的值，<code>ina219_raw</code> 的 <code>current (reg)</code> 應該和它差在 50 mA 以內。dmesg 時間戳和 <code>verify</code> 那行的數字每次都不同。這次開機前沒有裝 overlay 的話，腳本會走「no node」那一支，只檢查 driver 不綁定任何東西和 0x45。</p>
+      <div class="callout"><p><b class="hl-bad">只驗到電流為 0</b>：這次比對時電池沒在充也沒在放，driver 的 <code>current_ua</code> 沒有在晶片上讀到過非 0 的值。有號電流的換算只由向量驗證（含 6-b 放電實測的 <code>0xFD9B</code> / −612.997 mA）。<b class="hl-bad">也沒有實測</b>：INA219 斷電後 Calibration 為 0 時 probe 寫入的效果、讀屬性途中 I2C 失敗。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">7.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>driver 綁定後還用 i2cget</h4><dl><dt>症狀</dt><dd><code>Could not set address to 0x41: Device or resource busy</code>。</dd><dt>後果</dt><dd>以為 driver 把 bus 弄壞了；6-b 的驗收腳本在這時跑會失敗。</dd><dt>正解</dt><dd class="fix">比對用 <code>ina219_raw</code>（<code>I2C_RDWR</code> 不檢查）；要用 i2c-tools 就先 <code>rmmod edge_ina219</code>。</dd></dl></div>
+        <div class="pit"><h4>以為重開機會重設 INA219</h4><dl><dt>症狀</dt><dd>dmesg <code>Config 0x0EEF -&gt; 0x0EEF</code>，Cal 在 probe 前就是 26868。</dd><dt>後果</dt><dd>以為驗到了「probe 從 0 寫起」，其實沒有。</dd><dt>正解</dt><dd class="fix">UPS 一直供電給 INA219；要重設得讓 UPS 斷電。照實記成未實測。</dd></dl></div>
+        <div class="pit"><h4>用 read_word_data 讀 big-endian 晶片</h4><dl><dt>症狀</dt><dd>Bus Voltage 讀成 <code>0xBA5E</code>。</dd><dt>後果</dt><dd>算出 23.852 V（推算，driver 沒這樣寫過）。</dd><dt>正解</dt><dd class="fix"><code>i2c_smbus_read_word_swapped()</code>；測試禁止非 swapped 的版本。</dd></dl></div>
+        <div class="pit"><h4>compatible 寫成 ti,ina219</h4><dl><dt>症狀</dt><dd>上游 <code>ina2xx</code>（這台是 module）的 match 表也認得。</dd><dt>後果</dt><dd>可能被上游 driver 搶先綁定，我們的 probe 不會被呼叫（推論，沒試）。</dd><dt>正解</dt><dd class="fix">自己的 driver 用自己的 vendor 前綴 <code>edge,ina219</code>。</dd></dl></div>
+        <div class="pit"><h4>用「原始碼沒有 hwmon 這個字」守範圍</h4><dl><dt>症狀</dt><dd><code>MODULE_DESCRIPTION</code> 寫了 <code>no hwmon</code>，測試紅。</dd><dt>後果</dt><dd>測試在擋說明文字，不是擋功能。</dd><dt>正解</dt><dd class="fix">改找 <code>&lt;linux/hwmon.h&gt;</code> 與 <code>hwmon_device_register</code>。</dd></dl></div>
+        <div class="pit"><h4>測試向量自己算錯</h4><dl><dt>症狀</dt><dd>由 −612.997 mA 反推 Current register 寫成 <code>0xF03A</code>。</dd><dt>後果</dt><dd>實作還沒寫，向量就是錯的。</dd><dt>正解</dt><dd class="fix">用整數除法逐值列出：−4021 × 152.449 µA，是 <code>0xF04B</code>。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">7.12</span><b>收尾</b>7 → 8</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">overlay 的 <code>ina219@41</code> 讓 kernel 開機時建立 client <code>7-0041</code>；<code>edge_ina219.ko</code> 以 compatible <code>edge,ina219</code> 綁定，probe 成功。</li>
+        <li class="y">byte order 用 <code>i2c_smbus_read_word_swapped()</code> / <code>write_word_swapped()</code> 處理；換算放在 kernel 和 userspace 共用的 header，和 6-b 的 decoder 逐值相同。</li>
+        <li class="y">driver 讀到的六個 register、電壓和 <code>ina219_raw</code> 完全一致；驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">位址沒回應時 probe 失敗（<code>-EREMOTEIO</code>），不綁定、不建屬性檔；rmmod 後屬性檔消失、client 留著。</li>
+        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py">23</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py">7</span> 個（需綁定），3 組換算向量；實作前 21 個紅。</li>
+        <li class="n">沒有實測：非 0 電流經 driver 讀出、INA219 斷電後 probe 的寫入、讀屬性途中 I2C 失敗。</li>
+        <li class="n">沒有查證：shunt 電阻值（0.01 Ω 是範例註解的假設）。</li>
+      </ul>
+      <p>這一步的 userspace 介面（<code>/sys/bus/i2c/devices/7-0041/bus_mv</code> 這些檔名）是 driver 自己發明的，別的程式得先知道這個 driver 才會讀。下一章 Step 8 把它接到 Linux 標準的 <b class="hl-key">hwmon</b> subsystem：同樣的讀取與換算，改由 <code>/sys/class/hwmon/hwmonX/in1_input</code>、<code>curr1_input</code>、<code>power1_input</code> 提供，<code>sensors</code> 這類通用工具就認得；也要測重複讀 1000 次、I2C 錯誤時回 errno、卸載後不留 stale node。</p>
+      <details class="quiz"><summary>1. 沒載入 <code>edge_ina219.ko</code> 時，<code>/sys/bus/i2c/devices/7-0041</code> 存在嗎？為什麼？</summary><p>存在（裝了 overlay 的話）。client 是 I2C core 在開機時依 DT 節點建立的，和 driver 無關；只是目錄裡沒有 <code>driver</code> 連結和屬性檔。</p></details>
+      <details class="quiz"><summary>2. driver 綁定後，為什麼 <code>i2cget</code> 失敗而 <code>ina219_raw</code> 可以讀？</summary><p><code>i2cget</code> 先 <code>ioctl(I2C_SLAVE, 0x41)</code>，i2c-dev 發現 0x41 已被 driver 綁定就回 <code>EBUSY</code>。<code>ina219_raw</code> 用 <code>I2C_RDWR</code>，位址寫在每個 message 裡，i2c-dev 不做這個檢查。</p></details>
+      <details class="quiz"><summary>3. 有人在 driver 綁定時把 Calibration 改成 13434，<code>current_ua</code> 會算錯嗎？</summary><p>不會算錯。<code>read_calibrated()</code> 每次都從晶片讀 Calibration，用讀到的值算 Current_LSB，和 <code>ina219_raw</code> 一樣。換了 Calibration，Current register 的值和 Current_LSB 一起變，乘起來的電流不變（只差解析度）。</p></details>
+      <details class="quiz"><summary>4. 0x45 的 client 為什麼能和 <code>edge_ina219</code> 配對？它沒有 DT 節點。</summary><p>腳本寫 <code>echo edge_ina219 0x45 &gt; .../new_device</code>，client 的名字是 <code>edge_ina219</code>；driver 的 <code>id_table</code> 有這個名字，I2C core 就用名字配對並呼叫 probe。probe 讀不到 Config，回 <code>-EREMOTEIO</code>，所以不綁定。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><span class="disabled">Step 8 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>
