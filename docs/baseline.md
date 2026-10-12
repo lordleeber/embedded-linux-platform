@@ -262,3 +262,37 @@
   - 新增 6 條測試，修正前 6 failures；另外 4 種程式變異（bus 用 base 0、加 `write()`、加 `I2C_SLAVE`、拿掉 `errno = EIO`）都讓測試失敗。`test_ina219_raw.py` 由 16 個變 22 個；修正後 `bash scripts/verify_ina219_raw.sh --no-unplug` 仍是 `=== 0 failure(s)`。
   - 原本以為「拔掉 adapter 後 |I| 最大的一筆 ≥ 50 mA」就代表有人拔；2026-10-12 電池在充電時跑 6-a 的同型腳本，拔掉段前 5 筆還是 +1.374 A 的充電電流，PASS 判到的是它，沒人拔也會過。6-b 的腳本同一個寫法，改成 `lowest()` 取最小值、要求 ≤ −50 mA。先寫 `test_unplug_check_needs_a_discharge_sample`（用這次的真實讀值：3 筆充電後 2 筆放電、只有充電）並看到紅燈（沒有 `lowest()`）；第一版 `lowest()` 用 awk 的 `print`，只有 6 位有效數字，1373.581 印成 1373.58，改成 `printf "%.3f"`。變異：把 `$1 < m` 改成 `$1 > m`（取最大）測試會紅。`test_ina219_raw.py` 由 22 個變 23 個。
   - 第一次寫的 `test_bus_is_decimal` 期望 `/dev/i2c-8 `（後面有空白），但開檔失敗的訊息是 `/dev/i2c-8:`；改成「後面不是數字」。用 `pkill -f verify_ina219_raw.sh` 清場時比對到自己的指令列、把自己殺掉（結束碼 144）；`pgrep -f` 要錨定整行。
+
+## Step 7：自製 INA219 I2C kernel driver（`edge_ina219`，私有 sysfs，不用 hwmon）
+
+- 驗收主機與接線：同 6-b（UPS Power Module (C) 供電給 Jetson，INA219 在 `c250000.i2c` = `i2c-7`，0x41）。overlay 換成加了 `fragment@4`（`ina219@41`，`target = <&hdr40_i2c1>`）的版本，`install` 後重開機；`/proc/device-tree/bus@0/i2c@c250000/ina219@41` 出現，`compatible = "edge,ina219"`、`reg = 00 00 00 41`。安裝前先用 `fdtoverlay` 把基底 FDT + IMX219 overlay + 新 overlay 合併，確認節點落在 `/bus@0/i2c@c250000` 下（寫成 `test_overlay_applies_to_the_boot_fdt`）。
+- 對照方法：`sudo bash scripts/verify_edge_ina219.sh`。實測（2026-10-12，重開機後）`=== 0 failure(s)`：
+  - insmod 前：client `7-0041` 已存在、沒有 driver，`name` 是 `ina219`（來自節點名）；`ina219_raw` 讀到 Config `0x0EEF`、Calibration `0x68F4`。
+  - insmod 後：`7-0041` 綁到 `edge_ina219`；dmesg `probed: Config 0x0EEF -> 0x0EEF, Cal 26868, shunt 10 mohm`；`i2cdetect -y -r 7` 的 0x41 變成 `UU`；`i2cget -y 7 0x41 0x00 w` 得到 `Could not set address to 0x41: Device or resource busy`。
+  - sysfs：`registers` = `0x0EEF 0x0000 0x5EBA 0x0000 0x0000 0x68F4`，`bus_mv` 12124，`shunt_uv` / `current_ua` / `power_uw` 都是 0。同一時間 `ina219_raw`：Bus `0x5EBA` = 12.124 V，其餘相同，六個 register 完全一致。
+  - device unittest（以 nvidia 身分、`EDGE_INA219_REQUIRE=1`）7 個案例通過：屬性 0444、格式、Config / Cal 是範例值、電壓在 9.0～12.8 V、和 `ina219_raw` 比對、連讀 100 次不出錯。
+  - 0x45 用 `new_device` 建 client：probe 失敗，dmesg `edge_ina219 7-0045: error -EREMOTEIO: cannot read Config` / `probe of 7-0045 failed with error -121`，client 沒有綁定，`delete_device` 後消失。
+  - rmmod 後：driver 目錄消失、`7-0041` 還在但沒有 driver、屬性檔一起消失，`i2cdetect` 回到 `41`；dmesg 1 probe / 1 remove，無 Oops。
+  - 容差：driver 與 `ina219_raw` 的 Config / Calibration 要完全相同；bus 電壓差 ≤ 40 mV（10 LSB），電流差 ≤ 50 mA（6-b 放電 20 秒內變動約 40 mA）。這次兩邊 bus 電壓也剛好相同。
+- **只驗到電流 0 的情況**：跑的時候 adapter 接著、沒在充電（12.124 V，在 6-b 量到的回充門檻之上），電流與功率兩邊都是 0。有號電流（放電為負、充電為正）在 kernel 這條路徑上只由 `test_edge_ina219_conv` 的向量（含 6-b 放電實測值 `0xFD9B`、`-612.997 mA`）驗算術，沒有在晶片上讀到非 0 的電流。
+- **未實測**：INA219 斷電後 Calibration 是 0 的情況下 probe 寫入的效果（見踩坑第一條）；I2C 在讀屬性途中失敗時回傳 errno（只在 probe 用 0x45 驗了 `-EREMOTEIO`）。
+- 自動測試：`tests/test_edge_ina219_static.py` 23 個（overlay 6、driver 原始碼契約 10、build 與換算向量 2、驗收腳本 5），`tests/test_edge_ina219_device.py` 7 個（沒有綁定時 skip）；`test_edge_ina219_conv` 3 組（register 編號與範例設定、板上實測值、65536 個值 × 4 個 Cal 和 `ina219_decode.h` 相同）。全套 `python3 -m unittest discover -s tests`：204 個，`OK (skipped=50)`。
+- 紅燈紀錄：實作前 29 個案例 21 failures、7 skipped（device）；`test_label_is_the_controller_i2cdetect_calls_c250000`、`test_gpio_nodes_are_still_there` 是守門測試，先就會過。變異：shunt 當無號、bus 位移改 2、current 當無號、`read_word_swapped` 改 `read_word_data`、probe 先寫 Config 再寫 Cal，5 種都讓測試失敗。
+- 規模：`git diff --stat` 914 行（含空行與註解）：driver 183、header 58、C++ 測試 79、static 測試 204、device 測試 81、驗收腳本 140、overlay、Makefile、CMake 其餘；非空白行約 780，在上限內。
+
+### 踩坑
+
+- 原本以為重開機後 INA219 會回到上電值（Calibration 0），probe 的寫入看得出效果；UPS 模組一直供電給 INA219，Jetson 重開機它不斷電，insmod 前 Calibration 已經是範例留下的 `0x68F4`，dmesg 是 `0x0EEF -> 0x0EEF`。要看到寫入的效果得讓 UPS 本身斷電（拔掉電池），這次沒做。
+- 原本以為 driver 綁定後 `i2cget` 會照樣能讀；i2c-dev 的 `I2C_SLAVE` 會檢查位址是否有 driver，有的話回 `EBUSY`（沒有 driver 的 client 不擋，所以 insmod 前 `7-0041` 存在也能讀）。`I2C_RDWR` 不做這個檢查，`ina219_raw` 不受影響。6-b 的 `verify_ina219_raw.sh` 用 `i2cget`，要在 `edge_ina219` 沒載入時跑。
+- 原本以為「原始碼裡沒有 `hwmon` 這個字」就能守住 Step 8 的範圍；`MODULE_DESCRIPTION` 寫了 `no hwmon` 就讓測試紅。改成找 `<linux/hwmon.h>` 與 `hwmon_device_register`。
+- 第一版向量從 6-b 的 `-612.997 mA` 反推 Current register 寫成 `0xF03A`，算錯；用整數除法逐值列出後是 `0xF04B`（−4021 × 152.449 µA）。
+- insmod 時 dmesg 會有 `module verification failed: signature and/or required key missing - tainting kernel`：out-of-tree module 沒簽章，每次開機第一次載入都會出現，不是錯誤（之前幾個 Step 的 module 也一樣）。
+- code review（PR #11）找出的問題，原本都以為沒事：
+  - 原本以為 compatible 換成自己的廠商前綴 `edge,` 就擋得住上游 driver；I2C core 用 compatible 去掉前綴當 client 名稱（`7-0041/name` 實際是 `ina219`），DT compatible 比不到時還會拿名稱比每個 driver 的 `i2c_device_id`，而這台的 `ina2xx.ko` 有 `alias i2c:ina219`。不會被自動載入（uevent modalias 是 `of:...Cedge,ina219`），但有人 `modprobe ina2xx` 就能接管 `7-0041`（依配對規則推論，沒有實際載入 `ina2xx` 試）。compatible 改成 `edge,edge-ina219`，新增測試從 `modules.alias` 確認沒有 module 認領 client 名稱（用舊值 `ina219` 會紅：同一份 alias 檔裡有它）。
+  - 原本以為 client 名稱來自節點名（驗收腳本與章都這樣寫）；來自 compatible。舊版兩者都是 `ina219` 看不出差別，改名後實測 `name` 是 `edge-ina219`。腳本的名稱檢查原本不符只印一行不算 FAIL，改成真的判定。
+  - 原本以為有 ACK 就能寫入；INA219 沒有 ID register。probe 寫完讀回 Cal / Config，不符回 `-ENODEV`。讀回不符那條路沒有實測（沒有別的會在 0x41 回應的晶片）。
+  - device 測試只比了電壓與電流；加上 shunt（≤ 0.5 mV）與功率（≤ 700 mW），由 50 mA 容差換算。
+  - 教材補註：`registers` 的六個值不是同一瞬間的快照，driver 加 mutex 也擋不住外部 `i2cset -f`。
+  - 不改：32-bit kernel 的 64-bit 除法（這個專案跑 Linux 的目標都是 arm64，README 已註明）；換算公式在 `edge_ina219_conv.h` 與 `tools/ina219_decode.h` 各一份（`test_edge_ina219_conv` 逐值比對，不會悄悄分歧；合併要改 6-b 的工具）；一行的 wrapper（`read_reg16` 等是 phase03 指定的 helper 名稱）。
+  - 修正前 5 個測試紅（compatible 3、配對 1、讀回 1）。`test_edge_ina219_static.py` 由 23 個變 25 個。全套 206 個，`OK (skipped=50)`。
+- 修正後重裝 overlay、重開機再驗（2026-10-12）`sudo bash scripts/verify_edge_ina219.sh` `=== 0 failure(s)`：`compatible 'edge,edge-ina219'`、`client name 'edge-ina219'`、`no installed module claims i2c:edge-ina219`；dmesg `probed:` 照常出現（讀回相符）。driver 的 `registers` Bus 是 `0x5EBA`，緊接著 `ina219_raw` 讀到 `0x5EB8`：電壓同為 3031 × 4 mV = 12.124 V，差在 CNVR，driver 讀 `registers` 時讀過 Power、清掉了 CNVR（6-a 的坑）。其餘 register 相同，電流 / 功率仍是 0。

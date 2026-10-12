@@ -1,6 +1,6 @@
 # INA219 register map 筆記（UPS Power Module (C)，`i2c-7` 位址 0x41）
 
-Step 6-b 實測。來源：TI INA219 datasheet（SBOS448）與 `build/ina219_raw`、`i2cget` 的讀值。之後 Step 7 的 kernel driver 以這份為對照。
+Step 6-b 實測。來源：TI INA219 datasheet（SBOS448）與 `build/ina219_raw`、`i2cget` 的讀值。Step 7 的 kernel driver（`kernel/edge_ina219`）以這份為對照，換算搬到 `include/edge_ina219_conv.h`，逐值和 `tools/ina219_decode.h` 比過。
 
 ## 傳輸
 

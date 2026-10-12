@@ -93,4 +93,23 @@
 			};
 		};
 	};
+
+	/*
+	 * Step 7: the INA219 on the UPS Power Module (C), header pins 3 (SDA) /
+	 * 5 (SCL). hdr40_i2c1 is the base tree's label for /bus@0/i2c@c250000,
+	 * which Linux numbers i2c-7. At boot the I2C core turns this child into
+	 * client 7-0041; it stays unbound until edge_ina219.ko is loaded.
+	 */
+	fragment@4 {
+		target = <&hdr40_i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ina219@41 {
+				compatible = "edge,edge-ina219";
+				reg = <0x41>;
+			};
+		};
+	};
 };
