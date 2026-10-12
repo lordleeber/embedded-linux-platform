@@ -1,4 +1,5 @@
-// Test vectors for include/edge_ina219_conv.h (Step 7), run by tests/test_edge_ina219_static.py.
+// Test vectors for include/edge_ina219_conv.h (Step 7, hwmon units in Step 8), run by
+// tests/test_edge_ina219_static.py.
 //
 // The header is the arithmetic edge_ina219.ko runs in the kernel. Two kinds of checks:
 // fixed vectors from the datasheet and the board (Step 6-a / 6-b readings), and a sweep
@@ -75,6 +76,50 @@ void test_same_arithmetic_as_ina219_raw()
     }
 }
 
+void test_hwmon_units()
+{
+    // Step 8: hwmon wants in0 (shunt) in mV and curr1 in mA, rounded to the nearest
+    // (Documentation/hwmon/sysfs-interface.rst; the upstream drivers use DIV_ROUND_CLOSEST).
+    // Same board readings as above: -6.130 mV -> -6, -612.997 mA -> -613.
+    CHECK_EQ(edge_ina219_shunt_mv(0xFD9B), -6);
+    CHECK_EQ(edge_ina219_current_ma(0xF04B, 26868, 10), -613);
+    CHECK_EQ(edge_ina219_current_ma(0x0000, 26868, 10), 0);
+    // Halves round away from zero on both sides: 6.50 mV -> 7, -6.50 -> -7, 6.49 -> 6.
+    CHECK_EQ(edge_ina219_shunt_mv(650), 7);
+    CHECK_EQ(edge_ina219_shunt_mv(static_cast<std::uint16_t>(-650)), -7);
+    CHECK_EQ(edge_ina219_shunt_mv(649), 6);
+    CHECK_EQ(edge_ina219_shunt_mv(static_cast<std::uint16_t>(-649)), -6);
+    CHECK_EQ(edge_ina219_shunt_mv(0x7FFF), 328);     // 327.67 mV
+    CHECK_EQ(edge_ina219_shunt_mv(0x8000), -328);    // -327.68 mV
+    // Cal 4096 with 10 mohm: Current_LSB = 1 mA exactly, so mA = raw.
+    CHECK_EQ(edge_ina219_current_ma(0x7FFF, 4096, 10), 32767);
+    CHECK_EQ(edge_ina219_current_ma(0x8000, 4096, 10), -32768);
+}
+
+void test_hwmon_units_round_the_uv_ua_values()
+{
+    // For every value the mV / mA result is the uV / uA one rounded: never more than half
+    // a unit away (the uA value itself is truncated, so allow its 1 uA on top).
+    const std::uint16_t cals[] = {1, 4096, 26868, 0xFFFE};
+    for (std::uint32_t r = 0; r <= 0xFFFF; ++r) {
+        const auto raw = static_cast<std::uint16_t>(r);
+        long long d = 1000LL * edge_ina219_shunt_mv(raw) - edge_ina219_shunt_uv(raw);
+        if (d > 500 || d < -500) {
+            std::printf("FAIL shunt_mv(0x%04X) is %lld uV off\n", raw, d);
+            ++failures;
+            return;
+        }
+        for (std::uint16_t cal : cals) {
+            d = 1000LL * edge_ina219_current_ma(raw, cal, 10) - edge_ina219_current_ua(raw, cal, 10);
+            if (d > 501 || d < -501) {
+                std::printf("FAIL current_ma(0x%04X, %u) is %lld uA off\n", raw, cal, d);
+                ++failures;
+                return;
+            }
+        }
+    }
+}
+
 }  // namespace
 
 int main()
@@ -82,6 +127,8 @@ int main()
     test_register_numbers_and_sample_settings();
     test_board_readings();
     test_same_arithmetic_as_ina219_raw();
+    test_hwmon_units();
+    test_hwmon_units_round_the_uv_ua_values();
     if (failures == 0)
         std::printf("all edge_ina219_conv checks passed\n");
     return failures ? 1 : 0;

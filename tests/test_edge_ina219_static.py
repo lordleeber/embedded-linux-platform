@@ -1,4 +1,4 @@
-"""Hardware-free checks for Step 7: the INA219 DT node, edge_ina219.c and its arithmetic.
+"""Hardware-free checks for Steps 7-8: the INA219 DT node, edge_ina219.c and its arithmetic.
 
 Expected values come from outside our code: the base device tree labels the
 header I2C controller (pins 3/5) hdr40_i2c1 = /bus@0/i2c@c250000, which
@@ -203,24 +203,49 @@ class Ina219DriverContractTest(unittest.TestCase):
                 self.assertRegex(body, r"if \(ret < 0\)\s*return ret;")
 
     def test_arithmetic_comes_from_the_shared_header(self):
+        # hwmon units (Documentation/hwmon/sysfs-interface.rst): in mV, curr mA, power uW.
         self.assertIn('#include "edge_ina219_conv.h"', self.src)
-        for fn in ("edge_ina219_bus_mv", "edge_ina219_shunt_uv",
-                   "edge_ina219_current_ua", "edge_ina219_power_uw"):
+        for fn in ("edge_ina219_bus_mv", "edge_ina219_shunt_mv",
+                   "edge_ina219_current_ma", "edge_ina219_power_uw"):
             self.assertIn(fn + "(", self.code)
 
     def test_current_needs_a_calibration(self):
         # Cal 0 (power-on, or someone wrote it) would divide by zero.
         self.assertIn("-ENODATA", self.code)
 
-    def test_no_hwmon_yet(self):
-        # Step 8 adds hwmon; Step 7 keeps device-specific logic only.
-        self.assertNotRegex(self.code, r"linux/hwmon\.h|hwmon_device_register")
+    def test_registers_with_hwmon(self):
+        # Step 8: the standard subsystem instead of private attributes. devm_ ties the hwmon
+        # device to the binding, so unbind / rmmod removes /sys/class/hwmon/hwmonN.
+        self.assertIn("#include <linux/hwmon.h>", self.src)
+        self.assertRegex(self.code, r'devm_hwmon_device_register_with_info\(\s*&client->dev,\s*"edge_ina219"')
+        self.assertNotRegex(self.code, r"\bhwmon_device_register(_with_info)?\(")
 
-    def test_sysfs_attributes_are_read_only(self):
-        self.assertNotRegex(self.code, r"DEVICE_ATTR_(RW|WO)\(")
-        for attr in ("registers", "bus_mv", "shunt_uv", "current_ua", "power_uw"):
-            with self.subTest(attr=attr):
-                self.assertRegex(self.code, r"DEVICE_ATTR_RO\(" + attr + r"\)")
+    def test_hwmon_channels(self):
+        # in0 = shunt, in1 = bus (as upstream ina2xx), one current, one power channel.
+        info = re.findall(r"HWMON_CHANNEL_INFO\((\w+),([^)]*)\)", self.code)
+        got = {kind: [c.strip() for c in chans.split(",")] for kind, chans in info}
+        self.assertEqual(got.get("in"), ["HWMON_I_INPUT | HWMON_I_LABEL"] * 2)
+        self.assertEqual(got.get("curr"), ["HWMON_C_INPUT"])
+        self.assertEqual(got.get("power"), ["HWMON_P_INPUT"])
+
+    def test_hwmon_files_are_read_only(self):
+        body = function_body(self.src, "edge_ina219_is_visible")
+        self.assertIsNotNone(body, "no edge_ina219_is_visible()")
+        self.assertIn("return 0444;", body)
+        self.assertNotRegex(body, r"\b0[0-7]*[2367][0-7]*\b|S_IW")
+        self.assertNotIn(".write", self.code)
+
+    def test_hwmon_read_returns_errors(self):
+        # Each failed read reaches userspace as the errno, never as an old or zero value:
+        # no value is kept between reads.
+        body = function_body(self.src, "edge_ina219_read")
+        self.assertIsNotNone(body, "no edge_ina219_read()")
+        self.assertRegex(body, r"if \(ret\)\s*return ret;")
+        self.assertNotRegex(self.code, r"^static (long|s32|int|s64) \w+;", "a cached value")
+
+    def test_no_private_attributes(self):
+        # Step 7's registers / bus_mv / ... are gone: hwmon is the only interface.
+        self.assertNotRegex(self.code, r"DEVICE_ATTR|dev_groups|ATTRIBUTE_GROUPS")
 
 
 @unittest.skipUnless(KDIR.exists(), "needs the kernel headers")
@@ -266,6 +291,24 @@ class VerifyScriptTest(unittest.TestCase):
         # new_device at an address nobody answers must make probe() fail, not bind.
         self.assertIn("new_device", self.text)
         self.assertIn("delete_device", self.text)
+
+    def test_i2cset_only_zeroes_and_restores_calibration(self):
+        # Step 8 writes Cal 0 to see ENODATA, then the sample's 26868 (0x68F4, sent LSB
+        # first as an SMBus word: 0xf468). -f because the driver owns 0x41.
+        writes = [l for l in self.text.splitlines()
+                  if re.search(r"\bi2cset\b", l) and not l.lstrip().startswith("#")]
+        self.assertTrue(writes, "no i2cset")
+        for line in writes:
+            with self.subTest(line=line):
+                self.assertRegex(line, r"i2cset -f -y \"\$BUS\" 0x41 0x05 (0x0000|0xf468) w")
+        self.assertIn("0xf468", self.text)
+        self.assertIn("No data available", self.text)
+
+    def test_checks_hwmon_and_stale_nodes(self):
+        self.assertIn("/hwmon", self.text)
+        self.assertIn("ENODEV", self.text)     # read on a file opened before rmmod
+        self.assertRegex(self.text, r"\$DRV/unbind")
+        self.assertRegex(self.text, r"\$DRV/bind")
 
     def test_usage_error_exits_2(self):
         r = subprocess.run(["bash", str(VERIFY), "--bogus"], capture_output=True, text=True)

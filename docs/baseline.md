@@ -296,3 +296,27 @@
   - 不改：32-bit kernel 的 64-bit 除法（這個專案跑 Linux 的目標都是 arm64，README 已註明）；換算公式在 `edge_ina219_conv.h` 與 `tools/ina219_decode.h` 各一份（`test_edge_ina219_conv` 逐值比對，不會悄悄分歧；合併要改 6-b 的工具）；一行的 wrapper（`read_reg16` 等是 phase03 指定的 helper 名稱）。
   - 修正前 5 個測試紅（compatible 3、配對 1、讀回 1）。`test_edge_ina219_static.py` 由 23 個變 25 個。全套 206 個，`OK (skipped=50)`。
 - 修正後重裝 overlay、重開機再驗（2026-10-12）`sudo bash scripts/verify_edge_ina219.sh` `=== 0 failure(s)`：`compatible 'edge,edge-ina219'`、`client name 'edge-ina219'`、`no installed module claims i2c:edge-ina219`；dmesg `probed:` 照常出現（讀回相符）。driver 的 `registers` Bus 是 `0x5EBA`，緊接著 `ina219_raw` 讀到 `0x5EB8`：電壓同為 3031 × 4 mV = 12.124 V，差在 CNVR，driver 讀 `registers` 時讀過 Power、清掉了 CNVR（6-a 的坑）。其餘 register 相同，電流 / 功率仍是 0。
+
+## Step 8：INA219 hwmon integration（同一個 `edge_ina219`，私有屬性換成 hwmon）
+
+- 驗收主機與接線：同 Step 7（overlay 不變，`ina219@41`、`compatible = "edge,edge-ina219"`，不需要重裝或重開機）。跑的時候 adapter 沒接、電池在放電，所以這次有讀到非 0 的電流。
+- 對照方法：`sudo bash scripts/verify_edge_ina219.sh`（Step 7 的同一支腳本，只加不換）。實測（2026-10-12）`=== 0 failure(s)`：
+  - insmod 後只有一個 hwmon device `hwmon4`（`7-0041/hwmon/hwmon4`），`name` 是 `edge_ina219`；dmesg `probed: Config 0x0EEF -> 0x0EEF, Cal 26868, shunt 10 mohm, hwmon4`。Step 7 的私有屬性不見了。
+  - hwmon 讀到 `in0_input -6`（shunt，mV）、`in1_input 11764`（bus，mV）、`curr1_input -666`（mA）、`power1_input 7302307`（µW）。緊接著跑 `ina219_raw`：bus 11.764 V、`current (reg) -666.049 mA`、`power (reg) 7302.307 mW`。電壓、電流、功率都相同（電流已四捨五入到 mA）。shunt 那時是 `0xFD66` = −6.660 mV，四捨五入應該是 −7，hwmon 讀到 −6：這兩次讀不是同一次轉換，而 `in0_input` 讀得比 `curr1_input` 早，−6 代表 raw 落在 −550～−649（−5.50～−6.49 mV）。放電電流本來就會跳（6-b 量到 20 秒內 −550～−592 mA），差的這一點在容差內（見下）。
+  - device unittest 10 個（以 nvidia 身分、`EDGE_INA219_REQUIRE=1`）通過：name 與 class 連結、class 裡只有一個 `edge_ina219`、檔案 0444、只有宣告的 channel、label、私有屬性已消失、整數加換行、電壓 9.0～12.8 V、和 `ina219_raw` 比對、**四個 input 各讀 1000 次**都成功。
+  - Calibration 寫 0（`i2cset -f`）：`curr1_input`、`power1_input` 都是 `No data available`（ENODATA），`in1_input` 照樣讀得到；寫回 0x68F4 之後 `curr1_input` 又讀得到。
+  - unbind：hwmonN 消失、`/sys/class/hwmon` 裡沒有 `edge_ina219`；bind：又只有一個（`hwmon4`）。
+  - rmmod 前先打開 `in1_input`：rmmod 前讀到 `11760`，rmmod 後用同一個 fd 讀得到 `ENODEV`。rmmod 後 client 還在、沒有 driver、沒有 hwmon device；`i2cdetect` 回到 `41`。
+  - 0x45 的 probe 仍是 `-EREMOTEIO`；dmesg 2 probe / 2 remove（bind 一次、rmmod 一次），無 Oops。
+  - 容差：沿用 Step 7（bus 40 mV、電流 50 mA、功率 700 mW）；shunt 由 0.5 mV 放寬到 1.0 mV，多出的 0.5 mV 是 hwmon 取整數 mV 的捨入。
+- **未實測**：I2C 傳輸在 hwmon 讀取途中失敗（NAK、bus 卡住）時回 errno。這台沒有 `i2c-stub`（`CONFIG_I2C_STUB` 未設）、沒開 `CONFIG_FAULT_INJECTION`，UPS 又在供電給 Jetson、不能拔；只用 Calibration 0 驗了 hwmon read 的錯誤路徑，加上原始碼契約（callback 遇到錯誤直接 return、沒有保存數值的 static 變數）。實體拔除 INA219 也沒測（用 unbind / rmmod 代替）。
+- 自動測試：`tests/test_edge_ina219_static.py` 30 個（Step 7 的 25 個中，「沒有 hwmon」「屬性唯讀」兩個換成 hwmon 註冊、channel、0444、callback 回錯誤、沒有私有屬性 5 個，驗收腳本多 2 個），`tests/test_edge_ina219_device.py` 10 個；`test_edge_ina219_conv` 5 組（多了 hwmon 單位的向量，以及 65536 個值 × 4 個 Cal 的捨入誤差 ≤ 0.5 單位）；`test_check_listings.py` 6 個、`test_check_test_counts.py` 5 個（各多 `@REV`）。全套 217 個，`OK (skipped=53)`。
+- 紅燈紀錄：實作前 static 30 個裡 9 failures；`test_edge_ina219_conv` 編不過（沒有 `edge_ina219_shunt_mv` 等）；`@REV` 兩支各 1 failure。`test_unknown_revision_is_environment_error` 一開始就會過（舊版找不到 `src/x.c@deadbeef` 這個檔案也回 2），是守門測試。**device 測試沒看過紅燈**：要 root 載入 Step 7 的 module 才跑得起來，這次沒做（對 Step 7 的 driver，`setUp` 找不到 hwmon 一定會失敗，但沒實際跑）。變異：捨入改成截斷、只往正向捨入、shunt 當無號、電流常數少一個 0，4 種都讓向量測試失敗。
+- 規模：`git diff --numstat`（不含 docs 與 .md）新增 449 行、刪除 160 行：driver +78/−76、header +24、C++ 測試 +48、static 測試 +55、device 測試 +76、驗收腳本 +71、`check_listings` / `check_test_counts` 與其測試 +97，在上限內。
+
+### 踩坑
+
+- 原本以為後面的 Step 改 code 時，前面的章只要更新節錄行號；這次 Step 7 章教的 `registers_show()`、`dev_groups` 整段被刪掉，沒有新行號可以改，`check_listings.py` 8 處 drift、`check_test_counts.py` 4 處數字不對。讓這兩支工具支援 `path@REV`（`git show REV:path`），Step 7 的章釘在它 merge 的 commit `c818fea`：舊章講的是當時的 code，新章講新的。
+- 原本以為 `check_test_counts.py` 對同名檔案跑兩次 `discover` 沒事；工作目錄和暫存目錄都有 `test_edge_ina219_static.py`，`sys.modules` 和 `sys.path` 會留著前一個。每次計數前後都 pop 掉 module、移除 `sys.path` 裡那個目錄。
+- 原本以為 hwmon 的 shunt 用 µV 比較精確；`sysfs-interface.rst` 規定 `in*_input` 是 mV，10 µV 一格的 shunt 只剩整數 mV（−6.13 mV → −6）。要看細的值用 `ina219_raw`。
+- 跑變異測試時用 `git stash -- include/edge_ina219_conv.h` 想還原，結果把還沒 commit 的新函式一起收走了。之後改成先把原檔複製到 scratchpad，每次變異前蓋回去。

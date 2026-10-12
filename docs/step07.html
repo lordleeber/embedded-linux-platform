@@ -126,12 +126,13 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><span class="disabled">Step 8 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><a href="step08.html">Step 8 →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 7 · I2C（kernel，自己的 client driver）</div>
     <h1>自製 INA219 I2C kernel driver</h1>
     <p class="lede">6-b 在 userspace 用 <code>/dev/i2c-7</code> 自己讀 register；這一步把同一件事搬進 kernel。在 overlay 裡為 header 的 I2C 控制器加一個 <code>ina219@41</code> 子節點，kernel 開機時就會建立一個 <b class="hl-key">I2C client</b>；我們寫的 <code>edge_ina219.ko</code> 註冊一個 <code>struct i2c_driver</code>，compatible 相符時 kernel 呼叫它的 <code>probe()</code>。之後 userspace 只要 <code>cat</code> 一個 sysfs 檔，driver 就去讀晶片、換算好再回傳。驗收的標準是：<b class="hl-key">driver 讀到的值和 6-b 的 <code>ina219_raw</code> 一致</b>。</p>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ina219/{edge_ina219.c, Makefile, README.md}</span>、<span class="new">include/edge_ina219_conv.h</span>、<span class="new">tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py}</span>、<span class="new">scripts/verify_edge_ina219.sh</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, ina219-registers.md, step06b.html, index.html}</p>
+    <div class="callout"><p>這一章的程式碼節錄與測試數是 <b>Step 7 當時</b>的樣子（commit <code>c818fea</code>，節錄外框標 <code>@c818fea</code>）。Step 8 拿掉了這裡講的五個私有屬性，改成 hwmon，見下一章；<code>probe()</code>、helper 與換算沒有變，行號移動了。</p></div>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（sysfs、I2C core、i2c-tegra）</span>
@@ -267,7 +268,7 @@ edge-ina219 «3»</pre>
     <div class="rail"><span class="no">7.4</span><b>配對</b><span class="dot" style="background: var(--drv)"></span>i2c_driver</div>
     <div class="content">
       <h2>i2c_driver：兩張 match 表、probe、remove</h2>
-      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:201–223 — 用 compatible 或名字配對；屬性檔掛在 driver 上</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c@c818fea:201–223 — 用 compatible 或名字配對；屬性檔掛在 driver 上</figcaption>
 <pre data-start="201" data-hot="202,208,216,217,219,220,223">static const struct of_device_id edge_ina219_of_match[] = {
 	{ .compatible = "edge,edge-ina219" },
 	{ }
@@ -305,7 +306,7 @@ module_i2c_driver(edge_ina219_driver);</pre></figure>
     <div class="rail"><span class="no">7.5</span><b>綁定</b><span class="dot" style="background: var(--drv)"></span>probe()</div>
     <div class="content">
       <h2>probe：先確認有人回應，再寫 Calibration 和 Config</h2>
-      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:156–192 — 讀 Config 當作「有沒有 ACK」的檢查；Cal 先寫、Config 後寫；寫完讀回比對</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c@c818fea:156–192 — 讀 Config 當作「有沒有 ACK」的檢查；Cal 先寫、Config 後寫；寫完讀回比對</figcaption>
 <pre data-start="156" data-hot="161,162,163,169,172,180,181,184,185">static int edge_ina219_probe(struct i2c_client *client)
 {
 	int config, cal, ret;
@@ -375,7 +376,7 @@ i2c_smbus_write_word_swapped(const struct i2c_client *client,
 	return i2c_smbus_write_word_data(client, command, swab16(value));
 }</pre></figure>
       <p>這就是 6-b 驗收腳本裡「把 <code>i2cget</code> 的值對調」那一步，由 kernel 做。錯誤時（負數）不對調、原樣回傳。我們的兩個 helper 只是包一層，讓 driver 其他地方只看得到「讀 / 寫一個 16-bit register」：</p>
-      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:31–40 — 回傳值 0..0xFFFF 或負的 errno</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c@c818fea:31–40 — 回傳值 0..0xFFFF 或負的 errno</figcaption>
 <pre data-start="31" data-hot="34,39">/* Returns the register value (0..0xFFFF) or a negative errno. */
 static int read_reg16(struct i2c_client *client, u8 reg)
 {
@@ -394,7 +395,7 @@ static int write_reg16(struct i2c_client *client, u8 reg, u16 value)
     <div class="rail"><span class="no">7.7</span><b>helper</b><span class="dot" style="background: var(--drv)"></span>錯誤往上傳</div>
     <div class="content">
       <h2>helper：讀不到就回傳 errno，不回舊值</h2>
-      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:42–79 — 每個 helper 都是「讀、失敗就 return、成功才換算」</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c@c818fea:42–79 — 每個 helper 都是「讀、失敗就 return、成功才換算」</figcaption>
 <pre data-start="42" data-hot="47,48,58,59,67,71,72">/* Bus voltage in mV, status bits dropped. */
 static int read_bus_voltage(struct i2c_client *client, s32 *mv)
 {
@@ -445,7 +446,7 @@ static int read_calibrated(struct i2c_client *client, u8 reg, u16 *raw, u16 *cal
     <div class="rail"><span class="no">7.8</span><b>介面</b><span class="dot" style="background: var(--kern)"></span>sysfs</div>
     <div class="content">
       <h2>五個唯讀屬性，換算在共用 header</h2>
-      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:120–154 — show 函式只做「讀、換算、sysfs_emit」；ATTRIBUTE_GROUPS 產生 edge_ina219_groups</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c@c818fea:120–154 — show 函式只做「讀、換算、sysfs_emit」；ATTRIBUTE_GROUPS 產生 edge_ina219_groups</figcaption>
 <pre data-start="120" data-hot="124,126,127,128,129,131,154">static ssize_t current_ua_show(struct device *dev, struct device_attribute *attr,
 			       char *buf)
 {
@@ -493,7 +494,7 @@ ATTRIBUTE_GROUPS(edge_ina219);</pre></figure>
       </table>
       <p>輸出都是整數加換行、用 milli / micro 單位，不印「12.1 V」這種字串。這是 Step 8 hwmon 的單位慣例的前身；檔名和路徑則是這個 driver 自己發明的，Step 8 會換掉。<code>sysfs_emit()</code> 是寫 sysfs buffer 的標準函式，會檢查不超過一頁。</p>
       <p>換算公式沒有寫在 driver 裡，而是放在一個 kernel 和 userspace 都能 include 的 C header。kernel 沒有浮點運算，6-b 的 <code>ina219_decode.h</code> 本來就只用整數，這裡改寫成 C：</p>
-      <figure class="listing"><figcaption>include/edge_ina219_conv.h:18–26 — 在 kernel 用 linux/types.h，在 userspace 自己 typedef 同名的型別</figcaption>
+      <figure class="listing"><figcaption>include/edge_ina219_conv.h@c818fea:18–26 — 在 kernel 用 linux/types.h，在 userspace 自己 typedef 同名的型別</figcaption>
 <pre data-start="18" data-hot="18,19,21,22">#ifdef __KERNEL__
 #include &lt;linux/types.h&gt;
 #else
@@ -503,7 +504,7 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 #endif</pre></figure>
-      <figure class="listing"><figcaption>include/edge_ina219_conv.h:45–64 — 和 6-b 同一套整數算式；有號的值先轉 s16</figcaption>
+      <figure class="listing"><figcaption>include/edge_ina219_conv.h@c818fea:45–64 — 和 6-b 同一套整數算式；有號的值先轉 s16</figcaption>
 <pre data-start="45" data-hot="47,52,58,63">static inline s32 edge_ina219_bus_mv(u16 raw)
 {
 	return (raw &gt;&gt; 3) * 4;
@@ -525,7 +526,7 @@ static inline s64 edge_ina219_power_uw(u16 raw, u16 cal, s32 shunt_mohm)
 	return (s64)raw * 20 * 40960000 / ((s64)cal * shunt_mohm);
 }</pre></figure>
       <p>這樣做的好處是可以在 userspace 測 kernel 的算式：<code>tests/test_edge_ina219_conv.cpp</code> 同時 include 這份 header 和 6-b 的 <code>ina219_decode.h</code>，把 0x0000～0xFFFF 每個值、四種 Calibration 都丟進兩邊，結果必須一模一樣：</p>
-      <figure class="listing"><figcaption>tests/test_edge_ina219_conv.cpp:55–72 — 65536 個值 × 4 個 Cal，driver 的算式和 ina219_raw 的算式逐值比較</figcaption>
+      <figure class="listing"><figcaption>tests/test_edge_ina219_conv.cpp@c818fea:55–72 — 65536 個值 × 4 個 Cal，driver 的算式和 ina219_raw 的算式逐值比較</figcaption>
 <pre data-start="55" data-hot="59,61,62,67,68,69">void test_same_arithmetic_as_ina219_raw()
 {
     // Every 16-bit value through both decoders, at the sample's Cal and at the extremes.
@@ -557,8 +558,8 @@ static inline s64 edge_ina219_power_uw(u16 raw, u16 cal, s32 shunt_mohm)
       <h2>測試：從 6-b 的規格和實測值長出來</h2>
       <p>測試在 driver 寫好之前就寫好、跑過一次，29 個案例 21 個紅、7 個（實機）skip；code review 後再加 2 個（client 名稱、讀回比對），連同改了期望值的 3 個，先紅 5 個。期望值來自 driver 以外的地方：基底 DT 的標籤、6-a 掃到的位址、6-b 的 decoder 與實測讀值。</p>
       <ul>
-        <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py">25</span> 個，不需要硬體。overlay（7）：兩個 dtbo 都有 <code>ina219@41</code>、<code>compatible</code> 與 <code>reg</code>；fragment 的 target 是 <code>hdr40_i2c1</code> 的 fixup；這個標籤在板上指向 <code>/bus@0/i2c@c250000</code>；子節點的 cells；和真正的開機 FDT 合併得起來；client 名稱沒有被任何已安裝的 module 認領；LED、按鍵節點還在。driver 原始碼契約（11）：是 <code>i2c_driver</code>、兩張 match 表、probe / remove 有接上、只用 <code>_swapped</code>、規劃列的四個 helper（<code>read_reg16</code> 等）都在、probe 先讀再寫 Cal 再寫 Config、寫完讀回比對、helper 遇到錯誤就 return、算式來自共用 header、Calibration 為 0 要回 <code>-ENODATA</code>、沒有 hwmon、屬性全部唯讀。build（2）：module 對 running kernel 編得過且沒有 warning、換算向量全過。驗收腳本（5）。</li>
-        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">7</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑（驗收腳本設 <code>EDGE_INA219_REQUIRE=1</code>，沒綁定就算失敗）：屬性是 0444、<code>registers</code> 的格式、Config / Cal 是範例值、電壓在 9.0～12.8 V、整數加換行、和 <code>ina219_raw</code> 比（Config / Cal 完全相同，電壓差 ≤ 40 mV、shunt 差 ≤ 0.5 mV、電流差 ≤ 50 mA、功率差 ≤ 700 mW）、連讀 100 次不出錯。</li>
+        <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py@c818fea">25</span> 個，不需要硬體。overlay（7）：兩個 dtbo 都有 <code>ina219@41</code>、<code>compatible</code> 與 <code>reg</code>；fragment 的 target 是 <code>hdr40_i2c1</code> 的 fixup；這個標籤在板上指向 <code>/bus@0/i2c@c250000</code>；子節點的 cells；和真正的開機 FDT 合併得起來；client 名稱沒有被任何已安裝的 module 認領；LED、按鍵節點還在。driver 原始碼契約（11）：是 <code>i2c_driver</code>、兩張 match 表、probe / remove 有接上、只用 <code>_swapped</code>、規劃列的四個 helper（<code>read_reg16</code> 等）都在、probe 先讀再寫 Cal 再寫 Config、寫完讀回比對、helper 遇到錯誤就 return、算式來自共用 header、Calibration 為 0 要回 <code>-ENODATA</code>、沒有 hwmon、屬性全部唯讀。build（2）：module 對 running kernel 編得過且沒有 warning、換算向量全過。驗收腳本（5）。</li>
+        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py@c818fea">7</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑（驗收腳本設 <code>EDGE_INA219_REQUIRE=1</code>，沒綁定就算失敗）：屬性是 0444、<code>registers</code> 的格式、Config / Cal 是範例值、電壓在 9.0～12.8 V、整數加換行、和 <code>ina219_raw</code> 比（Config / Cal 完全相同，電壓差 ≤ 40 mV、shunt 差 ≤ 0.5 mV、電流差 ≤ 50 mA、功率差 ≤ 700 mW）、連讀 100 次不出錯。</li>
         <li><b>變異測試</b>：shunt 當無號、bus 右移 2 位、current 當無號、<code>_swapped</code> 換成 <code>read_word_data</code>、probe 先寫 Config 再寫 Cal，5 種改法都讓測試紅。</li>
       </ul>
       <p>在 repo 根目錄跑不需硬體的那一份（約 2 秒，會順便在 <code>kernel/edge_ina219/</code> 裡編 module）：</p>
@@ -684,7 +685,7 @@ PASS probe at 0x45 failed with -EREMOTEIO
         <li class="y">byte order 用 <code>i2c_smbus_read_word_swapped()</code> / <code>write_word_swapped()</code> 處理；換算放在 kernel 和 userspace 共用的 header，和 6-b 的 decoder 逐值相同。</li>
         <li class="y">driver 讀到的六個 register、電壓和 <code>ina219_raw</code> 完全一致；驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">位址沒回應時 probe 失敗（<code>-EREMOTEIO</code>），不綁定、不建屬性檔；rmmod 後屬性檔消失、client 留著。</li>
-        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py">25</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py">7</span> 個（需綁定），3 組換算向量；實作前 21 個紅。</li>
+        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py@c818fea">25</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py@c818fea">7</span> 個（需綁定），3 組換算向量；實作前 21 個紅。</li>
         <li class="n">沒有實測：非 0 電流經 driver 讀出、INA219 斷電後 probe 的寫入、讀屬性途中 I2C 失敗。</li>
         <li class="n">沒有查證：shunt 電阻值（0.01 Ω 是範例註解的假設）。</li>
       </ul>
@@ -696,7 +697,7 @@ PASS probe at 0x45 failed with -EREMOTEIO
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><span class="disabled">Step 8 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step06b.html">← Step 6-b</a><a href="step08.html">Step 8 →</a></nav>
 </main>
 
 <script>

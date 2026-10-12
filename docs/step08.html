@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 8　INA219 接上 hwmon — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step07). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step07.html">← Step 7</a><span class="disabled">Step 9 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 8 · hwmon（kernel 標準 subsystem）</div>
+    <h1>INA219 接上 hwmon</h1>
+    <p class="lede">Step 7 的 <code>edge_ina219</code> 已經會讀晶片、會換算，但交給 userspace 的是它自己取名的五個檔（<code>bus_mv</code>、<code>current_ua</code>…），別的程式要先認識這個 driver 才讀得懂。這一步<b>讀取與換算的部分一行都沒改</b>，只換掉交出數值的方式：driver 向 <b class="hl-key">hwmon</b> subsystem 註冊「我有兩個電壓、一個電流、一個功率」，<code>/sys/class/hwmon/hwmonN/</code> 底下的檔名、單位、格式都由 kernel 規定，和這台板子上 NVIDIA 的 <code>ina3221</code> 是同一套。驗收除了讀得到值，還要證明<b class="hl-key">出錯時回 errno、卸載後不留舊的檔案</b>。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 修改 kernel/edge_ina219/{edge_ina219.c, README.md}、include/edge_ina219_conv.h、tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py, test_check_listings.py, test_check_test_counts.py}、scripts/{verify_edge_ina219.sh, check_listings.py, check_test_counts.py}、CLAUDE.md、phase03.md、docs/{baseline.md, step07.html, index.html}；新增 <span class="new">docs/step08.html</span></p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（sysfs、hwmon core、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（edge_ina219）</span>
+      <span style="--c: var(--hw)">硬體（SoC、UPS 模組、INA219）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">8.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>值是對的，介面是私有的</h2>
+      <p>Step 7 結束時，<code>cat /sys/bus/i2c/devices/7-0041/bus_mv</code> 已經能讀到和 <code>ina219_raw</code> 一致的電壓。問題在路徑和檔名：想顯示電池狀態的程式得知道「這台有個叫 <code>edge_ina219</code> 的 driver、它掛在 <code>7-0041</code>、電壓檔叫 <code>bus_mv</code>、單位是 mV」。換一顆晶片、換一個 driver，這些全部要重學。Linux 對「量電壓、電流、溫度、風扇轉速的晶片」早就有一套共同的介面，叫 <b class="hl-key">hwmon</b>：每個裝置一個 <code>/sys/class/hwmon/hwmonN</code> 目錄，檔名和單位由 kernel 文件 <code>Documentation/hwmon/sysfs-interface.rst</code> 規定。通用程式只要掃這個目錄，不必認識任何 driver。</p>
+      <p><b>互動雙方</b>：和 Step 7 相同，controller 是 <code>c250000.i2c</code>（<code>i2c-7</code>），target 是 UPS 模組上的 INA219（0x41），DT 節點、probe 寫入的 Calibration / Config 都沒變。多出來的一方是 kernel 的 <b>hwmon core</b>（<code>drivers/hwmon/hwmon.c</code>）：它替 driver 建 sysfs 檔，有人讀檔時再回頭呼叫 driver。<b>這一步不做</b>：OLED（Phase 4）、任何依電量做決定的 application policy（Phase 9）；也不做 hwmon 的 alarm、<code>shunt_resistor</code>、<code>update_interval</code>。</p>
+      <dl class="terms">
+        <dt>hwmon</dt><dd>hardware monitoring subsystem。driver 註冊後得到一個 class device <code>hwmonN</code>（N 依註冊順序），底下的 <code>name</code> 檔是 driver 給的名字。</dd>
+        <dt>channel</dt><dd>同一種量測的第幾路。電壓叫 <code>in</code>、電流 <code>curr</code>、功率 <code>power</code>；檔名是「種類 + 編號 + _ + 屬性」，例如 <code>in1_input</code> 是第 1 路電壓的讀值、<code>in1_label</code> 是它的名字。電壓從 0 編號，電流和功率從 1 編號（文件規定）。</dd>
+        <dt>hwmon_chip_info</dt><dd>driver 交給 hwmon core 的描述：有哪些 channel、每個 channel 有哪些屬性（<code>HWMON_CHANNEL_INFO</code>），以及讀取時要呼叫的函式（<code>hwmon_ops</code>）。hwmon core 依它產生檔案，driver 不必自己寫 <code>show</code> 函式。</dd>
+        <dt>devm_</dt><dd>device-managed：用 <code>devm_</code> 開頭的函式申請的資源，在這個 device 和 driver 解除綁定時由 driver core 自動釋放（4-b 的 <code>devm_gpiod_get()</code> 是同一套）。</dd>
+        <dt>stale node</dt><dd>裝置已經不在、檔案卻還留著（或讀到舊值）的 sysfs / <code>/dev</code> 節點。</dd>
+        <dt>ENODATA / ENODEV</dt><dd>errno：「沒有資料」（這一章用在 Calibration 為 0、晶片算不出電流時）／「裝置不存在」（檔案打開後裝置被移除，sysfs 回這個）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">8.2</span><b>全景</b>一次 cat 的旅程</div>
+    <div class="content">
+      <h2>cat in1_input：多了一層 hwmon core</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 560" role="img" aria-label="userspace 的 cat 讀 /sys/class/hwmon/hwmon4/in1_input；sysfs 呼叫 hwmon core 產生的屬性；hwmon core 呼叫 edge_ina219 的 edge_ina219_read，參數是 hwmon_in、input、channel 1；driver 經 read_bus_voltage、read_reg16 呼叫 I2C core 的 i2c_smbus_read_word_swapped；i2c-tegra 送出寫 pointer 0x02、repeated start、讀 2 byte；INA219 回傳 MSB 先的值；driver 把 mV 填進 val，hwmon core 印成 11764 加換行回給 cat">
+          <defs>
+            <marker id="m8Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <a href="#run"><rect class="s-box" x="130" y="20" width="440" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="350" y="45" text-anchor="middle">cat /sys/class/hwmon/hwmon4/in1_input</text>
+          <text class="s-sm" x="350" y="67" text-anchor="middle">不必知道 driver 叫什麼，用 name 檔找</text></a>
+          <text class="s-mono" x="14" y="142">SYSFS</text>
+          <rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="135" text-anchor="middle">kernfs：in1_input 是 hwmon4 的一個屬性</text>
+          <text class="s-sm" x="350" y="156" text-anchor="middle">裝置移除後，已打開的 fd 讀到 ENODEV（8.7）</text>
+          <text class="s-mono" x="14" y="232">HWMON</text>
+          <a href="#chip"><rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="225" text-anchor="middle">hwmon core：ops-&gt;read(hwmon_in, input, 1)</text>
+          <text class="s-sm" x="350" y="246" text-anchor="middle">檔案是註冊時依 chip_info 產生的</text></a>
+          <text class="s-mono" x="14" y="322">DRIVER</text>
+          <a href="#read"><rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="350" y="315" text-anchor="middle">edge_ina219_read → read_bus_voltage</text>
+          <text class="s-sm" x="350" y="336" text-anchor="middle">Step 7 的 helper 原樣沿用；單位換算見 8.5</text></a>
+          <text class="s-mono" x="14" y="412">I2C CORE</text>
+          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="405" text-anchor="middle">i2c_smbus_read_word_swapped → i2c-tegra</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">和 Step 7 完全相同</text>
+          <text class="s-mono" x="14" y="502">TARGET</text>
+          <rect class="s-box" x="130" y="470" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="495" text-anchor="middle">c250000.i2c → INA219 @ 0x41</text>
+          <text class="s-sm" x="350" y="516" text-anchor="middle">寫 pointer 0x02 · RESTART · 讀 2 byte</text>
+          <line class="sv-down" x1="350" y1="83" x2="350" y2="106" marker-end="url(#m8Down)"/>
+          <line class="sv-down" x1="350" y1="169" x2="350" y2="196" marker-end="url(#m8Down)"/>
+          <line class="sv-down" x1="350" y1="259" x2="350" y2="286" marker-end="url(#m8Down)"/>
+          <line class="sv-down" x1="350" y1="349" x2="350" y2="376" marker-end="url(#m8Down)"/>
+          <line class="sv-down" x1="350" y1="439" x2="350" y2="466" marker-end="url(#m8Down)"/>
+          <text class="s-sm" x="585" y="44">回傳 "11764\n"</text>
+          <text class="s-sm" x="585" y="226">把 long 印成</text>
+          <text class="s-sm" x="585" y="244">十進位加換行</text>
+          <text class="s-sm" x="585" y="316">*val = 11764</text>
+          <text class="s-sm" x="585" y="334">（mV）</text>
+          <text class="s-sm" x="585" y="496">0x5BE8 → 11764 mV</text>
+        </svg>
+        <figcaption>圖 8.1 — 和 Step 7 的全景圖比，下面三層一樣，driver 的位置被 hwmon core 夾住：driver 只回答「第幾路的什麼值是多少」，檔名、格式、印字串都由 hwmon core 負責。數字取自 8.9 的實測。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>Step 7 的 <code>bus_mv_show()</code> 自己呼叫 <code>sysfs_emit()</code> 印字串；這一步 driver 只把數字填進一個 <code>long</code>，印成文字是 hwmon core 的事。所以 driver 沒辦法印出「11.7 V」這種格式：介面規定就是整數、固定單位。</p>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="rail"><span class="no">8.3</span><b>對照</b>Step 7 → 8</div>
+    <div class="content">
+      <h2>改了什麼、沒改什麼</h2>
+      <table>
+        <thead><tr><th>項目</th><th>Step 8</th></tr></thead>
+        <tbody>
+          <tr><td>DT 節點、compatible、probe 的寫入與讀回</td><td>沒改（Step 7 的 7.3–7.5）</td></tr>
+          <tr><td><code>read_reg16()</code>、<code>read_bus_voltage()</code>、<code>read_calibrated()</code></td><td>沿用；<code>read_shunt_voltage()</code> 改成回傳 mV</td></tr>
+          <tr><td>交給 userspace 的檔案</td><td>五個私有屬性<b>拿掉</b>，換成 <code>hwmonN/{in0,in1}_{input,label}</code>、<code>curr1_input</code>、<code>power1_input</code></td></tr>
+          <tr><td>單位</td><td>照 hwmon 規定：電壓 mV、電流 mA（Step 7 是 µA）、功率 µW；shunt 由 µV 變 mV</td></tr>
+          <tr><td>看原始 register</td><td>沒有 <code>registers</code> 檔了，用 6-b 的 <code>build/ina219_raw</code></td></tr>
+          <tr><td>測試與驗收腳本</td><td>同一支 <code>verify_edge_ina219.sh</code>，加 Calibration 0、unbind / bind、rmmod 後的 fd 三項</td></tr>
+        </tbody>
+      </table>
+      <p>拿掉私有屬性是刻意的：留著它們，就有兩個介面要維護、要測，而 phase03 對這一步的要求就是「停止發明 private userspace API」。</p>
+      <p>這台板子上本來就有 hwmon 裝置，其中一個是 NVIDIA 用的 <code>ina3221</code>（量 Jetson 模組的輸入電源）。在任何目錄都可以跑，不需要 root：</p>
+<pre class="cmd">for h in /sys/class/hwmon/hwmon*; do echo "$(basename $h) $(cat $h/name)"; done</pre>
+<pre class="out" data-marks>hwmon0 pwmfan
+hwmon1 ina3221 «1»
+hwmon2 pwm_tach
+hwmon3 soctherm_oc</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>上游的 <code>ina3221</code> driver 也走 hwmon：它的 <code>in1_label</code> 是 <code>VDD_IN</code>、<code>in1_input</code> 和 <code>curr1_input</code> 實測讀到 <code>5056</code> / <code>992</code>（mV / mA）。和我們的檔名、單位是同一套規定，讀它和讀 <code>edge_ina219</code> 的程式碼可以完全一樣。</span></li>
+      </ol>
+      <p>這是 <code>edge_ina219.ko</code> 沒載入時的輸出。載入後會多一行 <code>edge_ina219</code>，這台實測是 <code>hwmon4</code>；號碼依註冊順序，換一台或改了開機順序就可能不同，所以程式要用 <code>name</code> 找，不要寫死 <code>hwmon4</code>。你的板子 hwmon 裝置的數量與順序也可能不一樣。</p>
+    </div>
+  </section>
+
+  <section id="chip">
+    <div class="rail"><span class="no">8.4</span><b>宣告</b><span class="dot" style="background: var(--drv)"></span>chip_info</div>
+    <div class="content">
+      <h2>告訴 hwmon core 有哪些 channel</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:130–146 — ops 是三個 callback；info 每一行是一種量測，逗號隔開的每一項是一路</figcaption>
+<pre data-start="130" data-hot="131,132,133,137,138,139">static const struct hwmon_ops edge_ina219_hwmon_ops = {
+	.is_visible = edge_ina219_is_visible,
+	.read = edge_ina219_read,
+	.read_string = edge_ina219_read_string,
+};
+
+static const struct hwmon_channel_info *edge_ina219_info[] = {
+	HWMON_CHANNEL_INFO(in, HWMON_I_INPUT | HWMON_I_LABEL, HWMON_I_INPUT | HWMON_I_LABEL),
+	HWMON_CHANNEL_INFO(curr, HWMON_C_INPUT),
+	HWMON_CHANNEL_INFO(power, HWMON_P_INPUT),
+	NULL
+};
+
+static const struct hwmon_chip_info edge_ina219_chip_info = {
+	.ops = &amp;edge_ina219_hwmon_ops,
+	.info = edge_ina219_info,
+};</pre></figure>
+      <ul>
+        <li><b><code>HWMON_CHANNEL_INFO(in, …, …)</code></b>：兩項，代表電壓有 channel 0 和 1，每路都有 <code>INPUT</code>（讀值）和 <code>LABEL</code>（名字）。hwmon core 據此產生 <code>in0_input</code>、<code>in0_label</code>、<code>in1_input</code>、<code>in1_label</code>。</li>
+        <li><b>in0 = shunt、in1 = bus</b>：hwmon 沒規定哪路是什麼，這裡照上游 <code>ina2xx</code> driver 的順序，讀過那個 driver 的人不必重新對照。label 寫出 <code>shunt</code> / <code>bus</code>，就不必猜。</li>
+        <li><b><code>HWMON_CHANNEL_INFO(curr, HWMON_C_INPUT)</code></b>：一項，產生 <code>curr1_input</code>（電流從 1 編號，所以第一項是 1）。功率同理，產生 <code>power1_input</code>。</li>
+        <li><b>沒寫進去的就沒有檔案</b>：不宣告 <code>HWMON_C_MAX</code>，就不會有 <code>curr1_max</code>。device 測試 <code>test_only_the_declared_channels</code> 確認目錄裡只有這六個 channel 檔。</li>
+      </ul>
+      <p>每個檔案的權限由 <code>is_visible</code> 回答。這個 driver 全部唯讀，所以一律回 <code>0444</code>；有可寫屬性（例如 alarm 門檻）的 driver 才需要依 <code>attr</code> 分開回答：</p>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:82–87 — 每個檔都是 0444；沒有 write callback</figcaption>
+<pre data-start="82" data-hot="86">/* hwmon callbacks: in0 = shunt, in1 = bus (the upstream ina2xx order), curr1, power1. */
+static umode_t edge_ina219_is_visible(const void *data, enum hwmon_sensor_types type,
+				      u32 attr, int channel)
+{
+	return 0444;
+}</pre></figure>
+    </div>
+  </section>
+
+  <section id="read">
+    <div class="rail"><span class="no">8.5</span><b>讀取</b><span class="dot" style="background: var(--drv)"></span>read callback</div>
+    <div class="content">
+      <h2>一個函式回答所有讀值</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:89–119 — 先看種類、再看第幾路；每個分支都是「讀、失敗就 return、成功才填 val」</figcaption>
+<pre data-start="89" data-hot="92,99,100,101,105,106,107,108,111,112,113,114">static int edge_ina219_read(struct device *dev, enum hwmon_sensor_types type,
+			    u32 attr, int channel, long *val)
+{
+	struct i2c_client *client = dev_get_drvdata(dev);
+	u16 raw, cal;
+	s32 mv;
+	int ret;
+
+	switch (type) {
+	case hwmon_in:		/* mV */
+		ret = channel ? read_bus_voltage(client, &amp;mv) : read_shunt_voltage(client, &amp;mv);
+		if (ret)
+			return ret;
+		*val = mv;
+		return 0;
+	case hwmon_curr:	/* mA */
+		ret = read_calibrated(client, EDGE_INA219_REG_CURRENT, &amp;raw, &amp;cal);
+		if (ret)
+			return ret;
+		*val = edge_ina219_current_ma(raw, cal, EDGE_INA219_SHUNT_MOHM);
+		return 0;
+	case hwmon_power:	/* uW */
+		ret = read_calibrated(client, EDGE_INA219_REG_POWER, &amp;raw, &amp;cal);
+		if (ret)
+			return ret;
+		*val = edge_ina219_power_uw(raw, cal, EDGE_INA219_SHUNT_MOHM);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}</pre></figure>
+      <ul>
+        <li><b><code>dev_get_drvdata(dev)</code></b>：這裡的 <code>dev</code> 是 hwmon 裝置，不是 I2C client。註冊時把 <code>client</code> 當成 drvdata 交給 hwmon core（8.6），這裡再取回來，後面就是 Step 7 的 helper。</li>
+        <li><b><code>channel ? read_bus_voltage : read_shunt_voltage</code></b>：<code>hwmon_in</code> 有兩路，用 channel 分。<code>attr</code> 不用看：每路只宣告了 <code>INPUT</code> 一種數值屬性，<code>LABEL</code> 走另一個 callback（<code>read_string</code>，回傳 <code>"shunt"</code> / <code>"bus"</code>）。</li>
+        <li><b class="hl-key">錯誤直接 return</b>：I2C 失敗時 helper 回負的 errno（例如 <code>-EREMOTEIO</code>），這裡原樣交出去，hwmon core 再交給 <code>read()</code>，<code>cat</code> 印出錯誤訊息。函式裡沒有任何地方記住上一次的值，所以不可能「讀不到就給舊值」。Calibration 為 0 時 <code>read_calibrated()</code> 回 <code>-ENODATA</code>（Step 7 就有），8.7 用它實際走一次這條路。</li>
+        <li><b><code>default: return -EOPNOTSUPP</code></b>：hwmon core 只會用 chip_info 宣告過的種類呼叫，這行照理到不了，是防呆。</li>
+      </ul>
+      <p>單位換算放在 Step 7 的共用 header，多了兩個函式。hwmon 規定 <code>in*_input</code> 是 mV、<code>curr*_input</code> 是 mA，而 INA219 的 shunt 一格 10 µV、電流一格約 0.152 mA，都比整數 mV / mA 細，必須捨去或進位：</p>
+      <figure class="listing"><figcaption>include/edge_ina219_conv.h:67–87 — 四捨五入，半數遠離 0；kernel 和 userspace 都能 include</figcaption>
+<pre data-start="67" data-hot="73,75,80,86">/*
+ * hwmon units (Documentation/hwmon/sysfs-interface.rst): voltages in mV, current
+ * in mA, power in uW. Shunt voltage and current are rounded to the nearest unit,
+ * halves away from zero, as DIV_ROUND_CLOSEST() does in the upstream drivers.
+ * The divisor must be positive.
+ */
+static inline s64 edge_ina219_div_round(s64 n, s64 d)
+{
+	return n &lt; 0 ? (n - d / 2) / d : (n + d / 2) / d;
+}
+
+static inline s32 edge_ina219_shunt_mv(u16 raw)
+{
+	return edge_ina219_div_round((s16)raw, 100);	/* 10 uV per bit */
+}
+
+/* Current_LSB in mA = 40960 / (Cal x R[mohm]); cal must be non-zero. */
+static inline s64 edge_ina219_current_ma(u16 raw, u16 cal, s32 shunt_mohm)
+{
+	return edge_ina219_div_round((s64)(s16)raw * 40960, (s64)cal * shunt_mohm);
+}</pre></figure>
+      <ul>
+        <li><b>為什麼四捨五入、而不是直接整數除法</b>：C 的整數除法往 0 截斷，−6.99 mV 會變成 −6。上游 hwmon driver 普遍用 kernel 的 <code>DIV_ROUND_CLOSEST()</code>；這份 header 也要在 userspace 編譯，不能用 kernel 的巨集，所以自己寫了一個同樣規則的 <code>edge_ina219_div_round()</code>。</li>
+        <li><b>電流直接從 raw 算到 mA</b>：40960000 µA 除以 1000 是 40960，整除，所以 <code>edge_ina219_current_ma()</code> 不先算出 µA 再捨入，避免捨入兩次。</li>
+        <li><b>功率不必捨入</b>：hwmon 的功率單位是 µW，Step 7 的 <code>edge_ina219_power_uw()</code> 原樣使用。</li>
+      </ul>
+      <p>新的向量在 <code>tests/test_edge_ina219_conv.cpp</code>：6-b 放電實測的 <code>0xFD9B</code>（−6.130 mV）要變成 −6、<code>0xF04B</code>（−612.997 mA）要變成 −613；6.50 / −6.50 / 6.49 mV 三個邊界；另外對 65536 個值 × 4 個 Calibration 檢查「mV / mA 結果和 µV / µA 結果差不超過半個單位」。把捨入改成截斷、只往正向進位、shunt 當無號、常數少一個 0，四種改法都讓它失敗。在 repo 根目錄自己跑：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_edge_ina219_conv &gt;/dev/null &amp;&amp; build/test_edge_ina219_conv</pre>
+<pre class="out">all edge_ina219_conv checks passed</pre>
+    </div>
+  </section>
+
+  <section id="register">
+    <div class="rail"><span class="no">8.6</span><b>註冊</b><span class="dot" style="background: var(--drv)"></span>probe()</div>
+    <div class="content">
+      <h2>probe 最後一步：註冊 hwmon，交給 devm 收尾</h2>
+      <figure class="listing"><figcaption>kernel/edge_ina219/edge_ina219.c:182–194 — 讀回比對通過之後才註冊；名字 edge_ina219、drvdata 是 client</figcaption>
+<pre data-start="182" data-hot="186,187,188,189,193">	/*
+	 * devm_: the hwmon device goes away when this binding does (unbind, rmmod,
+	 * the adapter disappearing), so no stale hwmonN is left behind.
+	 */
+	hwmon = devm_hwmon_device_register_with_info(&amp;client-&gt;dev, "edge_ina219", client,
+						     &amp;edge_ina219_chip_info, NULL);
+	if (IS_ERR(hwmon))
+		return dev_err_probe(&amp;client-&gt;dev, PTR_ERR(hwmon), "cannot register hwmon\n");
+
+	dev_info(&amp;client-&gt;dev, "probed: Config 0x%04X -&gt; 0x%04X, Cal %u, shunt %d mohm, %s\n",
+		 config, EDGE_INA219_CONFIG, EDGE_INA219_CAL, EDGE_INA219_SHUNT_MOHM,
+		 dev_name(hwmon));
+	return 0;</pre></figure>
+      <ul>
+        <li><b>放在最後</b>：檔案一建立，userspace 就可能來讀，所以要等 Calibration / Config 寫好、讀回確認之後才註冊。probe 前面任何一步失敗，hwmon 裝置根本不會出現。</li>
+        <li><b><code>"edge_ina219"</code></b>：成為 <code>hwmonN/name</code> 的內容。注意不是 client 名稱 <code>edge-ina219</code>：hwmon 的文件規定 name 不能有 <code>-</code>、空白等字元（libsensors 用 <code>-</code> 分隔晶片名稱）。這一步沒有試過用帶 <code>-</code> 的名字註冊會怎樣。</li>
+        <li><b><code>_with_info</code></b>：這是目前建議的 API，driver 給 chip_info，hwmon core 產生檔案。舊的 <code>hwmon_device_register()</code> 要 driver 自己建屬性，靜態測試禁止使用。</li>
+        <li><b class="hl-key"><code>devm_</code></b>：hwmon 裝置和這次綁定同生共死。unbind、rmmod、甚至整條 I2C adapter 消失時，driver core 解除綁定，就自動 unregister，所以 <code>remove()</code> 裡什麼都不用寫，也不會忘了寫。8.7 的 unbind / bind 和 rmmod 驗的就是這件事。</li>
+        <li><b><code>dev_name(hwmon)</code></b>：dmesg 的 <code>probed:</code> 那行多印出 <code>hwmon4</code>，方便對照是哪一個。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="errors">
+    <div class="rail"><span class="no">8.7</span><b>錯誤</b>errno 與 stale node</div>
+    <div class="content">
+      <h2>證明出錯時不回舊值、拔掉後不留檔案</h2>
+      <p>phase03 對這一步列了三項驗證：讀 1000 次、I2C 出錯時回 errno、移除或卸載後不留 stale node。第一項是 device 測試的 <code>test_1000_reads_of_every_input</code>（四個檔各 1000 次）。後兩項寫進驗收腳本。</p>
+      <h3>讓晶片「算不出來」：Calibration 寫 0</h3>
+      <p>理想的測法是讓 I2C 傳輸在讀到一半時失敗。這台板子做不到：kernel 沒有 <code>i2c-stub</code>（<code>CONFIG_I2C_STUB</code> 沒開，它能模擬一顆 I2C 晶片）、也沒開 <code>CONFIG_FAULT_INJECTION</code>，而 UPS 模組正在供電給 Jetson，不能拔。能在實機上製造的錯誤是 Calibration = 0：INA219 上電時就是這個值，這時晶片不算電流與功率，driver 回 <code>-ENODATA</code>。它和 I2C 錯誤走的是同一段 <code>if (ret) return ret;</code>：</p>
+      <figure class="listing"><figcaption>scripts/verify_edge_ina219.sh:147–161 — -f 是因為 0x41 已被 driver 綁定；寫回的 0xf468 是 0x68F4（26868）以 SMBus word 低位先送</figcaption>
+<pre data-start="147" data-hot="150,152,158,159">    # Calibration 0 (the power-on value): the chip computes no current or power, and the
+    # driver must say so with ENODATA instead of printing 0 or an old value.
+    cal_zeroed=1
+    i2cset -f -y "$BUS" 0x41 0x05 0x0000 w
+    for a in curr1_input power1_input; do
+        if ! out="$(cat "$hw/$a" 2&gt;&amp;1)" &amp;&amp; [[ $out == *"No data available"* ]]; then
+            pass "Cal 0: $a fails with ENODATA"
+        else
+            fail "Cal 0: $a gave '$out'"
+        fi
+    done
+    if cat "$hw/in1_input" &gt;/dev/null; then pass "Cal 0: in1_input still reads (needs no Calibration)"; else fail "Cal 0: in1_input"; fi
+    i2cset -f -y "$BUS" 0x41 0x05 0xf468 w
+    cal_zeroed=0
+    if cat "$hw/curr1_input" &gt;/dev/null; then pass "Cal 26868 written back: curr1_input reads again"; else fail "curr1_input after restoring Cal"; fi</pre></figure>
+      <p><code>i2cset ... w</code> 的值要 byte 對調，6-b 踩過這個坑：要寫進晶片的 Calibration 是 <code>0x68F4</code>，命令列上要寫 <code>0xf468</code>。腳本開頭的 <code>cleanup</code> 也會在中途中斷時寫回這個值。靜態測試 <code>test_i2cset_only_zeroes_and_restores_calibration</code> 確保腳本裡的 <code>i2cset</code> 只做這兩種寫入。</p>
+      <h3>stale node：unbind / bind，以及 rmmod 前打開的檔案</h3>
+      <p>unbind / bind（腳本第 163–174 行）檢查 hwmon 目錄跟著綁定消失、再出現時只有一個。比較刁鑽的是「有程式在 rmmod 前就打開了檔案」：檔案描述子還在，rmmod 後再讀會怎樣？腳本用一小段 Python 在同一個 process 裡打開、讀、rmmod、再讀：</p>
+      <figure class="listing"><figcaption>scripts/verify_edge_ina219.sh:184–199 — pread 從 offset 0 重讀，sysfs 才會再呼叫一次 read callback</figcaption>
+<pre data-start="184" data-hot="189,190,191,193,195,199">if ((expect_probes)); then
+    # A reader that opened in1_input before rmmod must get an error afterwards, not the
+    # last value: sysfs drops the file with the device.
+    out="$(python3 - "$(hwmons)/in1_input" &lt;&lt;'EOF'
+import errno, os, subprocess, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+print("before:", os.pread(fd, 32, 0).decode().strip())
+subprocess.run(["rmmod", "edge_ina219"], check=True)
+try:
+    print("after:", os.pread(fd, 32, 0).decode().strip())
+except OSError as e:
+    print("after:", errno.errorcode[e.errno])
+EOF
+)"
+    echo "$out" | sed 's/^/    /'
+    if [[ $out == *"after: ENODEV"* ]]; then pass "file opened before rmmod reads ENODEV"; else fail "open file after rmmod: $out"; fi</pre></figure>
+      <p>用 <code>pread(fd, 32, 0)</code> 而不是連續 <code>read</code>：sysfs 檔讀完一次後 offset 在檔尾，第二次 <code>read</code> 只會回 0 byte（EOF），根本不會再碰 driver，測不出任何東西。sysfs 在裝置移除時讓已經打開的檔案失效，所以第二次 <code>pread</code> 得到 <code>ENODEV</code>，而不是舊的 <code>11760</code>。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：I2C 傳輸本身在 hwmon 讀取途中失敗（NAK、bus 卡住）時回 errno；INA219 被實體拔除。前者只有原始碼契約測試（read callback 遇錯 return、沒有保存數值的 static 變數）與 Calibration 0 這條共用路徑；後者以 unbind / rmmod 代替。</p></div>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">8.8</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：從 hwmon 的規定長出來</h2>
+      <p>期望值來自 driver 以外的地方：檔名、單位、編號規則照 <code>sysfs-interface.rst</code>，channel 順序照上游 <code>ina2xx</code>，數值照 6-b 的實測與 <code>ina219_raw</code>。實作前先跑，靜態測試 9 個紅、換算向量編不過（函式還不存在）。</p>
+      <ul>
+        <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個，不需要硬體。Step 7 的「沒有 hwmon」「屬性唯讀」兩個換成五個：用 <code>devm_hwmon_device_register_with_info</code> 註冊且名字是 <code>edge_ina219</code>、channel 宣告正好是兩路 in（含 label）加 curr1、power1、<code>is_visible</code> 只回 <code>0444</code>、read callback 遇錯 return 且沒有 static 數值、沒有任何私有屬性；算式改成檢查 hwmon 單位的函式；驗收腳本多兩個（<code>i2cset</code> 只寫 Cal 0 與還原值、有 hwmon / ENODEV / unbind / bind 檢查）。</li>
+        <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">10</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑：<code>name</code> 與 class 連結、class 裡只有一個 <code>edge_ina219</code>、檔案 0444、只有宣告的 channel、label、私有屬性已消失、整數加換行、電壓 9.0～12.8 V、和 <code>ina219_raw</code> 比（電壓 ≤ 40 mV、shunt ≤ 1 mV、電流 ≤ 50 mA、功率 ≤ 700 mW；shunt 比 Step 7 寬 0.5 mV，是取整數 mV 的捨入）、四個檔各讀 1000 次。這一份<b class="hl-bad">沒有看過紅燈</b>：要用 root 載入 Step 7 的 module 才跑得起來，這次沒做。</li>
+        <li><b>文件工具</b>：<code>scripts/check_listings.py</code> 與 <code>check_test_counts.py</code> 加了 <code>path@REV</code>（8.10 的第一個坑），各多一個測試（<span data-tests="tests/test_check_listings.py">6</span> 個與 <span data-tests="tests/test_check_test_counts.py">5</span> 個）。</li>
+      </ul>
+      <p>在 repo 根目錄跑不需硬體的那一份（約 1 秒，會順便在 <code>kernel/edge_ina219/</code> 裡編 module）：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p test_edge_ina219_static.py</pre>
+<pre class="out">..............................
+----------------------------------------------------------------------
+Ran 30 tests in 1.190s
+
+OK</pre>
+      <p>沒有 <code>dtc</code>、或板子不是這一台（沒有 <code>__symbols__/hdr40_i2c1</code>、<code>/boot</code> 裡沒有這台的 FDT）時，有些 overlay 案例會 skip，結尾變成 <code>OK (skipped=N)</code>。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">8.9</span><b>驗收</b>hwmon ↔ ina219_raw</div>
+    <div class="content">
+      <h2>驗收：讀值、ENODATA、unbind / bind、rmmod</h2>
+      <p>起點：已照 Step 7 裝好 overlay 並重開機（<code>ls /proc/device-tree/bus@0/i2c@c250000/ina219@41</code> 存在），<code>edge_ina219</code> 沒有載入。overlay 這一步沒有改，不必重裝。在 repo 根目錄執行（要 root；會自己編 module 和 <code>ina219_raw</code>，結束時自己 rmmod）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_ina219.sh</pre>
+      <p>2026-10-12 的實測輸出（adapter 沒接、電池在放電）：</p>
+<pre class="out" data-marks>PASS build edge_ina219.ko
+PASS build ina219_raw, test_edge_ina219_conv (CMake)
+PASS conversion vectors
+PASS vermagic matches running kernel
+    bus: c250000.i2c = i2c-7
+--- /proc/device-tree/bus@0/i2c@c250000/ina219@41 present: checking probe, sysfs values and unbind
+    DT node: compatible 'edge,edge-ina219', reg  00 00 00 41
+PASS client 7-0041 exists, unbound, before insmod
+PASS client name 'edge-ina219' (compatible minus vendor prefix)
+PASS no installed module claims i2c:edge-ina219
+    before insmod: 0x00 config 0x0EEF 0x05 calibration 0x68F4
+PASS 7-0041 bound to edge_ina219
+PASS i2cdetect shows UU at 0x41
+PASS i2cget without -f refused while bound: Error: Could not set address to 0x41: Device or resource busy
+PASS one hwmon device: hwmon4, name edge_ina219 «1»
+    in0_label    shunt
+    in0_input    -6 «2»
+    in1_label    bus
+    in1_input    11764
+    curr1_input  -666 «3»
+    power1_input 7302307
+PASS Step 7 private attributes gone
+PASS ina219_raw still reads with the driver bound
+    INA219 on /dev/i2c-7 at 0x41
+    reg  name           raw
+    0x00 config         0x0EEF
+    0x01 shunt_voltage  0xFD66
+    0x02 bus_voltage    0x5BE8
+    0x03 power          0x095B
+    0x04 current        0xEEEF
+    0x05 calibration    0x68F4
+    bus voltage:     11.764 V   (raw 2941 x 4 mV, CNVR=0 OVF=0)
+    shunt voltage:   -6.660 mV  (10 uV per bit, signed)
+    current (shunt): -666.000 mA  (V_shunt / 0.01 ohm)
+    current (reg):   -666.049 mA  (Current_LSB = 0.04096 / (Cal x 0.01 ohm))
+    power (reg):     7302.307 mW  (20 x Current_LSB, unsigned)
+PASS device unittest as nvidia (Ran 10 tests in 1.594s) «4»
+PASS Cal 0: curr1_input fails with ENODATA «5»
+PASS Cal 0: power1_input fails with ENODATA
+PASS Cal 0: in1_input still reads (needs no Calibration)
+PASS Cal 26868 written back: curr1_input reads again
+PASS unbind removes the hwmon device «6»
+PASS bind again: one hwmon device (hwmon4)
+PASS client at 0x45 created and left unbound
+    before: 11760
+    after: ENODEV «7»
+PASS file opened before rmmod reads ENODEV
+PASS module and /sys/bus/i2c/drivers/edge_ina219 gone
+PASS client stays, unbound, no hwmon device left
+PASS i2cdetect shows 41 again
+PASS dmesg free of Oops/BUG/WARNING
+PASS dmesg shows 2 probe / 2 remove for 7-0041 «8»
+PASS probe at 0x45 failed with -EREMOTEIO
+    [ 4068.101359] edge_ina219 verify 10911 1791793299
+    [ 4068.131341] edge_ina219 7-0041: probed: Config 0x0EEF -&gt; 0x0EEF, Cal 26868, shunt 10 mohm, hwmon4
+    [ 4069.980967] edge_ina219 7-0041: removed
+    [ 4069.999115] edge_ina219 7-0041: probed: Config 0x0EEF -&gt; 0x0EEF, Cal 26868, shunt 10 mohm, hwmon4
+    [ 4070.039541] edge_ina219 7-0045: error -EREMOTEIO: cannot read Config
+    [ 4070.039557] edge_ina219: probe of 7-0045 failed with error -121
+    [ 4070.039591] i2c i2c-7: new_device: Instantiated device edge_ina219 at 0x45
+    [ 4070.066819] i2c i2c-7: delete_device: Deleting device edge_ina219 at 0x45
+    [ 4070.110929] edge_ina219 7-0041: removed
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>client 底下正好一個 hwmon 裝置，<code>name</code> 是 <code>edge_ina219</code>；號碼 4 是因為前面已有 hwmon0–3（8.3）。</span></li>
+        <li><span class="mk">2</span><span>shunt 只剩整數 mV。緊接著的 <code>ina219_raw</code> 讀到 −6.660 mV，照四捨五入應該是 −7；hwmon 讀到 −6，表示讀 <code>in0_input</code> 那一刻 raw 在 −5.50～−6.49 mV 之間。兩次讀不是同一次轉換，放電電流本來就在跳（6-b 量過 20 秒內差約 40 mA），差距在 1 mV 的容差內。</span></li>
+        <li><span class="mk">3</span><span><b class="hl-ok">非 0 的有號電流第一次經 kernel 讀出</b>：−666 mA，和工具的 −666.049 mA 一致；Step 7 跑的時候電池沒在充放，只驗到 0。功率 7302307 µW 和工具的 7302.307 mW 完全相同。bus 11764 mV 和 11.764 V 相同。</span></li>
+        <li><span class="mk">4</span><span>10 個 device 測試，含四個檔各讀 1000 次，以一般使用者 <code>nvidia</code> 身分跑：hwmon 檔是 0444，讀不需要 root。</span></li>
+        <li><span class="mk">5</span><span>Calibration 寫 0 後，<code>cat</code> 印出 <code>No data available</code>（ENODATA 的訊息）而不是 <code>0</code>。不需要 Calibration 的電壓照樣讀得到；寫回 26868 後電流又讀得到。</span></li>
+        <li><span class="mk">6</span><span>unbind 後 hwmon 目錄消失、class 裡也沒有 <code>edge_ina219</code>；bind 回來後只有一個，號碼又是 4（空出來的號碼會被重用）。</span></li>
+        <li><span class="mk">7</span><span>rmmod 前讀到 11760，rmmod 後同一個 fd 得到 <code>ENODEV</code>：<b class="hl-ok">沒有 stale node</b>。</span></li>
+        <li><span class="mk">8</span><span>兩次 probe / remove：一次是 unbind / bind，一次是最後的 rmmod。0x45 的 probe 失敗和 Step 7 相同。這次開機已經載入過 module，所以沒有 <code>module verification failed</code> 那行（Step 7 的 7.10 說明過）。</span></li>
+      </ol>
+      <p>你跑出來的數字會不同：電壓隨電池變；adapter 接著、電池沒在充電時電流與功率是 0（Step 7 的情況），充電時是正值。<code>hwmon4</code> 的號碼、dmesg 時間戳、<code>verify</code> 那行的數字每次都可能不同。沒裝 overlay 時腳本走「no node」那一支，只檢查 driver 不綁定任何東西和 0x45。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">8.10</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>後面的 Step 刪掉了前一章教的 code</h4><dl><dt>症狀</dt><dd>拿掉私有屬性後，<code>check_listings.py</code> 報 Step 7 章 8 處節錄對不上、<code>check_test_counts.py</code> 4 處數字不對。</dd><dt>後果</dt><dd>原本以為只要改行號；但 <code>registers_show()</code> 整段不存在了，沒有新行號可改。</dd><dt>正解</dt><dd class="fix">兩支工具支援 <code>path@REV</code>，Step 7 章釘在它 merge 的 commit <code>c818fea</code>：舊章講當時的 code。</dd></dl></div>
+        <div class="pit"><h4>連續 read 一個 sysfs 檔</h4><dl><dt>症狀</dt><dd>rmmod 後第二次 <code>read()</code> 回 0 byte，看起來「沒出錯」。</dd><dt>後果</dt><dd>第一次讀完 offset 在檔尾，第二次根本沒碰 driver，什麼都沒測到（依 sysfs 的行為推論，腳本一開始就用 pread）。</dd><dt>正解</dt><dd class="fix"><code>os.pread(fd, n, 0)</code> 每次從頭讀。</dd></dl></div>
+        <div class="pit"><h4>以為 hwmon 的 shunt 可以用 µV</h4><dl><dt>症狀</dt><dd>想沿用 Step 7 的 <code>shunt_uv</code>。</dd><dt>後果</dt><dd><code>in*_input</code> 規定是 mV，用 µV 會讓所有通用工具讀成大 1000 倍的電壓。</dd><dt>正解</dt><dd class="fix">照規定給整數 mV（−6.13 → −6）；要細的值用 <code>ina219_raw</code>。</dd></dl></div>
+        <div class="pit"><h4>整數除法當捨入</h4><dl><dt>症狀</dt><dd>−6.99 mV 變成 −6、6.99 變成 6。</dd><dt>後果</dt><dd>負值和正值都偏向 0，最多差 1 mV / 1 mA。</dd><dt>正解</dt><dd class="fix"><code>edge_ina219_div_round()</code>：半數遠離 0；變異測試確認截斷會紅。</dd></dl></div>
+        <div class="pit"><h4>同名測試檔數兩次</h4><dl><dt>症狀</dt><dd><code>check_test_counts.py</code> 同時數 <code>@c818fea</code> 版和工作目錄版的 <code>test_edge_ina219_static.py</code>。</dd><dt>後果</dt><dd><code>sys.modules</code> 和 <code>sys.path</code> 留著前一個，可能數到錯的那份。</dd><dt>正解</dt><dd class="fix">每次計數前後 pop 掉 module、移除那個目錄。</dd></dl></div>
+        <div class="pit"><h4>用 git stash 還原變異</h4><dl><dt>症狀</dt><dd>做變異測試時 <code>git stash -- include/edge_ina219_conv.h</code>。</dd><dt>後果</dt><dd>連還沒 commit 的新函式一起收走，後面的變異結果全都不可信。</dd><dt>正解</dt><dd class="fix">先把原檔複製一份，每次變異前蓋回去。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">8.11</span><b>收尾</b>8 → 9</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y"><code>edge_ina219</code> 以 <code>devm_hwmon_device_register_with_info()</code> 註冊 hwmon：<code>in0</code>（shunt）、<code>in1</code>（bus）、<code>curr1</code>、<code>power1</code>，單位 mV / mA / µW，全部 0444；Step 7 的私有屬性拿掉。</li>
+        <li class="y">hwmon 讀到的電壓、<b class="hl-ok">非 0 的放電電流</b>、功率都和 <code>ina219_raw</code> 一致；四個檔各讀 1000 次不出錯；驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">Calibration 0 時 <code>curr1</code> / <code>power1</code> 回 ENODATA，不回 0 或舊值；unbind / bind、rmmod 後 hwmon 裝置不殘留，rmmod 前打開的 fd 讀到 ENODEV。</li>
+        <li class="y">測試 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個（不需硬體）加 <span data-tests="tests/test_edge_ina219_device.py">10</span> 個（需綁定），5 組換算向量。</li>
+        <li class="n">沒有實測：hwmon 讀取途中 I2C 傳輸失敗、INA219 被實體拔除；device 測試沒看過紅燈。</li>
+        <li class="n">沒有試：<code>sensors</code>（這台沒裝 lm-sensors）。</li>
+      </ul>
+      <p>Phase 3 到這裡結束：同一顆 INA219 從廠商範例（6-a）、自己的 userspace 工具（6-b）、自己的 driver（7）一路走到標準介面（8）。Phase 9 的 C++ platform-app 會從 <code>/sys/class/hwmon</code> 讀電池狀態。下一章 Step 9 進入 Phase 4，換一顆 I2C 晶片：SSD1306 OLED。和 6-b 一樣，先在 userspace 證明 command / data 的傳送順序是對的，再寫 driver。</p>
+      <details class="quiz"><summary>1. 為什麼 driver 裡找不到任何 <code>sysfs_emit()</code>，<code>cat in1_input</code> 卻讀得到 <code>11764</code>？</summary><p>印字串的是 hwmon core。driver 的 <code>edge_ina219_read()</code> 只把 11764 填進 <code>*val</code>，hwmon core 依 chip_info 產生的屬性把它印成十進位加換行。</p></details>
+      <details class="quiz"><summary>2. 為什麼 <code>remove()</code> 裡沒有 unregister hwmon，rmmod 後 hwmon 目錄還是會消失？</summary><p>註冊用的是 <code>devm_</code> 版本，hwmon 裝置是這個 client 綁定期間的資源；解除綁定時 driver core 會自動釋放它。</p></details>
+      <details class="quiz"><summary>3. 晶片的 shunt 是 −6.66 mV，<code>in0_input</code> 應該印什麼？為什麼不是 −6660？</summary><p>−7。hwmon 規定電壓單位是 mV，四捨五入（半數遠離 0）後是 −7；−6660 是 µV，那是 Step 7 私有屬性 <code>shunt_uv</code> 的單位。</p></details>
+      <details class="quiz"><summary>4. 驗收腳本為什麼要用 <code>pread</code> 從 offset 0 讀，而不是對同一個 fd 再 <code>read</code> 一次？</summary><p>第一次讀完後 offset 在檔尾，第二次 <code>read</code> 直接回 EOF，不會呼叫 driver，也就測不到移除後的行為。<code>pread(fd, n, 0)</code> 每次從頭讀，sysfs 才會再走一次讀取，這時裝置已不在，回 <code>ENODEV</code>。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step07.html">← Step 7</a><span class="disabled">Step 9 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>

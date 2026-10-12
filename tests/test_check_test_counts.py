@@ -54,6 +54,25 @@ class CheckTestCountsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("ERROR p.html: claim 'twelve'", result.stderr)
 
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              cwd=self.root, text=True, capture_output=True, check=True).stdout.strip()
+
+    def test_pinned_claim_counts_the_commit_not_the_worktree(self):
+        # An older chapter's claim stays true after a later step adds tests: PATH@REV.
+        self.git("init", "-q")
+        self.git("add", "tests/test_x.py")
+        self.git("commit", "-qm", "old")
+        rev = self.git("rev-parse", "--short", "HEAD")
+        (self.root / "tests/test_x.py").write_text(TEST_FILE + "    def test_c(self): pass\n")
+        self.page(f'<span data-tests="tests/test_x.py@{rev}">2</span>'
+                  '<span data-tests="tests/test_x.py">3</span>')
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("checked: 2", result.stdout)
+        self.page(f'<span data-tests="tests/test_x.py@{rev}">3</span>')
+        self.assertEqual(self.run_check().returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
