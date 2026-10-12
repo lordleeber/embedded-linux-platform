@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * edge_ina219 - Step 7: our own I2C client driver for the INA219 on the
- * Waveshare UPS Power Module (C).
+ * edge_ina219 - our own I2C client driver for the INA219 on the Waveshare UPS
+ * Power Module (C). Step 7 wrote the device logic; Step 8 hands the values to
+ * the hwmon subsystem instead of private sysfs attributes.
  *
  *   DT node ina219@41 under hdr40_i2c1 (c250000.i2c = i2c-7)
  *     -> I2C core creates client 7-0041 at boot
  *     -> insmod: compatible "edge,edge-ina219" matches -> edge_ina219_probe()
- *     -> sysfs attributes in /sys/bus/i2c/devices/7-0041/ read the chip on
- *        every access (no cache, no polling)
+ *     -> devm_hwmon_device_register_with_info() creates hwmonN under 7-0041
+ *     -> cat /sys/class/hwmon/hwmonN/in1_input: the hwmon core calls
+ *        edge_ina219_read(), which reads the chip on every access (no cache,
+ *        no polling) and returns either a value in hwmon units or an errno
  *
  * The chip sends every 16-bit register MSB first; an SMBus word is LSB first,
  * so all access goes through the _swapped SMBus helpers. probe() writes the
@@ -15,16 +18,14 @@
  * Current and Power registers work after a power cycle too. Conversions read
  * the Calibration back from the chip each time, as ina219_raw does: if someone
  * rewrites it from userspace, both still decode the same way.
- *
- * The attributes are a private interface for this step; Step 8 replaces them
- * with the standard hwmon ones.
  */
 #include <linux/device.h>
+#include <linux/err.h>
+#include <linux/hwmon.h>
 #include <linux/i2c.h>
 #include <linux/kernel.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/sysfs.h>
 
 #include "edge_ina219_conv.h"
 
@@ -50,14 +51,14 @@ static int read_bus_voltage(struct i2c_client *client, s32 *mv)
 	return 0;
 }
 
-/* Shunt voltage in uV, signed. */
-static int read_shunt_voltage(struct i2c_client *client, s32 *uv)
+/* Shunt voltage in mV (hwmon unit), signed, rounded from the 10 uV steps. */
+static int read_shunt_voltage(struct i2c_client *client, s32 *mv)
 {
 	int ret = read_reg16(client, EDGE_INA219_REG_SHUNT);
 
 	if (ret < 0)
 		return ret;
-	*uv = edge_ina219_shunt_uv(ret);
+	*mv = edge_ina219_shunt_mv(ret);
 	return 0;
 }
 
@@ -78,83 +79,75 @@ static int read_calibrated(struct i2c_client *client, u8 reg, u16 *raw, u16 *cal
 	return 0;
 }
 
-static ssize_t registers_show(struct device *dev, struct device_attribute *attr,
-			      char *buf)
+/* hwmon callbacks: in0 = shunt, in1 = bus (the upstream ina2xx order), curr1, power1. */
+static umode_t edge_ina219_is_visible(const void *data, enum hwmon_sensor_types type,
+				      u32 attr, int channel)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	int len = 0;
-	u8 reg;
-
-	for (reg = 0; reg < EDGE_INA219_NUM_REGS; reg++) {
-		int ret = read_reg16(client, reg);
-
-		if (ret < 0)
-			return ret;
-		len += sysfs_emit_at(buf, len, "0x%04X%c", ret,
-				     reg == EDGE_INA219_NUM_REGS - 1 ? '\n' : ' ');
-	}
-	return len;
+	return 0444;
 }
-static DEVICE_ATTR_RO(registers);
 
-static ssize_t bus_mv_show(struct device *dev, struct device_attribute *attr,
-			   char *buf)
+static int edge_ina219_read(struct device *dev, enum hwmon_sensor_types type,
+			    u32 attr, int channel, long *val)
 {
+	struct i2c_client *client = dev_get_drvdata(dev);
+	u16 raw, cal;
 	s32 mv;
-	int ret = read_bus_voltage(to_i2c_client(dev), &mv);
+	int ret;
 
-	return ret ? ret : sysfs_emit(buf, "%d\n", mv);
+	switch (type) {
+	case hwmon_in:		/* mV */
+		ret = channel ? read_bus_voltage(client, &mv) : read_shunt_voltage(client, &mv);
+		if (ret)
+			return ret;
+		*val = mv;
+		return 0;
+	case hwmon_curr:	/* mA */
+		ret = read_calibrated(client, EDGE_INA219_REG_CURRENT, &raw, &cal);
+		if (ret)
+			return ret;
+		*val = edge_ina219_current_ma(raw, cal, EDGE_INA219_SHUNT_MOHM);
+		return 0;
+	case hwmon_power:	/* uW */
+		ret = read_calibrated(client, EDGE_INA219_REG_POWER, &raw, &cal);
+		if (ret)
+			return ret;
+		*val = edge_ina219_power_uw(raw, cal, EDGE_INA219_SHUNT_MOHM);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
 }
-static DEVICE_ATTR_RO(bus_mv);
 
-static ssize_t shunt_uv_show(struct device *dev, struct device_attribute *attr,
-			     char *buf)
+static const char *const edge_ina219_in_labels[] = { "shunt", "bus" };
+
+static int edge_ina219_read_string(struct device *dev, enum hwmon_sensor_types type,
+				   u32 attr, int channel, const char **str)
 {
-	s32 uv;
-	int ret = read_shunt_voltage(to_i2c_client(dev), &uv);
-
-	return ret ? ret : sysfs_emit(buf, "%d\n", uv);
+	*str = edge_ina219_in_labels[channel];	/* only the in channels have labels */
+	return 0;
 }
-static DEVICE_ATTR_RO(shunt_uv);
 
-static ssize_t current_ua_show(struct device *dev, struct device_attribute *attr,
-			       char *buf)
-{
-	u16 raw, cal;
-	int ret = read_calibrated(to_i2c_client(dev), EDGE_INA219_REG_CURRENT, &raw, &cal);
-
-	if (ret)
-		return ret;
-	return sysfs_emit(buf, "%lld\n",
-			  edge_ina219_current_ua(raw, cal, EDGE_INA219_SHUNT_MOHM));
-}
-static DEVICE_ATTR_RO(current_ua);
-
-static ssize_t power_uw_show(struct device *dev, struct device_attribute *attr,
-			     char *buf)
-{
-	u16 raw, cal;
-	int ret = read_calibrated(to_i2c_client(dev), EDGE_INA219_REG_POWER, &raw, &cal);
-
-	if (ret)
-		return ret;
-	return sysfs_emit(buf, "%lld\n",
-			  edge_ina219_power_uw(raw, cal, EDGE_INA219_SHUNT_MOHM));
-}
-static DEVICE_ATTR_RO(power_uw);
-
-static struct attribute *edge_ina219_attrs[] = {
-	&dev_attr_registers.attr,
-	&dev_attr_bus_mv.attr,
-	&dev_attr_shunt_uv.attr,
-	&dev_attr_current_ua.attr,
-	&dev_attr_power_uw.attr,
-	NULL,
+static const struct hwmon_ops edge_ina219_hwmon_ops = {
+	.is_visible = edge_ina219_is_visible,
+	.read = edge_ina219_read,
+	.read_string = edge_ina219_read_string,
 };
-ATTRIBUTE_GROUPS(edge_ina219);
+
+static const struct hwmon_channel_info *edge_ina219_info[] = {
+	HWMON_CHANNEL_INFO(in, HWMON_I_INPUT | HWMON_I_LABEL, HWMON_I_INPUT | HWMON_I_LABEL),
+	HWMON_CHANNEL_INFO(curr, HWMON_C_INPUT),
+	HWMON_CHANNEL_INFO(power, HWMON_P_INPUT),
+	NULL
+};
+
+static const struct hwmon_chip_info edge_ina219_chip_info = {
+	.ops = &edge_ina219_hwmon_ops,
+	.info = edge_ina219_info,
+};
 
 static int edge_ina219_probe(struct i2c_client *client)
 {
+	struct device *hwmon;
 	int config, cal, ret;
 
 	/* Is anyone there? No ACK at this address fails here with -EREMOTEIO. */
@@ -186,14 +179,24 @@ static int edge_ina219_probe(struct i2c_client *client)
 				     "read back Cal 0x%04X Config 0x%04X: not an INA219?\n",
 				     cal, ret);
 
-	dev_info(&client->dev, "probed: Config 0x%04X -> 0x%04X, Cal %u, shunt %d mohm\n",
-		 config, EDGE_INA219_CONFIG, EDGE_INA219_CAL, EDGE_INA219_SHUNT_MOHM);
+	/*
+	 * devm_: the hwmon device goes away when this binding does (unbind, rmmod,
+	 * the adapter disappearing), so no stale hwmonN is left behind.
+	 */
+	hwmon = devm_hwmon_device_register_with_info(&client->dev, "edge_ina219", client,
+						     &edge_ina219_chip_info, NULL);
+	if (IS_ERR(hwmon))
+		return dev_err_probe(&client->dev, PTR_ERR(hwmon), "cannot register hwmon\n");
+
+	dev_info(&client->dev, "probed: Config 0x%04X -> 0x%04X, Cal %u, shunt %d mohm, %s\n",
+		 config, EDGE_INA219_CONFIG, EDGE_INA219_CAL, EDGE_INA219_SHUNT_MOHM,
+		 dev_name(hwmon));
 	return 0;
 }
 
 static int edge_ina219_remove(struct i2c_client *client)
 {
-	/* The chip keeps converting; nothing of ours to free (attributes go with the device). */
+	/* The chip keeps converting; nothing of ours to free (devm removes hwmonN). */
 	dev_info(&client->dev, "removed\n");
 	return 0;
 }
@@ -214,7 +217,6 @@ static struct i2c_driver edge_ina219_driver = {
 	.driver = {
 		.name = "edge_ina219",
 		.of_match_table = edge_ina219_of_match,
-		.dev_groups = edge_ina219_groups,
 	},
 	.probe_new = edge_ina219_probe,
 	.remove = edge_ina219_remove,
@@ -222,5 +224,5 @@ static struct i2c_driver edge_ina219_driver = {
 };
 module_i2c_driver(edge_ina219_driver);
 
-MODULE_DESCRIPTION("Step 7: INA219 I2C client driver (private sysfs attributes)");
+MODULE_DESCRIPTION("INA219 I2C client driver with hwmon (Steps 7-8)");
 MODULE_LICENSE("GPL");

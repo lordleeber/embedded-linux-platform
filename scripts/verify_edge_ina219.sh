@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Step 7 acceptance: build edge_ina219.ko, bind it to the INA219 and compare with ina219_raw.
+# Steps 7-8 acceptance: build edge_ina219.ko, bind it to the INA219, compare its hwmon values
+# with ina219_raw and check that errors and removal leave nothing stale.
 # Usage: sudo bash scripts/verify_edge_ina219.sh
 #
 # The UPS Power Module (C) INA219 answers on the header I2C bus (c250000.i2c) at 0x41.
 # The result depends on whether this boot has the overlay with the ina219@41 node
 # (make -C dts, install, reboot):
 #   no node      -> no client <bus>-0041 exists, insmod must not bind anything
-#   node present -> client exists unbound before insmod; insmod binds it, Config/Cal are the
-#                   sample's, the sysfs values match ina219_raw, rmmod unbinds it
+#   node present -> client exists unbound before insmod; insmod binds it and registers one
+#                   hwmon device whose values match ina219_raw; Calibration 0 makes curr1 /
+#                   power1 fail with ENODATA (then the sample's value is written back);
+#                   unbind removes hwmonN, bind brings it back; a file opened before rmmod
+#                   reads ENODEV afterwards
 # Both modes also instantiate a client at 0x45 (nobody answers): probe() must fail.
 # Exit status: 0 = all checks passed, 1 = a check failed, 2 = environment/usage problem.
 set -uo pipefail
@@ -40,7 +44,9 @@ is_loaded() { grep -q '^edge_ina219 ' /proc/modules; }
 is_loaded && die "edge_ina219 already loaded; rmmod edge_ina219 first"
 
 tmpdir="$(mktemp -d)"
+cal_zeroed=0
 cleanup() {
+    ((cal_zeroed)) && i2cset -f -y "$BUS" 0x41 0x05 0xf468 w
     [[ -e /sys/bus/i2c/devices/$BUS-00${DEAD#0x} ]] && echo "$DEAD" > "$ADAPTER/delete_device"
     rm -rf "$tmpdir"
     if is_loaded; then rmmod edge_ina219 || echo "WARN cleanup rmmod failed" >&2; fi
@@ -51,6 +57,9 @@ trap 'exit 2' INT TERM
 bound() { [[ "$(readlink -f "$CLIENT/driver" 2>/dev/null)" == "$(readlink -f $DRV)" ]]; }
 # i2cdetect cell for 0x41: "41" = answers, "UU" = a driver owns the address.
 cell41() { i2cdetect -y -r "$BUS" | awk '$1 == "40:" { print $3 }'; }
+# hwmonN directories under the client, and class entries named edge_ina219.
+hwmons() { find "$CLIENT/hwmon" -mindepth 1 -maxdepth 1 -name 'hwmon*' 2>/dev/null; }
+class_count() { grep -lx edge_ina219 /sys/class/hwmon/*/name 2>/dev/null | wc -l; }
 
 if timeout 300 sudo -u "$BUILD_USER" make -C "$MOD_DIR" >/dev/null 2>&1; then
     pass "build edge_ina219.ko"
@@ -111,9 +120,16 @@ else
         fail "i2cget while bound: '$out' (expected Device or resource busy)"
     fi
 
-    for a in registers bus_mv shunt_uv current_ua power_uw; do
-        printf '    %-11s %s\n' "$a" "$(cat "$CLIENT/$a" 2>&1)"
+    hw="$(hwmons)"
+    if [[ $(wc -w <<<"$hw") -eq 1 && "$(cat "$hw/name")" == edge_ina219 ]]; then
+        pass "one hwmon device: $(basename "$hw"), name edge_ina219"
+    else
+        fail "hwmon under $CLIENT: '$hw'"; exit 1
+    fi
+    for a in in0_label in0_input in1_label in1_input curr1_input power1_input; do
+        printf '    %-12s %s\n' "$a" "$(cat "$hw/$a" 2>&1)"
     done
+    if [[ ! -e $CLIENT/registers && ! -e $CLIENT/bus_mv ]]; then pass "Step 7 private attributes gone"; else fail "private attributes still there"; fi
     if "$RAW" --bus "$BUS" >"$tmpdir/raw1"; then
         pass "ina219_raw still reads with the driver bound"
         sed 's/^/    /' "$tmpdir/raw1"
@@ -127,7 +143,35 @@ else
     else
         fail "device unittest as $BUILD_USER"; cat "$tmpdir/unit"
     fi
-    expect_probes=1
+
+    # Calibration 0 (the power-on value): the chip computes no current or power, and the
+    # driver must say so with ENODATA instead of printing 0 or an old value.
+    cal_zeroed=1
+    i2cset -f -y "$BUS" 0x41 0x05 0x0000 w
+    for a in curr1_input power1_input; do
+        if ! out="$(cat "$hw/$a" 2>&1)" && [[ $out == *"No data available"* ]]; then
+            pass "Cal 0: $a fails with ENODATA"
+        else
+            fail "Cal 0: $a gave '$out'"
+        fi
+    done
+    if cat "$hw/in1_input" >/dev/null; then pass "Cal 0: in1_input still reads (needs no Calibration)"; else fail "Cal 0: in1_input"; fi
+    i2cset -f -y "$BUS" 0x41 0x05 0xf468 w
+    cal_zeroed=0
+    if cat "$hw/curr1_input" >/dev/null; then pass "Cal 26868 written back: curr1_input reads again"; else fail "curr1_input after restoring Cal"; fi
+
+    # Unbind / bind: the hwmon device must leave with the binding and come back once.
+    echo "$BUS-0041" > "$DRV/unbind"
+    udevadm settle --timeout=10
+    if [[ -z "$(hwmons)" && $(class_count) -eq 0 ]]; then pass "unbind removes the hwmon device"; else fail "after unbind: '$(hwmons)', class count $(class_count)"; fi
+    echo "$BUS-0041" > "$DRV/bind"
+    udevadm settle --timeout=10
+    if bound && [[ $(wc -w <<<"$(hwmons)") -eq 1 && $(class_count) -eq 1 ]]; then
+        pass "bind again: one hwmon device ($(basename "$(hwmons)"))"
+    else
+        fail "after bind: '$(hwmons)', class count $(class_count)"
+    fi
+    expect_probes=2
 fi
 
 # A client where nobody answers: probe() reads Config, gets no ACK and must fail.
@@ -137,12 +181,30 @@ dead=/sys/bus/i2c/devices/$BUS-00${DEAD#0x}
 if [[ -e $dead && ! -e $dead/driver ]]; then pass "client at $DEAD created and left unbound"; else fail "client at $DEAD bound or missing"; fi
 echo "$DEAD" > "$ADAPTER/delete_device"
 
-rmmod edge_ina219 || fail "rmmod"
+if ((expect_probes)); then
+    # A reader that opened in1_input before rmmod must get an error afterwards, not the
+    # last value: sysfs drops the file with the device.
+    out="$(python3 - "$(hwmons)/in1_input" <<'EOF'
+import errno, os, subprocess, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+print("before:", os.pread(fd, 32, 0).decode().strip())
+subprocess.run(["rmmod", "edge_ina219"], check=True)
+try:
+    print("after:", os.pread(fd, 32, 0).decode().strip())
+except OSError as e:
+    print("after:", errno.errorcode[e.errno])
+EOF
+)"
+    echo "$out" | sed 's/^/    /'
+    if [[ $out == *"after: ENODEV"* ]]; then pass "file opened before rmmod reads ENODEV"; else fail "open file after rmmod: $out"; fi
+else
+    rmmod edge_ina219 || fail "rmmod"
+fi
 udevadm settle --timeout=10
 if is_loaded || [[ -e $DRV ]]; then fail "driver still registered after rmmod"; else pass "module and $DRV gone"; fi
 if ((expect_probes)); then
-    if [[ -e $CLIENT && ! -e $CLIENT/driver && ! -e $CLIENT/bus_mv ]]; then
-        pass "client stays, unbound, attributes gone"
+    if [[ -e $CLIENT && ! -e $CLIENT/driver && -z "$(hwmons)" && $(class_count) -eq 0 ]]; then
+        pass "client stays, unbound, no hwmon device left"
     else
         fail "client after rmmod: $(ls "$CLIENT" 2>&1 | tr '\n' ' ')"
     fi

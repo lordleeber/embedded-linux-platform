@@ -407,6 +407,27 @@ sysfs attribute
 
 串起來。
 
+### 實作決策（Step 8 落地時裁決）
+
+- 誰和誰互動：`cat /sys/class/hwmon/hwmonN/in1_input` → sysfs → hwmon core → `edge_ina219_read()` → `read_bus_voltage()` → `i2c_smbus_read_word_swapped()` → I2C core → i2c-tegra（`c250000.i2c`，controller）→ INA219（target，0x41）。controller / target、DT 節點、probe 的寫入都和 Step 7 相同
+- 改同一個 `edge_ina219`，不另寫 module；`devm_hwmon_device_register_with_info()`（新 API，`hwmon_chip_info` + callback），name `edge_ina219`。devm 讓 hwmonN 跟著 binding 消失
+- channel：`in0` = shunt、`in1` = bus（和上游 `ina2xx` 相同順序），`curr1`、`power1`；`in0` / `in1` 有 label（`shunt` / `bus`）。不做 `shunt_resistor`、`update_interval`、alarm
+- 單位照 `Documentation/hwmon/sysfs-interface.rst`：電壓 mV、電流 mA、功率 µW。shunt（10 µV 一格）與電流四捨五入到整數 mV / mA（同上游 `DIV_ROUND_CLOSEST`，半數遠離 0），放在共用 header（`edge_ina219_shunt_mv()`、`edge_ina219_current_ma()`），C++ 測試逐值確認誤差 ≤ 0.5 單位
+- **拿掉 Step 7 的私有屬性**（`registers` 等五個）：hwmon 是唯一介面；看原始 register 用 `build/ina219_raw`
+- 錯誤：callback 每次讀晶片，失敗直接回 errno、不留任何舊值。這台沒有 `i2c-stub`、沒開 fault injection，I2C 讀到一半失敗無法在實機製造；改以 Calibration 0 讓 `curr1` / `power1` 回 `ENODATA`（真的經過 hwmon read 的錯誤路徑），加上原始碼契約測試
+- stale node：unbind / bind 與 rmmod 後檢查 hwmonN 不殘留；rmmod 前打開的 fd 之後再讀得到 `ENODEV`
+- Step 7 的章教的 code 被這一步改掉：`check_listings.py` / `check_test_counts.py` 新增 `path@REV`，Step 7 章的節錄與測試數釘在 `c818fea`（Step 7 merge）
+
+### 預期檔案
+
+```text
+kernel/edge_ina219/edge_ina219.c、README.md（改）
+include/edge_ina219_conv.h（加 hwmon 單位）
+tests/test_edge_ina219_conv.cpp、test_edge_ina219_static.py、test_edge_ina219_device.py（改）
+scripts/verify_edge_ina219.sh（加 hwmon、ENODATA、unbind / bind、rmmod 後的 fd）
+scripts/check_listings.py、check_test_counts.py（加 @REV）與其測試
+```
+
 ### 驗證
 
 除了 `cat`，還要測：

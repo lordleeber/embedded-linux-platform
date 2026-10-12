@@ -55,6 +55,38 @@ class CheckListingsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("ERROR p.html: src/missing.c", result.stderr)
 
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              cwd=self.root, text=True, capture_output=True, check=True).stdout.strip()
+
+    def test_pinned_listing_reads_the_commit_not_the_worktree(self):
+        # A chapter about an older step quotes code a later step removed: PATH@REV.
+        self.git("init", "-q")
+        self.git("add", "src/x.c")
+        self.git("commit", "-qm", "old")
+        rev = self.git("rev-parse", "--short", "HEAD")
+        (self.root / "src/x.c").write_text("int z;\n")
+        self.page(listing(f"src/x.c@{rev}", 2, 3, "int b;\nint c &lt;"))
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("listings checked: 1", result.stdout)
+        self.page(listing(f"src/x.c@{rev}", 1, 1, "int z;"))
+        self.assertEqual(self.run_check().returncode, 1)
+
+    def test_unknown_revision_is_environment_error(self):
+        self.git("init", "-q")
+        self.page(listing("src/x.c@deadbeef", 1, 1, "int a;"))
+        result = self.run_check()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("ERROR p.html: src/x.c@deadbeef", result.stderr)
+
+    def test_at_sign_in_an_existing_path_is_not_a_revision(self):
+        # Device-tree style names (bus@0) are file names, not PATH@REV.
+        (self.root / "src/bus@0.c").write_text("int x;\n")
+        self.page(listing("src/bus@0.c", 1, 1, "int x;"))
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

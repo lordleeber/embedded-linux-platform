@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * INA219 register map and conversions for edge_ina219.ko (Step 7).
+ * INA219 register map and conversions for edge_ina219.ko (Step 7; hwmon units
+ * added in Step 8).
  *
  * Plain C, integer only (the kernel has no floating point), usable from the
  * kernel and from userspace: tests/test_edge_ina219_conv.cpp compares every
@@ -61,6 +62,28 @@ static inline s64 edge_ina219_current_ua(u16 raw, u16 cal, s32 shunt_mohm)
 static inline s64 edge_ina219_power_uw(u16 raw, u16 cal, s32 shunt_mohm)
 {
 	return (s64)raw * 20 * 40960000 / ((s64)cal * shunt_mohm);
+}
+
+/*
+ * hwmon units (Documentation/hwmon/sysfs-interface.rst): voltages in mV, current
+ * in mA, power in uW. Shunt voltage and current are rounded to the nearest unit,
+ * halves away from zero, as DIV_ROUND_CLOSEST() does in the upstream drivers.
+ * The divisor must be positive.
+ */
+static inline s64 edge_ina219_div_round(s64 n, s64 d)
+{
+	return n < 0 ? (n - d / 2) / d : (n + d / 2) / d;
+}
+
+static inline s32 edge_ina219_shunt_mv(u16 raw)
+{
+	return edge_ina219_div_round((s16)raw, 100);	/* 10 uV per bit */
+}
+
+/* Current_LSB in mA = 40960 / (Cal x R[mohm]); cal must be non-zero. */
+static inline s64 edge_ina219_current_ma(u16 raw, u16 cal, s32 shunt_mohm)
+{
+	return edge_ina219_div_round((s64)(s16)raw * 40960, (s64)cal * shunt_mohm);
 }
 
 #endif /* EDGE_INA219_CONV_H */
