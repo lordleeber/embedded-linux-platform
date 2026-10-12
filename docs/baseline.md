@@ -287,3 +287,12 @@
 - 原本以為「原始碼裡沒有 `hwmon` 這個字」就能守住 Step 8 的範圍；`MODULE_DESCRIPTION` 寫了 `no hwmon` 就讓測試紅。改成找 `<linux/hwmon.h>` 與 `hwmon_device_register`。
 - 第一版向量從 6-b 的 `-612.997 mA` 反推 Current register 寫成 `0xF03A`，算錯；用整數除法逐值列出後是 `0xF04B`（−4021 × 152.449 µA）。
 - insmod 時 dmesg 會有 `module verification failed: signature and/or required key missing - tainting kernel`：out-of-tree module 沒簽章，每次開機第一次載入都會出現，不是錯誤（之前幾個 Step 的 module 也一樣）。
+- code review（PR #11）找出的問題，原本都以為沒事：
+  - 原本以為 compatible 換成自己的廠商前綴 `edge,` 就擋得住上游 driver；I2C core 用 compatible 去掉前綴當 client 名稱（`7-0041/name` 實際是 `ina219`），DT compatible 比不到時還會拿名稱比每個 driver 的 `i2c_device_id`，而這台的 `ina2xx.ko` 有 `alias i2c:ina219`。不會被自動載入（uevent modalias 是 `of:...Cedge,ina219`），但有人 `modprobe ina2xx` 就能接管 `7-0041`（依配對規則推論，沒有實際載入 `ina2xx` 試）。compatible 改成 `edge,edge-ina219`，新增測試從 `modules.alias` 確認沒有 module 認領 client 名稱（用舊值 `ina219` 會紅：同一份 alias 檔裡有它）。
+  - 原本以為 client 名稱來自節點名（驗收腳本與章都這樣寫）；來自 compatible。舊版兩者都是 `ina219` 看不出差別，改名後實測 `name` 是 `edge-ina219`。腳本的名稱檢查原本不符只印一行不算 FAIL，改成真的判定。
+  - 原本以為有 ACK 就能寫入；INA219 沒有 ID register。probe 寫完讀回 Cal / Config，不符回 `-ENODEV`。讀回不符那條路沒有實測（沒有別的會在 0x41 回應的晶片）。
+  - device 測試只比了電壓與電流；加上 shunt（≤ 0.5 mV）與功率（≤ 700 mW），由 50 mA 容差換算。
+  - 教材補註：`registers` 的六個值不是同一瞬間的快照，driver 加 mutex 也擋不住外部 `i2cset -f`。
+  - 不改：32-bit kernel 的 64-bit 除法（這個專案跑 Linux 的目標都是 arm64，README 已註明）；換算公式在 `edge_ina219_conv.h` 與 `tools/ina219_decode.h` 各一份（`test_edge_ina219_conv` 逐值比對，不會悄悄分歧；合併要改 6-b 的工具）；一行的 wrapper（`read_reg16` 等是 phase03 指定的 helper 名稱）。
+  - 修正前 5 個測試紅（compatible 3、配對 1、讀回 1）。`test_edge_ina219_static.py` 由 23 個變 25 個。全套 206 個，`OK (skipped=50)`。
+- 修正後重裝 overlay、重開機再驗（2026-10-12）`sudo bash scripts/verify_edge_ina219.sh` `=== 0 failure(s)`：`compatible 'edge,edge-ina219'`、`client name 'edge-ina219'`、`no installed module claims i2c:edge-ina219`；dmesg `probed:` 照常出現（讀回相符）。driver 的 `registers` Bus 是 `0x5EBA`，緊接著 `ina219_raw` 讀到 `0x5EB8`：電壓同為 3031 × 4 mV = 12.124 V，差在 CNVR，driver 讀 `registers` 時讀過 Power、清掉了 CNVR（6-a 的坑）。其餘 register 相同，電流 / 功率仍是 0。
