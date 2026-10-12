@@ -164,6 +164,24 @@ class VerifyScriptTest(unittest.TestCase):
         # it must be a FAIL instead (code review, PR #10).
         self.assertRegex(self.SCRIPT.read_text(), r'snap="\$\(tool\)"\s*\|\|\s*\{?\s*fail')
 
+    def lowest(self, samples):
+        # Run the script's own lowest() on a list of mA readings.
+        m = re.search(r"^lowest\(\)\s*\{.*?\}\s*$", self.SCRIPT.read_text(), re.M)
+        self.assertIsNotNone(m, "no lowest() helper")
+        r = subprocess.run(["bash", "-c", m.group(0) + "\nlowest"], input="".join(f"{s}\n" for s in samples),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return float(r.stdout)
+
+    def test_unplug_check_needs_a_discharge_sample(self):
+        # 2026-10-12, battery charging: the window held 5 charging samples (+1374 mA) before the
+        # person unplugged. The old check took the largest |I| and passed on +1374 mA, so it
+        # would pass even if nobody unplugged. On battery the current is negative (measured).
+        charging_then_unplugged = [1373.581, 1374.496, 1374.496, -573.786, -545.897]
+        self.assertEqual(self.lowest(charging_then_unplugged), -573.786)
+        self.assertEqual(self.lowest([1374.496, 1373.581]), 1373.581)
+        self.assertRegex(self.SCRIPT.read_text(), r"low <= -50")
+
     def test_ctrl_c_while_unplugged_says_plug_back_in(self):
         # Interrupting the unplug window must not leave the Jetson on battery unnoticed.
         text = self.SCRIPT.read_text()

@@ -7,7 +7,7 @@
 # six registers (SMBus words come back LSB first), an i2cset round trip that writes back the
 # Calibration value already there, the tool against i2cget, the unit tests against the real
 # chip, an absent address as an I/O error, then (unless --no-unplug) a person unplugs the
-# UPS's DC adapter and the current must become non-zero.
+# UPS's DC adapter and at least one sample must show the battery discharging (I <= -50 mA).
 # Exit status: 0 = all checks passed, 1 = a check failed, 2 = environment/usage problem.
 set -uo pipefail
 
@@ -22,6 +22,9 @@ failures=0
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*"; failures=$((failures + 1)); }
 die()  { echo "ERROR $*" >&2; exit 2; }
+# Most negative of the mA readings on stdin. On battery the current is negative (measured
+# 2026-10-12), so charging samples taken before the person unplugs cannot pass the check.
+lowest() { awk 'NR == 1 || $1 < m { m = $1 } END { printf "%.3f\n", m }'; }
 
 for arg in "$@"; do
     case $arg in
@@ -123,18 +126,19 @@ if [[ $UNPLUG -eq 1 ]]; then
     echo
     echo ">>> UNPLUG the UPS's DC adapter now (the battery takes over the Jetson). Sampling ${WINDOW} s ..."
     UNPLUGGED=1
-    max=0
+    samples=""
     for ((i = 0; i < WINDOW / 2; i++)); do
         sleep 2
         snap="$(tool)" || { fail "ina219_raw failed on battery (error above)"; continue; }
         echo "    $(grep -E '^(bus voltage|current)' <<<"$snap" | awk '{ printf "%s %s %s %s  ", $1, $2, $3, $4 }')"
         ma="$(awk '/^current \(shunt\):/ { print $3 }' <<<"$snap")"
-        max="$(awk -v a="$ma" -v m="$max" 'BEGIN { b = a < 0 ? -a : a; c = m < 0 ? -m : m; print (b > c ? a : m) }')"
+        samples+="$ma"$'\n'
     done
-    if awk -v m="$max" 'BEGIN { exit !(m * m >= 50 * 50) }'; then
-        pass "on battery the current is non-zero: $max mA (sign = direction through the shunt)"
+    low="$(lowest <<<"${samples:-0}")"
+    if awk -v low="$low" 'BEGIN { exit !(low <= -50) }'; then
+        pass "on battery the current is negative (discharging): lowest $low mA"
     else
-        fail "current stayed ~0 on battery ($max mA)"
+        fail "no discharge sample (lowest $low mA): was the adapter unplugged?"
     fi
     echo ">>> PLUG the DC adapter back in now."
     UNPLUGGED=0

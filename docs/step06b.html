@@ -460,7 +460,7 @@ exit 2</pre>
       <p>兩個測試檔，都在工具寫好之前寫：</p>
       <ul>
         <li><b><code>tests/test_ina219_decode.cpp</code></b>：7 組換算向量，期望值取自 datasheet 和 6-a 在實機讀到的值（<code>0x0E 0xEF</code> → <code>0x0EEF</code>、<code>0x609A</code> → 12364 mV），不是從 decoder 的輸出抄。包括狀態位（CNVR、OVF）、有號數的邊界（<code>0x8000</code> → −327680 µV）、Current_LSB 由 Cal 算、Power 無號、兩條電流路徑差 ≤ 1 個 LSB。結束碼 0 / 1。</li>
-        <li><b><code>tests/test_ina219_raw.py</code></b>：共 <span data-tests="tests/test_ina219_raw.py">22</span> 個案例。建置並跑上面的向量（1）；原始碼契約（5）：用 <code>I2C_RDWR</code>、不用 <code>I2C_SMBUS</code>、唯一的寫入長度是 1 且沒有 <code>I2C_SLAVE</code> / <code>write()</code>、只完成一部分時設 <code>EIO</code>、byte order 只靠 <code>be16()</code>、decoder 裡沒有 <code>float</code> / <code>double</code>；CLI（4）：參數錯回 2、位址要是 7-bit、bus 不存在回 1、bus 是十進位；驗收腳本（8）：含把找到的 bus 傳給測試、拔插時工具失敗要算 FAIL、拔插時按 Ctrl-C 要提醒插回、<code>i2cget</code> 失敗不留錯誤字串；實機（4，<code>EDGE_INA219_HW=1</code> 才跑）：六個值不是全 <code>0xFFFF</code> 或全 0、Config 和 Calibration 等於 <code>i2cget</code> 對調後的值、電壓在 9～12.8 V、0x45 回報 <code>Remote I/O error</code>。</li>
+        <li><b><code>tests/test_ina219_raw.py</code></b>：共 <span data-tests="tests/test_ina219_raw.py">23</span> 個案例。建置並跑上面的向量（1）；原始碼契約（5）：用 <code>I2C_RDWR</code>、不用 <code>I2C_SMBUS</code>、唯一的寫入長度是 1 且沒有 <code>I2C_SLAVE</code> / <code>write()</code>、只完成一部分時設 <code>EIO</code>、byte order 只靠 <code>be16()</code>、decoder 裡沒有 <code>float</code> / <code>double</code>；CLI（4）：參數錯回 2、位址要是 7-bit、bus 不存在回 1、bus 是十進位；驗收腳本（9）：含把找到的 bus 傳給測試、拔掉 adapter 時要看到放電（取最小值，用實測讀值驗）、拔插時工具失敗要算 FAIL、拔插時按 Ctrl-C 要提醒插回、<code>i2cget</code> 失敗不留錯誤字串；實機（4，<code>EDGE_INA219_HW=1</code> 才跑）：六個值不是全 <code>0xFFFF</code> 或全 0、Config 和 Calibration 等於 <code>i2cget</code> 對調後的值、電壓在 9～12.8 V、0x45 回報 <code>Remote I/O error</code>。</li>
       </ul>
       <p>紅燈紀錄：工具和 header 不存在時 4 failures + 3 errors；code review（PR #10）之後補的 6 條，修正前 6 failures；驗收腳本的 4 條在腳本寫好前 1 failure + 3 errors。寫好之後只有一條紅：是我自己把向量算錯（6b.11）。為了確認向量真的守得住，把 decoder 改壞 7 種（兩個 byte 對調、右移 2 位、CNVR 看錯 bit、shunt 和 current 當無號、power 少乘 10、歐姆定律少一個 0），每一種都讓向量測試失敗。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -v
@@ -482,7 +482,7 @@ EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -
           <tr><td>i2cset 要寫什麼值</td><td>腳本把剛讀到的 Calibration 原樣寫回，<b>會寫入晶片</b>，但值不變</td></tr>
         </tbody>
       </table>
-      <p>最後一段會請人<b>拔掉 UPS 的 DC adapter</b>，每 2 秒讀一次、共 20 秒，檢查電流至少 50 mA。在 repo 根目錄執行（沒辦法碰到板子時加 <code>--no-unplug</code>）：</p>
+      <p>最後一段會請人<b>拔掉 UPS 的 DC adapter</b>，每 2 秒讀一次、共 20 秒，檢查至少有一筆電流 ≤ −50 mA，也就是電池在放電。在 repo 根目錄執行（沒辦法碰到板子時加 <code>--no-unplug</code>）：</p>
 <pre class="cmd">bash scripts/verify_ina219_raw.sh --no-unplug</pre>
       <p>2026-10-11 的實測輸出（遠端登入；<code>i2cdetect</code> 的兩張表同 6b.3、工具輸出同 6b.8，略）：</p>
 <pre class="out" data-marks>== which bus is c250000.i2c (i2cdetect -l)
@@ -540,7 +540,7 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
         <li><span class="mk">1</span><span>吃電池時 12.21 V，比前一天 adapter 接著、沒在充電時的 12.36 V 低一點，仍在 3S 的範圍內。</span></li>
         <li><span class="mk">2</span><span>電流是<b>負的</b>：Shunt register <code>0xFD9B</code> 當有號數是 −613 × 10 µV。放電時電流反向流過 shunt，所以這塊模組的接法是「充電為正、放電為負」（充電方向後來也量到了，見下方）。兩條路差 0.003 mA，遠小於 1 個 Current_LSB（0.152 mA）。</span></li>
         <li><span class="mk">3</span><span>Power register 是無號的，電流負的它照樣是正值。12.212 V × 0.613 A = 7.486 W，和 7488 mW 相符：Jetson 這時大約耗 7.5 W。</span></li>
-        <li><span class="mk">4</span><span>10 筆都在 −550 ～ −592 mA 之間跳動，是 Jetson 本身負載的變化。腳本只要求 |I| ≥ 50 mA，正負號只印出來不判定。</span></li>
+        <li><span class="mk">4</span><span>10 筆都在 −550 ～ −592 mA 之間跳動，是 Jetson 本身負載的變化。當時腳本只要求 |I| ≥ 50 mA、不看正負號。後來電池在充電時跑 6-a 的同型腳本，才發現這個判定在充電中會出錯：拔之前的 +1.37 A 就讓它 PASS，沒人拔也會過。所以改成取 20 秒內最小的一筆，要求 ≤ −50 mA（放電為負已實測）。</span></li>
       </ol>
       <p>充電方向要電池沒滿才看得到，而且不是一沒滿就會充：電池約 89 %（12.20 V）時接著 adapter，電流仍剛好是 0，充電燈也不亮，看起來充電器有回充門檻。讓 Jetson 吃電池 31 分鐘、電壓降到 11.86 V 後再接上 adapter，充電燈亮了：</p>
 <pre class="out" data-marks>time,bus_V,shunt_mV,current_mA,power_mW
@@ -564,6 +564,7 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
         <div class="pit"><h4>把兩個 byte memcpy 進 uint16_t</h4><dl><dt>症狀</dt><dd>程式裡 <code>memcpy(&amp;v, buf, 2)</code>。</dd><dt>後果</dt><dd>在 little-endian 的 Jetson 上得到和 <code>i2cget w</code> 一樣的反值。</dd><dt>正解</dt><dd class="fix"><code>be16()</code>：<code>b[0] &lt;&lt; 8 | b[1]</code>，和 CPU 無關；測試禁止 <code>memcpy(&amp;</code>。</dd></dl></div>
         <div class="pit"><h4>測試向量自己算錯</h4><dl><dt>症狀</dt><dd><code>bus_mV(0xFFF8)</code> 期望 32760，實作回 32764，測試紅。</dd><dt>後果</dt><dd>差點去「修」正確的實作。</dd><dt>正解</dt><dd class="fix">0xFFF8 &gt;&gt; 3 = 8191，× 4 = 32764，錯的是向量。改完再做變異測試，確認向量守得住。</dd></dl></div>
         <div class="pit"><h4>Current 是 0 就以為沒電流</h4><dl><dt>症狀</dt><dd>剛上電讀 Current register 一直是 0。</dd><dt>後果</dt><dd>誤判成負載沒在耗電。</dd><dt>正解</dt><dd class="fix">Calibration 是 0 時晶片不算電流；工具印 <code>n/a</code>，改看 V<sub>shunt</sub> / R 那一行。</dd></dl></div>
+        <div class="pit"><h4>用 |I| 最大值判斷「有人拔了 adapter」</h4><dl><dt>症狀</dt><dd>電池在充電時跑驗收，拔掉段前幾筆還是 +1.37 A。</dd><dt>後果</dt><dd>PASS 判到的是充電電流，沒人拔也會過。</dd><dt>正解</dt><dd class="fix">放電為負已實測，取最小值、要求 ≤ −50 mA（<code>lowest()</code>）。</dd></dl></div>
         <div class="pit"><h4>讀不到時印出一堆 0</h4><dl><dt>症狀</dt><dd>模組不在，程式照樣印表格。</dd><dt>後果</dt><dd>0 V、0 A 看起來像「電池沒電」。</dd><dt>正解</dt><dd class="fix">任一 register 讀失敗就印 <code>Remote I/O error</code> 並以 1 結束，不印數字。</dd></dl></div>
       </div>
     </div>
@@ -577,7 +578,7 @@ PASS on battery the current is non-zero: -592.000 mA (sign = direction through t
         <li class="y">用 <code>i2cdetect -l</code> 由控制器名稱找到 bus 7，<code>i2cdetect -y -r 7</code> 找到 0x41。</li>
         <li class="y">用 <code>i2cget</code> 讀完六個 register，看清楚 SMBus word 的 byte 順序；<code>i2cset</code> 寫回原值。</li>
         <li class="y">不用 Python library 的 <code>ina219_raw</code>：<code>I2C_RDWR</code> 讀、<code>be16()</code> 拼、整數換算，結果和 <code>i2cget</code> 對調後一致；位址沒回應時明確回報 I/O error。</li>
-        <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">22</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
+        <li class="y">測試 <span data-tests="tests/test_ina219_raw.py">23</span> 個（含 4 個實機）加 7 組換算向量；驗收 <b class="hl-ok">0 failure</b>（<code>--no-unplug</code>）。</li>
         <li class="y">拔掉 DC adapter 後電流約 −550 ～ −640 mA（放電為負），兩條電流路徑一致，功率和 V × I 相符（2026-10-12，不加參數 0 failure）。</li>
         <li class="y">充電方向：電池放到 11.86 V 後接上 adapter，電流 +1.377 A（充電為正）。</li>
         <li class="n">沒有實測：實際拔掉 INA219 時的錯誤（以 0x45 模擬）。</li>

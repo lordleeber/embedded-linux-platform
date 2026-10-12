@@ -189,6 +189,12 @@
   - 注意：adapter 在腳本開始前就已拔掉，而且整段都沒插回。所以腳本的「current on adapter」（−0.624 A）和最後的「back on adapter」（−0.644 A）其實也是吃電池時的值，**不能**當成接上 adapter 的數據。腳本這兩段只記錄、不判定，所以沒有 FAIL。
   - 原本以為「拔掉之後再插回」那段只是收尾；腳本會在插回的提示後再取樣 20 秒、把結果標成 on adapter。執行前沒有先提醒使用者要插回，所以這段數據無效。
 - 2026-10-11 寫的「adapter 接著時電流 0 是因為電池已充飽，不充也不放」不完整：電池約 89 % 時接著 adapter 也是 0，要等電壓再低一些才會開始充電（見 6-b 段的充電方向實測，同一天在 6-b 的 PR 裡量的）。範例在充電時的輸出沒有另外跑。
+- 範例在充電時（2026-10-12 12:50 左右，adapter 剛插回、充電燈亮）：`Load Voltage` 12.360～12.364 V、`Current` 1.3756～1.3766 A、`Power` 17.01 W、`Percentage` 93.33～93.44 %；同時 `ina219_raw` 讀到 +1376.0 mA。電流正負號和 6-b 一致。範例的電量只由電壓換算，充電時電壓被往上推：40 分鐘前吃電池時 11.86 V（約 79 %），一接上 adapter 就顯示 93 %，不是真正的剩餘電量。
+- 三段都有效的一次（2026-10-12 12:53，`bash scripts/verify_ina219_sample.sh` 不加參數，`=== 0 failure(s)`）：
+  - 開始時 adapter 接著、正在充電：12.372 V、+1.374 A。
+  - 拔掉段：前 5 筆仍是 +1.37 A（使用者約 10 秒後才拔），之後 12.108→12.080 V、−0.546～−0.599 A。
+  - 插回段：前 6 筆仍在放電，約 12 秒時插回後 12.140～12.144 V、+0.006～+0.007 A，**充電燈沒亮**（使用者確認）：充電一中斷，12.06 V 還在回充門檻之上，充電器不會重新開始充。
+  - 腳本的判定在這次露出兩個漏洞：拔掉段的 PASS 取 |I| 最大的一筆，判到的是還沒拔時的 +1.374 A，所以充電中跑這支腳本，沒人拔也會過；「back on adapter」記的是插回段第一筆的 −0.652 A（還沒插回）。範圍外，延後到 Phase 9 Step 21。6-b 的腳本有同一個判定漏洞，已在 PR #10 修掉。
 - **未查證**：shunt 0.01 Ω 是範例註解的假設。
 - 自動測試：`tests/test_ina219_sample.py` 21 個案例，code review 後 24 個（副本 SHA-256 與板上原檔一致 2、啟動序列 5、換算 5、主迴圈 3、驗收腳本 4、讀輸出 helper 1、實機 4）。沒有 `EDGE_INA219_HW` 時 `OK (skipped=4)`。全套 `python3 -m unittest discover -s tests`：151 個，`OK (skipped=39)`。
 - 紅燈紀錄：範例複製進 repo 前 19 個案例 1 failure + 13 errors（實機模式 14 errors）；「Config 逐欄拆解」「讀不存在的位址」兩條不依賴範例，先就會過，是守門測試。驗收腳本的兩條測試在腳本寫好前 1 failure + 1 error。
@@ -223,7 +229,7 @@
   - `i2cset -y 7 0x41 0x05 0xf468 w` 寫回原值，再讀仍是 `0xf468`。
   - `build/ina219_raw`：Config `0x0EEF`、Calibration `0x68F4` 和 `i2cget` 對調後相同；`bus voltage: 12.360 V (raw 3090 x 4 mV, CNVR=1 OVF=0)`；shunt、電流（兩條路徑）、功率都是 0。
   - 不存在的位址 0x45：結束碼 1，`/dev/i2c-7 addr 0x45 reg 0x00: Remote I/O error`。
-  - 容差：電壓「9.0～12.8 V」（同 6-a）；工具與 `i2cget` 只比 Config / Calibration，要完全相同（Bus Voltage 兩次讀之間會變）。拔掉 adapter 時判定「|I| ≥ 50 mA」（以 V_shunt / R 這條路徑）。
+  - 容差：電壓「9.0～12.8 V」（同 6-a）；工具與 `i2cget` 只比 Config / Calibration，要完全相同（Bus Voltage 兩次讀之間會變）。拔掉 adapter 時判定「|I| ≥ 50 mA」（以 V_shunt / R 這條路徑）；2026-10-12 改成「20 秒內至少一筆 I ≤ −50 mA」（放電為負已實測），見下方踩坑。
 - 拔掉 DC adapter（2026-10-12，在板子旁邊，`bash scripts/verify_ina219_raw.sh` 不加參數）`=== 0 failure(s)`。adapter 在腳本開始前就拔掉，Jetson 吃電池：
   - `build/ina219_raw`：Shunt `0xFD9B` = −6.130 mV、`current (shunt) -613.000 mA`、`current (reg) -612.997 mA`（差 0.003 mA，1 LSB = 0.152 mA）、Power `0x0998` = 7488.295 mW（12.212 V × 0.613 A = 7.486 W）、bus 12.212 V（adapter 接著、充飽時 12.36 V）。
   - 20 秒 10 筆：bus 12.220～12.224 V，電流 −550～−592 mA；每筆兩條路徑差 ≤ 0.07 mA（< 1 LSB），沒碰到跨轉換。
@@ -254,4 +260,5 @@
   - 原本以為 `i2cget` 失敗時 `continue` 就好；錯誤字串留在 `word[reg]`，之後被 `swap16` 拿去做算術，冒出 bash 錯誤（FAIL 仍會記到，只是輸出亂）。失敗時 `unset`。
   - 原本以為「只讀不寫」看 `.len` 就夠；加上禁止 `I2C_SLAVE` 與 `write(`。
   - 新增 6 條測試，修正前 6 failures；另外 4 種程式變異（bus 用 base 0、加 `write()`、加 `I2C_SLAVE`、拿掉 `errno = EIO`）都讓測試失敗。`test_ina219_raw.py` 由 16 個變 22 個；修正後 `bash scripts/verify_ina219_raw.sh --no-unplug` 仍是 `=== 0 failure(s)`。
+  - 原本以為「拔掉 adapter 後 |I| 最大的一筆 ≥ 50 mA」就代表有人拔；2026-10-12 電池在充電時跑 6-a 的同型腳本，拔掉段前 5 筆還是 +1.374 A 的充電電流，PASS 判到的是它，沒人拔也會過。6-b 的腳本同一個寫法，改成 `lowest()` 取最小值、要求 ≤ −50 mA。先寫 `test_unplug_check_needs_a_discharge_sample`（用這次的真實讀值：3 筆充電後 2 筆放電、只有充電）並看到紅燈（沒有 `lowest()`）；第一版 `lowest()` 用 awk 的 `print`，只有 6 位有效數字，1373.581 印成 1373.58，改成 `printf "%.3f"`。變異：把 `$1 < m` 改成 `$1 > m`（取最大）測試會紅。`test_ina219_raw.py` 由 22 個變 23 個。
   - 第一次寫的 `test_bus_is_decimal` 期望 `/dev/i2c-8 `（後面有空白），但開檔失敗的訊息是 `/dev/i2c-8:`；改成「後面不是數字」。用 `pkill -f verify_ina219_raw.sh` 清場時比對到自己的指令列、把自己殺掉（結束碼 144）；`pgrep -f` 要錨定整行。
