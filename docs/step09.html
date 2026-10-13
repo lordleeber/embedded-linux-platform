@@ -413,7 +413,7 @@ inline std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; frame_writes(const Fra
       <p>一個 page 一個訊息（1 + 128 = 129 byte）。i2c-dev 允許一個 <code>I2C_RDWR</code> 訊息最長 8192 byte，整張 1024 byte 一次送也可以，分成 8 個是為了錯誤訊息能指出「第幾個訊息」失敗。SMBus 的 block write 一次只能 32 byte，所以這裡不用 SMBus API。</p>
       <figure class="listing"><figcaption>tools/oled_probe.cpp:52–68 — 一個 i2c_msg，flags 0 = 寫；位址在訊息裡，不必先 ioctl(I2C_SLAVE)</figcaption>
 <pre data-start="52" data-hot="56,57,60,61,63,64">// One write message; the controller sends START, address+W, the bytes, STOP.
-bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; bytes)
+bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; &amp;bytes)
 {
     i2c_msg msg{};
     msg.addr = addr;
@@ -429,7 +429,7 @@ bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; bytes
     }
     return true;
 }</pre></figure>
-      <p>不用 <code>I2C_SLAVE</code> 有個後續的好處：Step 7 踩過：位址被 kernel driver 綁定後 <code>I2C_SLAVE</code> 會回 <code>EBUSY</code>，<code>I2C_RDWR</code> 不檢查。Step 10-a 的 driver 綁定 0x3C 之後，這個工具仍然能拿來對照（兩邊同時寫會互相蓋掉畫面，對照時要錯開）。</p>
+      <p>不用 <code>I2C_SLAVE</code> 有一個副作用要記住。Step 7 踩過：位址被 kernel driver 綁定後，<code>I2C_SLAVE</code> 會回 <code>EBUSY</code>，這是 kernel 的保護；<code>I2C_RDWR</code> 不做這個檢查。所以 Step 10-a 的 driver 綁定 0x3C 之後，這個工具照樣寫得進去，會在 driver 底下重新 init 控制器、蓋掉 driver 的狀態。code review 指出了這點，已排進 Step 10-a：工具要先看 0x3C 有沒有被 driver 綁定，有的話就拒絕，除非加 <code>--force</code>。</p>
       <figure class="listing"><figcaption>tools/oled_probe.cpp:131–149 — init、window + 8 page、Display ON，依序送；任何一個沒 ACK 就停</figcaption>
 <pre data-start="131" data-hot="136,137,139,142,144">    const auto a = static_cast&lt;std::uint16_t&gt;(addr);
     std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; msgs;
@@ -460,18 +460,24 @@ bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; bytes
       <h2>證明它不依賴「剛好留下的狀態」</h2>
       <p>phase04 對這一步只有一條硬性驗證：<b>斷電再上電後，程式仍能重新初始化 OLED</b>。換句話說，不能因為上一次已經設定好了，這次才剛好正常。驗收腳本用兩種方式驗。</p>
       <h3>用另一支工具把晶片弄亂</h3>
-      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:101–107 — i2ctransfer（i2c-tools）直接寫 command：反白、左右與上下鏡像、vertical addressing、contrast 0</figcaption>
-<pre data-start="101" data-hot="103">echo "== scrambled state: i2ctransfer leaves it inverse (0xA7), mirrored (0xA0, 0xC0),"
+      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:104–116 — i2ctransfer（i2c-tools）直接寫 command：反白、左右與上下鏡像、vertical addressing、contrast 0</figcaption>
+<pre data-start="104" data-hot="106,108,113">echo "== scrambled state: i2ctransfer leaves it inverse (0xA7), mirrored (0xA0, 0xC0),"
 echo "   in vertical addressing (0x20 0x01) with contrast 0 (0x81 0x00); the tool must undo it"
 if i2ctransfer -y "$BUS" w9@"$ADDR" 0x00 0xA7 0xA0 0xC0 0x20 0x01 0x81 0x00 0xAF; then
+    # The scramble has to be visible first, or "looks as before" proves nothing.
+    if ask "Scrambled: does the panel now look different (inverted, mirrored or upside down, dim)?"; then
+        pass "scramble changed the panel"
+    else
+        fail "scramble did not change the panel: the repair check below proves nothing"
+    fi
     show edge "After the scramble: EDGE looks exactly as before (white on black, readable, bright)?"
 else
     fail "i2ctransfer scramble"
 fi</pre></figure>
-      <p><code>w9@0x3c</code> 是「對 0x3C 寫 9 byte」，第一個 <code>0x00</code> 就是 control byte。用 <code>i2ctransfer</code> 而不是 <code>oled_probe</code> 自己來弄亂，是為了讓「弄亂」和「修復」來自不同的程式：如果兩者共用同一份 byte 表，表裡漏了某項設定，兩邊會一起漏掉，測試就看不出來。弄亂後再跑 <code>edge</code>，畫面要和之前完全一樣。</p>
+      <p><code>w9@0x3c</code> 是「對 0x3C 寫 9 byte」，第一個 <code>0x00</code> 就是 control byte。用 <code>i2ctransfer</code> 而不是 <code>oled_probe</code> 自己來弄亂，是為了讓「弄亂」和「修復」來自不同的程式：如果兩者共用同一份 byte 表，表裡漏了某項設定，兩邊會一起漏掉，測試就看不出來。弄亂後先問人<b>畫面有沒有真的變</b>（反白、鏡像、變暗），再跑 <code>edge</code>，畫面要和之前完全一樣。先問「變了沒」是 code review 補的：<code>i2ctransfer</code> 收到 ACK 只代表 byte 送到了，如果弄亂其實沒生效，「看起來和之前一樣」就什麼也證明不了。這和「只拔 VCC」是同一類錯誤：只驗了「修好了」，沒先確認「真的壞過」。</p>
       <h3>斷電：四條線全拔</h3>
-      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:116–142 — 拔下時必須 Remote I/O error；接回後、送任何指令之前，螢幕必須全黑</figcaption>
-<pre data-start="116" data-hot="117,118,120,125,134">if [[ $CYCLE -eq 1 ]]; then
+      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:125–151 — 拔下時必須 Remote I/O error；接回後、送任何指令之前，螢幕必須全黑</figcaption>
+<pre data-start="125" data-hot="126,127,129,134,143">if [[ $CYCLE -eq 1 ]]; then
     # Unplugging VCC alone is not a power cycle: measured 2026-10-13, the SSD1306 still
     # ACKed with VCC out (most likely fed through the SDA/SCL pull-ups). Take all four off.
     echo
@@ -515,19 +521,19 @@ fi</pre></figure>
       <p>協定的 byte 全部放在沒有任何 I/O 的 <code>tools/ssd1306.h</code>，所以不需要 OLED 也能完整測試。期望值來自 datasheet 的 command table 與 GDDRAM 圖，以及通用的 5x7 字型表，不是從 header 抄的。</p>
       <ul>
         <li><b><code>tests/test_ssd1306.cpp</code></b>：9 組向量。control byte、init 的全部 25 byte、(0,0) / (3,9) / (127,63) 落在哪個 byte 哪個 bit、越界的點不畫、D/E/G 的欄位值、scale 1 的 <code>EDGE</code> 逐 byte 比對、scale 2 跨兩個 page、不支援的字元、window + 8 個 page 的訊息內容。六種改法（<code>C8</code> 改 <code>C0</code>、data 的 control byte 改 <code>0x80</code>、page 用 <code>y % 8</code>、bit 順序反過來、拿掉 window 指令、字距 6 改 5）每一種都會讓它失敗。</li>
-        <li><b><code>tests/test_oled_probe.py</code></b>：共 <span data-tests="tests/test_oled_probe.py">18</span> 個。編譯並跑向量 1 個；原始碼契約 4 個（用 <code>I2C_RDWR</code>、沒有 <code>I2C_SLAVE</code> 與 SMBus、沒有讀取、command byte 只出現在 header、init → frame → Display ON 的順序）；CLI 3 個（錯的參數結束碼 2、不存在的 bus 結束碼 1、沒人的位址 <code>Remote I/O error</code>）；硬體 3 個（設 <code>EDGE_OLED_HW=1</code> 才跑：位址有回應、每個模式成功、<code>edge</code> 連跑 50 次）；驗收腳本 7 個。</li>
+        <li><b><code>tests/test_oled_probe.py</code></b>：共 <span data-tests="tests/test_oled_probe.py">25</span> 個。編譯並跑向量 1 個；原始碼契約 4 個（用 <code>I2C_RDWR</code>、沒有 <code>I2C_SLAVE</code> 與 SMBus、沒有讀取、command byte 只出現在 header、init → frame → Display ON 的順序）；CLI 3 個（錯的參數結束碼 2、不存在的 bus 結束碼 1、沒人的位址 <code>Remote I/O error</code>）；硬體 3 個（設 <code>EDGE_OLED_HW=1</code> 才跑：位址有回應、每個模式成功、<code>edge</code> 連跑 50 次）；驗收腳本 7 個；code review（PR #13）找到的問題 7 個（i2cdetect 的列標籤 <code>30:</code> 不能當成位址 0x30、沒有 <code>i2cdetect</code> 時不對未確認的位址寫入、腳本的 <code>present()</code> 同一個列標籤問題、沒有終端機時結束碼 2、打亂後先確認畫面變了、<code>write_msg</code> 不複製訊息、整個測試只 build 一次）。</li>
       </ul>
-      <p>實作前先跑：12 個裡 9 個 fail、2 個 error（硬體 3 個 skip），向量檔編不過。斷電那兩條（「四條線全拔」、「問全黑要在 <code>show edge</code> 之前」）是第一輪驗收失敗後才加的，加上去時先紅，改完腳本才綠。<b class="hl-bad">硬體測試沒有看過紅燈</b>：OLED 接上之前，它們一直是 skip。</p>
+      <p>實作前先跑：12 個裡 9 個 fail、2 個 error（硬體 3 個 skip），向量檔編不過。斷電那兩條（「四條線全拔」、「問全黑要在 <code>show edge</code> 之前」）是第一輪驗收失敗後才加的，加上去時先紅，改完腳本才綠；code review 那 7 個也一樣，7 個都先紅過。<b class="hl-bad">硬體測試沒有看過紅燈</b>：OLED 接上之前，它們一直是 skip。</p>
       <p>在 repo 根目錄跑（不需要 OLED，約 1 秒）：</p>
 <pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_ssd1306 &gt;/dev/null &amp;&amp; build/test_ssd1306</pre>
 <pre class="out">OK (0 failure(s))</pre>
 <pre class="cmd">python3 -m unittest discover -s tests -p test_oled_probe.py</pre>
-<pre class="out">....sss...........
+<pre class="out">....sss..................
 ----------------------------------------------------------------------
-Ran 18 tests in 0.599s
+Ran 25 tests in 0.354s
 
 OK (skipped=3)</pre>
-      <p>3 個 skip 是硬體測試。如果你的板子 <code>/dev/i2c-7</code> 不能開（沒在 <code>i2c</code> 群組），或 <code>i2c-7</code> 的 0x3D 剛好有東西，「沒人的位址」那個也會 skip，變成 <code>skipped=4</code>。</p>
+      <p>3 個 skip 是硬體測試。如果你的板子 <code>/dev/i2c-7</code> 不能開（沒在 <code>i2c</code> 群組）、沒裝 <code>i2cdetect</code>，或 <code>i2c-7</code> 的 0x3D 剛好有東西，「沒人的位址」相關的測試也會 skip，skip 數會變多。</p>
     </div>
   </section>
 
@@ -624,7 +630,7 @@ PASS edge: After the power cycle: EDGE is back, same as before?
         <div class="pit"><h4>以為拔 VCC 就是斷電</h4><dl><dt>症狀</dt><dd>拔掉 VCC 後，工具結束碼 0、全部 ACK，螢幕變暗但 EDGE 還在。</dd><dt>後果</dt><dd>晶片經 SDA/SCL 仍然有電（推論），插回後 EDGE「又出現」什麼也證明不了。</dd><dt>正解</dt><dd class="fix">四條線全拔；接回後送任何指令前，先確認螢幕全黑（power-on reset）。</dd></dl></div>
         <div class="pit"><h4>以為結束碼 0 就代表畫面對</h4><dl><dt>症狀</dt><dd>工具全部成功，螢幕卻可能是鏡像、顛倒或全黑。</dd><dt>後果</dt><dd>SSD1306 在 I2C 下不能讀回 GDDRAM，程式只知道 ACK。</dd><dt>正解</dt><dd class="fix">畫有方向的圖（左上角起的對角線、四角的點），由人回答方向對不對。</dd></dl></div>
         <div class="pit"><h4>以為 pin 3/5 最順手</h4><dl><dt>症狀</dt><dd>INA219 已經在 <code>i2c-7</code>，想把 OLED 也接上去。</dd><dt>後果</dt><dd>pin 3/5 插著 UPS 的線，要並聯得分接；而且 Step 10-a 的 DT 節點會以為能沿用 <code>&amp;hdr40_i2c1</code>。</dd><dt>正解</dt><dd class="fix">接 pin 27/28（<code>c240000.i2c</code>），10-a 的節點要掛在 <code>i2c@c240000</code>。</dd></dl></div>
-        <div class="pit"><h4>測試寫死成實作的樣子</h4><dl><dt>症狀</dt><dd>測試要求 <code>read -r -t 120</code>，腳本寫的是 <code>read -r -t "$ANSWER_TIMEOUT"</code>，實作完仍紅。</dd><dt>後果</dt><dd>要守的是「讀答案有逾時」，不是數字長怎樣。</dd><dt>正解</dt><dd class="fix">改 regex 接受變數；改的是測試的寫法，要求不變。</dd></dl></div>
+        <div class="pit"><h4>用 grep 在 i2cdetect 輸出裡找位址</h4><dl><dt>症狀</dt><dd><code>grep -w 30</code> 找 0x30，bus 上明明沒東西也判定有回應。</dd><dt>後果</dt><dd>比對到的是列標籤 <code>30:</code>；位址是 0x10 的倍數時，斷電檢查永遠過（code review 找到，已重現）。</dd><dt>正解</dt><dd class="fix">跳過標題列和每列第一欄，只比對格子裡的值。</dd></dl></div>
         <div class="pit"><h4>以為 ASCII 寫過去就有字</h4><dl><dt>症狀</dt><dd>想 <code>echo EDGE</code> 到 bus 上。</dd><dt>後果</dt><dd>在 <code>0x00</code> 後面是一串 command，在 <code>0x40</code> 後面是四欄亂點（照協定推論，沒有實機試）。</dd><dt>正解</dt><dd class="fix">先用字型表在 framebuffer 畫成點，再用 <code>0x40</code> 送。</dd></dl></div>
         <div class="pit"><h4>拿同一份 byte 表去打亂再修復</h4><dl><dt>症狀</dt><dd>用 <code>oled_probe</code> 自己的設定來製造「壞狀態」。</dd><dt>後果</dt><dd>表裡漏的設定，兩邊都會漏，測試看不出來。</dd><dt>正解</dt><dd class="fix">用獨立的 <code>i2ctransfer</code> 寫入反白、鏡像、vertical addressing、contrast 0。</dd></dl></div>
       </div>
@@ -639,7 +645,7 @@ PASS edge: After the power cycle: EDGE is back, same as before?
         <li class="y">OLED 接上 <code>i2c-1</code>（pin 17/20/27/28），<code>0x3C</code> 回應；<code>build/oled_probe</code> 以 i2c-dev 的 <code>I2C_RDWR</code> 只寫不讀，每次送完整 init → window → 8 page → Display ON。</li>
         <li class="y">人眼確認 <code>clear</code>、<code>pixel</code>、<code>pattern</code>、<code>edge</code> 四種畫面方向正確；<code>edge</code> 連跑 50 次都成功。</li>
         <li class="y"><b class="hl-ok">不依賴前一次狀態</b>：<code>i2ctransfer</code> 打亂後恢復；四條線全拔再接上，先看到 power-on reset 的全黑，再重新顯示 EDGE。驗收 <b class="hl-ok">0 failure</b>。</li>
-        <li class="y">測試：協定向量 9 組（6 種改法都會紅）、<span data-tests="tests/test_oled_probe.py">18</span> 個 Python 測試（3 個要接 OLED）。</li>
+        <li class="y">測試：協定向量 9 組（6 種改法都會紅）、<span data-tests="tests/test_oled_probe.py">25</span> 個 Python 測試（3 個要接 OLED）。</li>
         <li class="n">沒有實測：熱插拔時同 bus 其他晶片的錯誤、128x32 面板、長時間顯示；硬體測試沒看過紅燈。</li>
       </ul>
       <p>Step 10-a 把同一串 byte 搬進 kernel：一個 I2C client driver 在 probe 時初始化、持有一份 1024 byte 的 framebuffer，提供最小的 userspace 介面（clear、fill、寫整張 raw framebuffer）。<code>ssd1306.h</code> 是 C++，driver 要用 C 重寫；這一章的向量和畫面就是它的對照組，同一張 <code>pattern</code> 由 driver 畫出來必須長得一樣。</p>

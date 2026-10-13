@@ -74,6 +74,7 @@ poll()
 - mockable interface
 - 最小 `platform-app`
 - 順帶整理（Step 5-a code review 延後）：`edge_gpio_button.cpp` 與 `edge_button_wait.cpp` 的參數解析、signal 設定、印事件迴圈幾乎相同，收進 abstraction；`scripts/verify_edge_*.sh` 裡重複的 `pinconf`、`pin_level`、`check_events`、`held_seconds` 抽成共用的 shell 檔
+- 順帶整理（Step 9 code review 延後，PR #13）：`tools/oled_probe.cpp` 與 `tools/ina219_raw.cpp` 的 `usage()`、`parse()`（bus / 位址參數）與 `I2C_RDWR` 的包裝幾乎相同，收成一份共用的 i2c-dev helper；要一起改 6-b 的工具與它那章的節錄（或釘版本）
 - 順帶修正（Step 6-a 的 `scripts/verify_ina219_sample.sh`，2026-10-12 在 Step 6-b 實測時發現，範圍外延後）：拔掉 adapter 的判定取 20 秒內 |I| 最大的一筆，電池在充電時會拿還沒拔之前的 +1.37 A 判 PASS，沒人拔也會過（6-b 的 `verify_ina219_raw.sh` 已在 PR #10 改成「至少一筆 ≤ −50 mA」的 `lowest()`）；「back on adapter」記的是插回段的第一筆（那時還沒插回），應記最後一筆。兩支腳本的拔插段可以一起抽成共用的 shell 檔
 
 ### 這一步到底要做什麼

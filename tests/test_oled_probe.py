@@ -16,7 +16,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -34,10 +36,18 @@ MODES = ("clear", "pixel", "pattern", "edge", "off")
 EMPTY_BUS, EMPTY_ADDR = 7, 0x3D
 
 
+_built = False
+
+
 def build():
+    """Configure and build once per test run; every class calls this in setUpClass."""
+    global _built
+    if _built:
+        return
     subprocess.run(["cmake", "-S", str(REPO), "-B", str(BUILD)], check=True, capture_output=True)
     subprocess.run(["cmake", "--build", str(BUILD), "--target", "oled_probe", "test_ssd1306"],
                    check=True, capture_output=True)
+    _built = True
 
 
 def run_tool(*args):
@@ -48,7 +58,10 @@ def answers(bus, addr):
     """True when i2cdetect (read-byte probe) sees a device at addr on bus."""
     out = subprocess.run(["i2cdetect", "-y", "-r", str(bus), hex(addr), hex(addr)],
                          capture_output=True, text=True, timeout=10).stdout
-    return re.search(rf"\b{addr:02x}\b", out.split("\n", 1)[1] if "\n" in out else "") is not None
+    # Drop the header line and each row's "30:" label, which would match address 0x30.
+    # The range holds one address, so "UU" (bound to a driver) also means it answers.
+    cells = [c for line in out.splitlines()[1:] for c in line.split()[1:]]
+    return f"{addr:02x}" in cells or "UU" in cells
 
 
 class BuildTest(unittest.TestCase):
@@ -115,7 +128,9 @@ class CliTest(unittest.TestCase):
         dev = Path(f"/dev/i2c-{EMPTY_BUS}")
         if not (dev.exists() and os.access(dev, os.R_OK | os.W_OK)):
             self.skipTest(f"{dev} not accessible")
-        if shutil.which("i2cdetect") and answers(EMPTY_BUS, EMPTY_ADDR):
+        if not shutil.which("i2cdetect"):
+            self.skipTest("i2cdetect missing: cannot check that the address is empty")
+        if answers(EMPTY_BUS, EMPTY_ADDR):
             self.skipTest(f"something answers at {EMPTY_ADDR:#x} on i2c-{EMPTY_BUS}")
         r = run_tool("--bus", str(EMPTY_BUS), "--addr", hex(EMPTY_ADDR), "edge")
         self.assertEqual(r.returncode, 1)
@@ -145,6 +160,84 @@ class HardwareTest(unittest.TestCase):
         for n in range(50):
             r = self.tool("edge")
             self.assertEqual(r.returncode, 0, f"run {n}: {r.stderr}")
+
+
+# i2cdetect -y -r 1 0x30 0x3c with nothing at 0x30 and the OLED at 0x3c (row labels end in ':').
+SCAN_30_EMPTY_3C_THERE = """     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:
+10:
+20:
+30: -- -- -- -- -- -- -- -- -- -- -- -- 3c
+40:
+50:
+60:
+70:
+"""
+
+
+class ReviewFixTest(unittest.TestCase):
+    """Code review findings on PR #13, each one red before its fix."""
+
+    def test_scan_row_label_is_not_an_address(self):
+        # 0x30 is the label of row "30:", not a device (finding 3).
+        with mock.patch("subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, SCAN_30_EMPTY_3C_THERE, "")
+            self.assertFalse(answers(1, 0x30))
+            self.assertTrue(answers(1, 0x3C))
+
+    def test_absent_address_needs_i2cdetect(self):
+        # Without i2cdetect nobody checks that 0x3d is empty: skip rather than write an
+        # SSD1306 init to whatever might be there (finding 1).
+        dev = Path(f"/dev/i2c-{EMPTY_BUS}")
+        if not (dev.exists() and os.access(dev, os.R_OK | os.W_OK)):
+            self.skipTest(f"{dev} not accessible")
+        with mock.patch("shutil.which", return_value=None), \
+                mock.patch(f"{__name__}.run_tool", side_effect=AssertionError("tool ran")):
+            result = unittest.TestResult()
+            CliTest("test_absent_address_is_remote_io_error").run(result)
+        self.assertEqual(len(result.skipped), 1, result.errors + result.failures)
+
+    def test_script_present_ignores_row_labels(self):
+        # present() with a fake i2cdetect: 0x30 must not match the "30:" label (finding 2).
+        text = SCRIPT.read_text()
+        func = re.search(r"^present\(\) \{.*?^\}", text, re.M | re.S).group(0)
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "i2cdetect"
+            fake.write_text("#!/bin/sh\ncat <<'EOF'\n" + SCAN_30_EMPTY_3C_THERE + "EOF\n")
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=f"{d}:{os.environ['PATH']}")
+            for addr, want in (("0x30", 1), ("0x3c", 0)):
+                with self.subTest(addr=addr):
+                    r = subprocess.run(["bash", "-c", f"{func}\nBUS=1 ADDR={addr} present"], env=env)
+                    self.assertEqual(r.returncode, want)
+
+    def test_no_terminal_is_exit_2(self):
+        # /dev/tty is mode 666, so -r passes even with no controlling terminal; the check
+        # has to open it (finding 4). start_new_session drops the controlling terminal.
+        r = subprocess.run(["bash", str(SCRIPT), "--bus", "250"], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=120, start_new_session=True)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("needs a terminal", r.stderr)
+
+    def test_scramble_is_seen_before_the_repair(self):
+        # A scramble that changed nothing would make "looks as before" pass trivially; the
+        # person confirms the panel changed before oled_probe runs (finding 5).
+        text = SCRIPT.read_text()
+        block = text[text.index("i2ctransfer -y"):text.index("== absent address")]
+        changed = re.search(r'ask "[^"]*(?i:inverse|inverted|mirrored)[^"]*"', block)
+        self.assertIsNotNone(changed, "no question about the scrambled panel")
+        self.assertLess(changed.start(), block.index("show edge"))
+
+    def test_write_msg_takes_the_bytes_by_reference(self):
+        # Finding 9: no copy of each message.
+        self.assertRegex(SRC.read_text(), r"bool write_msg\(int fd, std::uint16_t addr, std::vector<std::uint8_t> &bytes\)")
+
+    def test_build_runs_once_per_test_run(self):
+        # Finding 10: the three classes share one configure + build.
+        with mock.patch("subprocess.run") as run:
+            build()
+            build()
+        self.assertLessEqual(run.call_count, 2)
 
 
 class VerifyScriptTest(unittest.TestCase):

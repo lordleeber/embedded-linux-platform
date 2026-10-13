@@ -356,3 +356,12 @@
 - 原本以為拔掉 OLED 的 VCC 就是斷電，驗收第一輪照這樣寫：拔 VCC 後 `oled_probe` 應該 `Remote I/O error`。實測結束碼 0、全部 ACK，使用者看到**螢幕變暗但 EDGE 還在**；最可能是 SDA/SCL 的 pull-up 經 ESD 二極體餵進晶片（推論，沒量電壓）。接回 VCC 後 EDGE「又出現」也就證明不了重新初始化。改成四條線全拔，並加一個獨立判準：接回後、送任何指令前螢幕必須全黑（上電 reset 是 display off）。先寫兩條測試（要求「all four wires」、「dark?」要問在 `show edge` 之前）看到紅燈，再改腳本；第二輪全過。
 - 原本以為 header pin 3/5（`i2c-7`，已有 INA219）最順；那兩支 pin 已插著 UPS 的線，要並聯得用分接線。改用 pin 27/28（`i2c-1`），同 bus 上有板載 fusb301 / ina3221，位址不衝突。Step 10-a 的 DT 節點要掛在 `i2c@c240000`，不是 overlay 現有的 `&hdr40_i2c1`（那是 `c250000`）。
 - SSD1306 在 I2C 模式下不能讀回 display RAM：程式只能證明 ACK，畫面對不對只能靠人眼。所以每個模式都設計成有方向性的圖（左上角起的對角線、四角的點），一眼就看得出鏡像或上下顛倒。
+- code review（PR #13，medium）找出 10 項：7 項修正、1 項排到 Step 10-a、2 項不改。原本都以為沒事：
+  - 原本以為 `grep -w` 在 `i2cdetect` 的輸出裡找位址夠精確；`30:` 這種列標籤也是一個「word」，`--addr 0x30` 時 bus 上沒東西也判定有回應（實測重現），位址是 0x10 的倍數時斷電檢查永遠過。腳本的 `present()` 與測試的 `answers()` 都改成跳過標題列與每列第一欄。
+  - 原本以為「先用 i2cdetect 查 0x3d 沒人」就夠安全；沒裝 `i2cdetect` 時根本不查，直接對 `i2c-7` 的 0x3d 寫 SSD1306 init（那裡沒裝置時第一個 byte 就 NACK，實際寫不進去）。改成沒有 `i2cdetect` 就 skip。
+  - 原本以為 `[[ -r /dev/tty ]]` 能判斷有沒有終端機；`/dev/tty` 永遠是 666，沒有 controlling terminal 時檢查照過、每個 `ask` 都當成 n，結束碼 1 而不是 2（實測重現）。改成真的開一次 `/dev/tty`。
+  - 原本以為「打亂後畫面和之前一樣」就證明 init 修好了；如果打亂沒生效，這項也會過。和「只拔 VCC」同一類錯：只驗修好、沒先確認壞過。打亂後先問人畫面有沒有變。
+  - `write_msg` 改傳參考；三個 TestCase 共用一次 build。
+  - 排到 Step 10-a（寫進 phase04）：`oled_probe` 不用 `I2C_SLAVE`，driver 綁定 0x3C 後仍會在 driver 底下重新 init；10-a 要讓工具先看綁定、有就拒絕，除非 `--force`。章裡原本寫「仍能拿來對照」，改成這個說明。
+  - 不改：行數（845 行含空行與註解，非空白約 750，和 Step 7 同一算法）；`usage()` / `parse()` / `I2C_RDWR` 包裝與 `ina219_raw.cpp` 重複（要動 6-b 的工具與章，排進 phase09 的順帶整理）。
+  - 修正前 7 個新測試全紅；`test_oled_probe.py` 由 18 個變 25 個。全套 246 個，`OK (skipped=57)`。

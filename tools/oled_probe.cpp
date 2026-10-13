@@ -50,7 +50,7 @@ bool parse(const char *s, int base, long lo, long hi, long *out)
 }
 
 // One write message; the controller sends START, address+W, the bytes, STOP.
-bool write_msg(int fd, std::uint16_t addr, std::vector<std::uint8_t> bytes)
+bool write_msg(int fd, std::uint16_t addr, std::vector<std::uint8_t> &bytes)
 {
     i2c_msg msg{};
     msg.addr = addr;

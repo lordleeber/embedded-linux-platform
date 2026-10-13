@@ -38,7 +38,8 @@ done
 for c in i2cdetect i2ctransfer; do
     command -v $c >/dev/null || die "$c missing (apt install i2c-tools)"
 done
-[[ -r /dev/tty ]] || die "needs a terminal: a person answers what the OLED shows"
+# /dev/tty is mode 666 even without a controlling terminal; only opening it tells.
+{ : </dev/tty; } 2>/dev/null || die "needs a terminal: a person answers what the OLED shows"
 cmake -S "$REPO" -B "$REPO/build" >/dev/null && cmake --build "$REPO/build" --target oled_probe >/dev/null \
     || die "build of oled_probe failed"
 tmpdir="$(mktemp -d)"
@@ -57,8 +58,10 @@ ask() {
     read -r -t "$ANSWER_TIMEOUT" -p ">>> $1 [y/n] " ans </dev/tty || echo
     [[ $ans == [yY]* ]]
 }
+# The scan of one address: skip the header and the "30:" row labels (0x30 would match them).
 present() {
-    i2cdetect -y -r "$BUS" "$ADDR" "$ADDR" 2>/dev/null | tail -n +2 | grep -qw "${ADDR#0x}"
+    i2cdetect -y -r "$BUS" "$ADDR" "$ADDR" 2>/dev/null |
+        awk -v a="${ADDR#0x}" 'NR > 1 { for (i = 2; i <= NF; i++) if ($i == a || $i == "UU") f = 1 } END { exit !f }'
 }
 # show MODE QUESTION: run the tool, then a person confirms the picture
 show() {
@@ -101,6 +104,12 @@ fi
 echo "== scrambled state: i2ctransfer leaves it inverse (0xA7), mirrored (0xA0, 0xC0),"
 echo "   in vertical addressing (0x20 0x01) with contrast 0 (0x81 0x00); the tool must undo it"
 if i2ctransfer -y "$BUS" w9@"$ADDR" 0x00 0xA7 0xA0 0xC0 0x20 0x01 0x81 0x00 0xAF; then
+    # The scramble has to be visible first, or "looks as before" proves nothing.
+    if ask "Scrambled: does the panel now look different (inverted, mirrored or upside down, dim)?"; then
+        pass "scramble changed the panel"
+    else
+        fail "scramble did not change the panel: the repair check below proves nothing"
+    fi
     show edge "After the scramble: EDGE looks exactly as before (white on black, readable, bright)?"
 else
     fail "i2ctransfer scramble"

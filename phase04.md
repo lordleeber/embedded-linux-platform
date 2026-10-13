@@ -207,6 +207,7 @@ raw framebuffer write
 - buffer ownership 要明確
 - remove 時取消 pending work
 - display size 128x64/128x32 要固定成你實際硬體
+- Step 9 的 `oled_probe` 用 `I2C_RDWR`、不用 `I2C_SLAVE`，所以 driver 綁定 0x3C 後它仍能寫入，會在 driver 底下重新 init、蓋掉 driver 的狀態（Step 9 code review，PR #13）。這一步要讓工具先看 `/sys/bus/i2c/devices/<bus>-003c/driver` 是否存在，有綁定就拒絕，除非加 `--force`
 
 ### 這一步不做
 
