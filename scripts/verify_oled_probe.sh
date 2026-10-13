@@ -6,8 +6,9 @@
 # pins 27/28 = c240000.i2c (found by name), VCC pin 17 (3.3 V), GND pin 20; address 0x3c.
 # The SSD1306 cannot be read back over I2C, so a person at the board answers y/n for what
 # the panel shows. Checks: the bus scan, every mode of the tool (person looks), the unit
-# tests against the real OLED, a state scrambled by i2ctransfer (inverse, mirrored, vertical
-# addressing, contrast 0) that the next run must undo by itself, an absent address as an
+# tests against the real OLED, a state scrambled by i2ctransfer in two stages the person
+# confirms (inverse / upside down / vertical addressing, then contrast 0) that the next run
+# must undo by itself, an absent address as an
 # I/O error, then (unless --no-power-cycle) the person disconnects the whole OLED: the tool
 # must fail with no ACK; after reconnecting the panel must be dark (power-on reset, display
 # off) and the tool must bring it up again.
@@ -20,7 +21,7 @@ CONTROLLER=c240000.i2c
 BUS=""
 ADDR=0x3c
 CYCLE=1
-ANSWER_TIMEOUT=120
+ANSWER_TIMEOUT=300
 failures=0
 
 pass() { echo "PASS $*"; }
@@ -101,18 +102,31 @@ else
     fail "test_oled_probe.py"
 fi
 
-echo "== scrambled state: i2ctransfer leaves it inverse (0xA7), mirrored (0xA0, 0xC0),"
-echo "   in vertical addressing (0x20 0x01) with contrast 0 (0x81 0x00); the tool must undo it"
-if i2ctransfer -y "$BUS" w9@"$ADDR" 0x00 0xA7 0xA0 0xC0 0x20 0x01 0x81 0x00 0xAF; then
-    # The scramble has to be visible first, or "looks as before" proves nothing.
-    if ask "Scrambled: does the panel now look different (inverted, mirrored or upside down, dim)?"; then
-        pass "scramble changed the panel"
+echo "== scrambled state, in two stages; the tool must undo all of it by itself"
+# Start from EDGE on screen: the unit tests above end with mode "off" (display OFF), and a
+# scramble of a dark panel shows nothing (rerun 2026-10-13: stage 1 looked black).
+tool edge >/dev/null || fail "oled_probe edge before the scramble"
+# Stage 1, measured one command at a time (2026-10-13): 0xA7 = black on white, 0xC0 = upside
+# down, 0xA0 = mirrored at once; 0x20 0x01 (vertical addressing) shows only on the next write.
+if i2ctransfer -y "$BUS" w6@"$ADDR" 0x00 0xA7 0xA0 0xC0 0x20 0x01; then
+    if ask "Stage 1: is EDGE now black on white, upside down and mirrored?"; then
+        pass "scramble stage 1 visible: inverted, upside down, mirrored"
     else
-        fail "scramble did not change the panel: the repair check below proves nothing"
+        fail "scramble stage 1 not visible: the repair check below proves less"
     fi
-    show edge "After the scramble: EDGE looks exactly as before (white on black, readable, bright)?"
 else
-    fail "i2ctransfer scramble"
+    fail "i2ctransfer scramble stage 1"
+fi
+# Stage 2: contrast 0 (0x81 0x00); measured 2026-10-13: the panel goes black.
+if i2ctransfer -y "$BUS" w3@"$ADDR" 0x00 0x81 0x00; then
+    if ask "Stage 2: did the panel go much dimmer, or black?"; then
+        pass "scramble stage 2 visible: contrast 0"
+    else
+        fail "scramble stage 2 not visible"
+    fi
+    show edge "After the scramble: EDGE white on black, readable, as bright as before?"
+else
+    fail "i2ctransfer scramble stage 2"
 fi
 
 echo "== absent address (what an unplugged OLED looks like)"

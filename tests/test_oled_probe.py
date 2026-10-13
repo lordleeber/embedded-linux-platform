@@ -228,6 +228,44 @@ class ReviewFixTest(unittest.TestCase):
         self.assertIsNotNone(changed, "no question about the scrambled panel")
         self.assertLess(changed.start(), block.index("show edge"))
 
+    def test_scramble_in_two_visible_stages(self):
+        # Rerun 2026-10-13: the one-shot scramble (inverse + flips + contrast 0) left the
+        # panel black, so nobody could tell which part took effect. Stage 1 (inverse,
+        # upside down, vertical addressing) must be confirmed as such, then contrast 0 as
+        # "dark", each before the repair.
+        text = SCRIPT.read_text()
+        block = text[text.index("== scrambled state"):text.index("== absent address")]
+        sends = [m.start() for m in re.finditer(r"i2ctransfer -y", block)]
+        self.assertEqual(len(sends), 2, "expected two i2ctransfer stages")
+        first, second = block[sends[0]:sends[1]], block[sends[1]:]
+        self.assertNotIn("0x81", first.splitlines()[0])
+        self.assertIn("0x81 0x00", second.splitlines()[0])
+        self.assertRegex(first, r'ask "[^"]*(?i:inverted|lit|white)[^"]*(?i:upside down)[^"]*"')
+        self.assertRegex(second, r'ask "[^"]*(?i:dark|dim)[^"]*"')
+        self.assertLess(re.search(r"ask ", second).start(), second.index("show edge"))
+
+    def test_scramble_starts_from_a_known_picture(self):
+        # Rerun 2026-10-13: stage 1 looked black because the hardware unit tests end with
+        # mode "off" (display OFF); the scramble has to start from EDGE on screen.
+        text = SCRIPT.read_text()
+        block = text[text.index("== scrambled state"):text.index("== absent address")]
+        first_send = block.index("i2ctransfer -y")
+        self.assertRegex(block[:first_send], r"\btool edge\b")
+
+    def test_stage_1_question_matches_what_the_panel_shows(self):
+        # Measured one command at a time: A7 = black text on white, C0 = upside down,
+        # A0 = mirrored at once (not only for later data), 20 01 = no visible change.
+        text = SCRIPT.read_text()
+        q = re.search(r'ask "Stage 1:[^"]*"', text).group(0)
+        for word in ("white", "upside down", "mirrored"):
+            self.assertIn(word, q)
+        self.assertNotIn("only applies to data written later", text)
+
+    def test_answer_timeout_leaves_time_to_look(self):
+        # 120 s ran out while the person was checking a black panel up close.
+        m = re.search(r"^ANSWER_TIMEOUT=(\d+)", SCRIPT.read_text(), re.M)
+        self.assertGreaterEqual(int(m.group(1)), 300)
+
     def test_write_msg_takes_the_bytes_by_reference(self):
         # Finding 9: no copy of each message.
         self.assertRegex(SRC.read_text(), r"bool write_msg\(int fd, std::uint16_t addr, std::vector<std::uint8_t> &bytes\)")
