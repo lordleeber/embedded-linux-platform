@@ -81,6 +81,7 @@ Linux asynchronous I/O
 - C++ `poll()` client
 - timeout/error handling
 - 順帶修正（Step 5-a code review 延後）：`apps/edge_button_wait.cpp`、`apps/edge_gpio_button.cpp` 在「檢查 signal 旗標」和「進入 `read()`」之間有競態，signal 剛好落在中間時要等到下一個事件才醒；改用 `ppoll()` 搭配 signal mask 根治（驗收腳本目前靠 `timeout -k` 兜底）
+- 順帶修正（Step 10-a 寫 `edge_oled` 時讀碼發現，未實測）：`kernel/edge_button`、`kernel/edge_gpio` 把 misc device 放在 `devm_kzalloc` 的結構裡，`edge_button_remove()` 的註解認為「開著的檔案持有 module」。那只擋 rmmod，擋不住 sysfs `unbind`：檔案開著時 unbind，remove 後結構被釋放，同一個 fd 再 read / write 會用到釋放過的記憶體（`edge_button` 還可能有 reader 正睡在 wait queue 上）。先寫重現（開著 fd → unbind → read，看 dmesg / KASAN），再照 `edge_oled` 的 `kref` + `-ENODEV` 做法改
 
 
 <!-- STEP_DETAIL_START -->

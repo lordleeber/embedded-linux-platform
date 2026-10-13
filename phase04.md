@@ -209,6 +209,30 @@ raw framebuffer write
 - display size 128x64/128x32 要固定成你實際硬體
 - Step 9 的 `oled_probe` 用 `I2C_RDWR`、不用 `I2C_SLAVE`，所以 driver 綁定 0x3C 後它仍能寫入，會在 driver 底下重新 init、蓋掉 driver 的狀態（Step 9 code review，PR #13）。這一步要讓工具先看 `/sys/bus/i2c/devices/<bus>-003c/driver` 是否存在，有綁定就拒絕，除非加 `--force`
 
+### 實作決策（Step 10-a 落地時裁決）
+
+- 誰和誰互動：`edge_oled_ctl`（userspace）→ `/dev/edge_oled`（misc device）→ `edge_oled.ko`（I2C client driver）→ `i2c_master_send()` → i2c-tegra（`c240000.i2c` = `i2c-1`，controller，100 kHz）→ SSD1306（target，0x3C）。DT 節點 `oled@3c` 掛在 `&gen2_i2c`（同一份 overlay 的 `fragment@5`），compatible `edge,edge-ssd1306`（client 名 `edge-ssd1306`，`modules.alias` 沒有人認領）
+- userspace 介面（`include/edge_oled.h`）：`write()` 只收剛好 1024 byte 的完整 frame（GDDRAM 版面，和 Step 9 的 `ssd1306::Frame` 相同），其他大小 `-EINVAL`、frame 不動；`read()` 讀回 driver 保存的 frame（晶片在 I2C 模式下不能讀）；ioctl `EDGE_OLED_IOC_CLEAR = _IO(0xEB, 0x10)`、`EDGE_OLED_IOC_FILL = _IOW(0xEB, 0x11, __u8)`。magic 和 edge_test 共用 0xEB，nr 不重複。裝置 mode 0666（開發板的螢幕，登入的人都能畫）
+- 協定 byte 放在 plain C 的 `include/edge_oled_proto.h`，由 `tests/test_edge_oled_proto.cpp` 逐 byte 和 Step 9 的 `tools/ssd1306.h` 比對（同 Step 7 的換算 header 做法）
+- buffer ownership：frame 屬於 driver；`write()` 先 `memdup_user()` 到暫存區再上鎖複製，壞指標或錯大小都不會留下半張 frame。所有傳輸都在 mutex 下同步完成，沒有 timer / work，所以 remove 時沒有 pending work 可取消
+- 錯誤：傳輸失敗（沒 ACK = `-EREMOTEIO`）只試一次、errno 直接回給呼叫者；同時清掉 `initialized`，下一次寫入會先重送 init sequence（OLED 斷電後晶片回到 reset 狀態，只送 frame 會什麼都看不到）。probe 失敗直接 `dev_err_probe`，不 retry
+- lifecycle：結構用 `kzalloc` + `kref`（不是 `devm_`），開著的檔案各持一個 reference；remove 先 `misc_deregister()`、送 Display OFF、把 `client` 設成 NULL，之後還開著的檔案 write / read / ioctl 都得到 `-ENODEV`
+- 測試圖（pixel / pattern / edge）從 `oled_probe.cpp` 的 `draw()` 搬到 `ssd1306.h` 的 `test_picture()`，`oled_probe` 與 `edge_oled_ctl` 共用，畫面可和 Step 9 基線直接比對（只用 Step 9 那三個字的 glyph，不是 font table）
+- `oled_probe` 先讀 `<sysfs>/bus/i2c/devices/<bus>-00<addr>/driver`，有綁定就結束碼 1 並提示 `--force`；測試用 `OLED_PROBE_SYSFS` 換掉 `/sys`
+- 規模：新增約 1220 行非空白（driver 245、其餘產品碼約 270、測試與驗收腳本約 715），超過 800 行上限，也遠超這裡原估的 250–450 行；動工前沒有重新估算。使用者決定保留不拆，記錄在 `docs/baseline.md`
+
+### 預期檔案
+
+```text
+kernel/edge_oled/edge_oled.c、Makefile
+include/edge_oled.h（userspace 介面）、include/edge_oled_proto.h（協定 byte）
+apps/edge_oled_ctl.cpp
+dts/edge-gpio-overlay.dts（fragment@5）
+tools/oled_probe.cpp（--force）、tools/ssd1306.h（test_picture）
+tests/test_edge_oled_proto.cpp、tests/test_edge_oled_static.py、tests/test_edge_oled_device.py
+scripts/verify_edge_oled.sh
+```
+
 ### 這一步不做
 
 - 不實作 font table
@@ -279,6 +303,10 @@ EDGE
 ```
 
 確認字元不左右顛倒、上下顛倒、跨 page 錯位。
+
+### 從 Step 10-a 帶過來的
+
+- `edge_oled` 只在傳輸**失敗**後重送 init。OLED 在兩次寫入之間斷電又接回（中間沒人寫）時，下一次寫入會 ACK、只送 frame，螢幕仍是黑的（依 reset 狀態推論，未實測）。Step 10-c 會週期刷新，等於長時間顯示，這裡要決定：每次 flush 都送 init（約 27 byte，100 kHz 下約 2.5 ms），或其他偵測方式；先寫重現步驟（寫入之間四條線全拔再接回）再改
 
 ### 這一步不做
 

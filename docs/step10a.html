@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 10-a　OLED：把協定搬進 kernel — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step09). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* Step 10-a: reference-count simulator */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin-bottom: 0.7rem; }
+.sim-ctl button { font-family: var(--font-mono); font-size: 0.82rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.2rem 0.7rem; cursor: pointer; }
+.sim-ctl button:hover { border-color: var(--accent); color: var(--accent); }
+.sim-sep { width: 1rem; }
+.sim-body { display: grid; grid-template-columns: 18rem minmax(0, 1fr); gap: 1rem; align-items: start; }
+.sim-state { font-size: 0.88rem; color: var(--muted); }
+.sim-state b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.sim-log { height: 12rem; overflow-y: auto; margin: 0; font-size: 0.78rem; }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><span class="disabled">Step 10-b →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 10-a · SSD1306 OLED（kernel driver 骨架）</div>
+    <h1>OLED：把協定搬進 kernel</h1>
+    <p class="lede">Step 9 用 userspace 工具證明了「該送哪些 byte」。這一步把同一串 byte 交給一個自己寫的 I2C client driver <code>edge_oled</code>：probe 時初始化面板，driver 持有一份 1024 byte 的畫面，userspace 經 <code>/dev/edge_oled</code> 寫整張畫面、清除、填滿。重點不在畫圖，而在 <b class="hl-key">裝置的生命週期</b>：錯誤怎麼往上回報、OLED 斷電後怎麼恢復、driver 被 unbind 時還開著的檔案怎麼辦。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_oled/{edge_oled.c, Makefile}</span>、<span class="new">include/edge_oled.h</span>、<span class="new">include/edge_oled_proto.h</span>、<span class="new">apps/edge_oled_ctl.cpp</span>、<span class="new">tests/test_edge_oled_{proto.cpp, static.py, device.py}</span>、<span class="new">scripts/verify_edge_oled.sh</span>、<span class="new">docs/step10a.html</span>；修改 dts/edge-gpio-overlay.dts、tools/{oled_probe.cpp, ssd1306.h}、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, ssd1306-notes.md, hardware-wiring.md, step09.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（VFS、misc、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（edge_oled）</span>
+      <span style="--c: var(--hw)">硬體（SoC、OLED 模組、SSD1306）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">10a.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>同樣的 byte，換一個主人</h2>
+      <p>Step 9 的 <code>oled_probe</code> 每次執行都自己開 bus、自己 init、自己送畫面，程式結束就什麼都不剩。這在驗證協定時正好，但不能當成系統的一部分：兩支程式同時畫，就會互相蓋掉；沒有人記得面板現在是什麼狀態；Step 10-c 要週期刷新電池數值，也不該讓每支 app 都懂 SSD1306。</p>
+      <p>把它變成 driver 之後，<b>面板只有一個主人</b>：<code>edge_oled</code> 綁定 0x3C、在 probe 時初始化、持有畫面，userspace 只需要知道「寫 1024 byte」與兩個 ioctl。這一步刻意只做骨架（phase04 的 10-a）：transport 與 lifecycle，不做文字。</p>
+      <p><b>互動雙方</b>：I2C 這一層和 Step 9 相同，controller 是 <code>c240000.i2c</code>（<code>i2c-1</code>，100 kHz），target 是 SSD1306（0x3C），資料只往 OLED 寫。多出來的一層是 <code>edge_oled_ctl</code>（userspace）→ <code>/dev/edge_oled</code> → <code>edge_oled.ko</code>。<b>這一步不做</b>：字型與文字排版（Step 10-b）、顯示 INA219 的數值（Step 10-c）。</p>
+      <dl class="terms">
+        <dt>shadow frame</dt><dd>driver 自己保存的那 1024 byte 畫面。SSD1306 在 I2C 下不能讀回 GDDRAM，所以「面板上現在是什麼」只能靠 driver 記住自己送過什麼。</dd>
+        <dt>i2c_master_send()</dt><dd>I2C client driver 送一個寫入訊息的 kernel API：START、位址 + W、一串 byte、STOP。回傳送出的 byte 數或負的 errno。Step 7 的 INA219 用的是 SMBus helper；SSD1306 的訊息長達 129 byte，用 plain I2C write。</dd>
+        <dt>memdup_user()</dt><dd>配一塊 kernel 記憶體、把 userspace 的資料整段複製進來；失敗時回 <code>ERR_PTR(-EFAULT)</code> 之類的錯誤指標。</dd>
+        <dt>kref</dt><dd>kernel 的引用計數。<code>kref_get()</code> 加一、<code>kref_put()</code> 減一，減到 0 時呼叫你給的釋放函式。這一步用它讓結構活得比「driver 綁定」久（10a.7）。</dd>
+        <dt>unbind / bind</dt><dd>寫 client 名稱到 <code>/sys/bus/i2c/drivers/&lt;driver&gt;/unbind</code>，kernel 就呼叫 remove()，module 仍留在記憶體裡；<code>bind</code> 再呼叫一次 probe()。Step 4-b 起每個 driver 都這樣測。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">10a.2</span><b>全景</b>一次 write()</div>
+    <div class="content">
+      <h2>edge_oled_ctl edge：一次 write()，9 個 I2C 寫入</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 520" role="img" aria-label="userspace 的 edge_oled_ctl 呼叫 write(fd, frame, 1024)；VFS 經 misc 找到 edge_oled 的 file_operations；edge_oled_write 先 memdup_user 複製、上鎖、複製進 shadow frame、呼叫 flush；flush 用 i2c_master_send 送 9 個訊息（window 加 8 個 page），經 I2C core 與 i2c-tegra 到 SSD1306。右邊比較：probe 時送 11 個訊息（init、window、8 page、Display ON），之後每次 write 只送 9 個；任何一個失敗都會讓下一次 flush 從 init 開始。">
+          <defs>
+            <marker id="m10Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <a href="#iface"><rect class="s-box" x="110" y="20" width="300" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="260" y="45" text-anchor="middle">edge_oled_ctl edge</text>
+          <text class="s-sm" x="260" y="67" text-anchor="middle">write(fd, frame, 1024)</text></a>
+          <text class="s-mono" x="14" y="142">VFS · MISC</text>
+          <rect class="s-box" x="110" y="110" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="260" y="135" text-anchor="middle">/dev/edge_oled</text>
+          <text class="s-sm" x="260" y="156" text-anchor="middle">misc 找到 edge_oled_fops.write</text>
+          <text class="s-mono" x="14" y="232">DRIVER</text>
+          <a href="#write"><rect class="s-box" x="110" y="200" width="300" height="76" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="260" y="225" text-anchor="middle">edge_oled_write()</text>
+          <text class="s-sm" x="260" y="246" text-anchor="middle">memdup_user → lock → 複製進 frame</text>
+          <text class="s-sm" x="260" y="265" text-anchor="middle">→ edge_oled_flush()</text></a>
+          <text class="s-mono" x="14" y="330">I2C CORE</text>
+          <rect class="s-box" x="110" y="308" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="260" y="333" text-anchor="middle">i2c_master_send() × 9</text>
+          <text class="s-sm" x="260" y="354" text-anchor="middle">i2c-tegra，c240000.i2c，100 kHz</text>
+          <text class="s-mono" x="14" y="420">TARGET</text>
+          <rect class="s-box" x="110" y="398" width="300" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="260" y="423" text-anchor="middle">SSD1306 @ 0x3C</text>
+          <text class="s-sm" x="260" y="444" text-anchor="middle">ACK 或沒有 ACK（-EREMOTEIO）</text>
+          <line class="sv-down" x1="260" y1="83" x2="260" y2="106" marker-end="url(#m10Down)"/>
+          <line class="sv-down" x1="260" y1="169" x2="260" y2="196" marker-end="url(#m10Down)"/>
+          <line class="sv-down" x1="260" y1="277" x2="260" y2="304" marker-end="url(#m10Down)"/>
+          <line class="sv-down" x1="260" y1="367" x2="260" y2="394" marker-end="url(#m10Down)"/>
+          <text class="s-sm" x="110" y="488">回程：9 個都 ACK → write() 回 1024；</text>
+          <text class="s-sm" x="110" y="508">任何一個失敗 → 回那個 errno，不 retry</text>
+          <text class="s-mono" x="440" y="40">PROBE (ONCE)</text>
+          <a href="#flush"><rect class="s-box" x="440" y="54" width="266" height="132" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="78">1 · 00 + init (25 byte)</text>
+          <text class="s-key" x="452" y="102">2 · 00 + window</text>
+          <text class="s-key" x="452" y="126">3–10 · 40 + page 0–7</text>
+          <text class="s-key" x="452" y="150">11 · 00 AF</text>
+          <text class="s-sm" x="452" y="174">frame 全 0：probe 完是黑的</text></a>
+          <text class="s-mono" x="440" y="214">EVERY WRITE / IOCTL</text>
+          <a href="#flush"><rect class="s-box" x="440" y="228" width="266" height="78" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="252">1 · 00 + window</text>
+          <text class="s-key" x="452" y="276">2–9 · 40 + page 0–7</text>
+          <text class="s-sm" x="452" y="296">實測一張 96.6 ms</text></a>
+          <text class="s-mono" x="440" y="340">AFTER ANY FAILURE</text>
+          <a href="#flush"><rect class="s-box" x="440" y="354" width="266" height="78" rx="7" style="stroke: var(--bad)"/>
+          <text class="s-key" x="452" y="378">initialized = false</text>
+          <text class="s-sm" x="452" y="400">下一次 flush 又從 init 開始，</text>
+          <text class="s-sm" x="452" y="420">送完 frame 再 Display ON</text></a>
+        </svg>
+        <figcaption>圖 10.1 — 左邊是一次 <code>write()</code> 往下走的路，比 Step 9 多了橘色的 driver 這一層。右邊是 driver 送的訊息：probe 時和 <code>oled_probe</code> 一樣送 11 個，之後每次只送畫面的 9 個，除非上一次失敗過。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>一張畫面約 1050 byte（含每個訊息的位址 byte），每個 byte 在線上是 9 個 clock（8 bit + ACK）：100 kHz 下約 94 ms，<b>實測連寫 200 張平均 96.6 ms（第二輪 96.4 ms）</b>。Step 10-c 若每秒刷新一次綽綽有餘。</p>
+    </div>
+  </section>
+
+  <section id="dt">
+    <div class="rail"><span class="no">10a.3</span><b>綁定</b>DT 節點</div>
+    <div class="content">
+      <h2>節點掛在 gen2_i2c，不是 INA219 那條 bus</h2>
+      <p>和 Step 7 的 INA219 一樣，OLED 用 Device Tree 描述，加在同一份 overlay 裡。差別在 target：OLED 接在 pin 27/28，也就是 <code>/bus@0/i2c@c240000</code>，基底 device tree 給它的 label 是 <code>gen2_i2c</code>。Step 9 已經預告過這個坑：沿用 <code>&amp;hdr40_i2c1</code> 會把節點掛到 INA219 那條 bus（<code>c250000</code>）上。</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:123–134 — fragment@5：target 是 gen2_i2c；compatible 用自己的廠商前綴</figcaption>
+<pre data-start="123" data-hot="124,130">	fragment@5 {
+		target = &lt;&amp;gen2_i2c&gt;;
+		__overlay__ {
+			#address-cells = &lt;1&gt;;
+			#size-cells = &lt;0&gt;;
+
+			oled@3c {
+				compatible = "edge,edge-ssd1306";
+				reg = &lt;0x3c&gt;;
+			};
+		};
+	};</pre></figure>
+      <p>開機時 I2C core 把這個子節點變成 client <code>1-003c</code>。client 的名字是 compatible 去掉廠商前綴：<code>edge-ssd1306</code>。Step 7 code review 學到，這個名字也會拿去比對每個 driver 的 <code>i2c_device_id</code> 表，所以不能取成上游 driver 認得的名字（例如 <code>ssd1306</code>）；驗收腳本用 <code>modules.alias</code> 確認沒有 module 認領它。</p>
+      <p>重開機後可以確認節點和 client 都在（在任何目錄都能跑，不需要 root；module 沒載入時 client 存在但沒有 <code>driver</code>）：</p>
+<pre class="cmd">ls /proc/device-tree/bus@0/i2c@c240000/ | grep @
+cat /sys/bus/i2c/devices/1-003c/name /sys/bus/i2c/devices/1-003c/modalias</pre>
+<pre class="out">fusb301@25
+ina3221@40
+oled@3c
+edge-ssd1306
+of:NoledT(null)Cedge,edge-ssd1306</pre>
+      <p>如果看不到 <code>oled@3c</code>，表示這次開機用的還是舊的 overlay：在 repo 根目錄 <code>make -C dts</code>，再 <code>sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo</code>，重開機（這台沒有 runtime overlay）。modalias 是 <code>of:</code> 開頭：udev 自動載入 module 時看的是 compatible，不是 client 名稱。</p>
+    </div>
+  </section>
+
+  <section id="iface">
+    <div class="rail"><span class="no">10a.4</span><b>介面</b>/dev/edge_oled</div>
+    <div class="content">
+      <h2>只收整張畫面</h2>
+      <p>phase04 要的最小介面是「clear、fill、寫入 raw framebuffer」。<code>include/edge_oled.h</code> 是 kernel 與 userspace 共用的 header（同 Step 3 的 <code>edge_test_ioctl.h</code>）：</p>
+      <figure class="listing"><figcaption>include/edge_oled.h:31–38 — 畫面大小固定 128x64；兩個 ioctl 和 edge_test 共用 magic 0xEB，編號從 0x10 起</figcaption>
+<pre data-start="31" data-hot="34,37,38">#define EDGE_OLED_WIDTH		128
+#define EDGE_OLED_HEIGHT	64
+#define EDGE_OLED_PAGES		(EDGE_OLED_HEIGHT / 8)
+#define EDGE_OLED_FRAME_SIZE	(EDGE_OLED_WIDTH * EDGE_OLED_PAGES)
+
+#define EDGE_OLED_IOC_MAGIC	0xEB
+#define EDGE_OLED_IOC_CLEAR	_IO(EDGE_OLED_IOC_MAGIC, 0x10)
+#define EDGE_OLED_IOC_FILL	_IOW(EDGE_OLED_IOC_MAGIC, 0x11, __u8)</pre></figure>
+      <table>
+        <thead><tr><th>操作</th><th>行為</th></tr></thead>
+        <tbody>
+          <tr><td><code>write()</code></td><td>剛好 1024 byte，一次就是整張畫面，送完才回傳；其他大小 <code>-EINVAL</code>，畫面不動。file offset 不理會。</td></tr>
+          <tr><td><code>read()</code></td><td>讀回<b>最後一次完整送出</b>的畫面（driver 保存的那份，晶片讀不到）。寫到一半失敗的那張不算，雖然面板上可能已經是半張新畫面。跟一般檔案一樣照 offset 讀：讀完一次要 <code>lseek(0)</code> 或用 <code>pread()</code> 才能再讀。</td></tr>
+          <tr><td><code>EDGE_OLED_IOC_CLEAR</code></td><td>全部 0，送出。</td></tr>
+          <tr><td><code>EDGE_OLED_IOC_FILL</code></td><td>每個 byte 設成參數值（<code>0xff</code> 全亮），送出。參數是固定大小的 <code>__u8</code>，32 / 64-bit 編號相同。</td></tr>
+        </tbody>
+      </table>
+      <p>為什麼不讓 <code>write()</code> 寫一部分？寫一半的畫面會讓面板停在「上半新、下半舊」，而一個 <code>write()</code> 可能被 kernel 切成好幾次傳給 driver 的情況（例如 userspace 用小 buffer 的 <code>cat</code>）也很難處理。一次一整張，畫面永遠是某一張完整的圖。</p>
+      <p>畫面的排列就是 Step 9 講的 GDDRAM 版面：<code>frame[page × 128 + x]</code>，bit 0 在上。<code>edge_oled_ctl</code> 的三張圖直接用 Step 9 的 <code>ssd1306::test_picture()</code>（這一步從 <code>oled_probe.cpp</code> 搬進 <code>ssd1306.h</code>），所以人眼看到的畫面可以和 Step 9 一張一張比。不接 OLED 也能看：把一個普通檔案當成裝置，<code>write()</code> 照樣寫進去（在 repo 根目錄，第一行會建置）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target edge_oled_ctl &gt;/dev/null
+: &gt; build/frame.bin &amp;&amp; build/edge_oled_ctl --dev build/frame.bin pixel
+od -Ad -tx1 -v build/frame.bin | grep -v '\( 00\)\{16\}$'</pre>
+<pre class="out" data-marks>pixel: write on build/frame.bin
+0000000 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 «1»
+0000112 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 «2»
+0000576 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 «3»
+0000896 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 «4»
+0001008 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80
+0001024</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>byte 0 = page 0、x 0；值 <code>01</code> 是 bit 0，最上面一列。左上角 (0, 0)。</span></li>
+        <li><span class="mk">2</span><span>byte 127：右上角 (127, 0)。</span></li>
+        <li><span class="mk">3</span><span>byte 576 = 4 × 128 + 64：page 4 的 x 64，bit 0 是第 32 列，中心 (64, 32)。</span></li>
+        <li><span class="mk">4</span><span>byte 896 = page 7，<code>80</code> 是 bit 7，第 63 列：左下角。最後一行 1008 那列的 <code>80</code> 是右下角 (127, 63)。檔案剛好 1024 byte。</span></li>
+      </ol>
+      <p>把 <code>pixel</code> 換成 <code>clear</code> 會得到 <code>ioctl CLEAR build/frame.bin: Inappropriate ioctl for device</code>、結束碼 1：普通檔案不認得 ioctl（<code>ENOTTY</code>），只有 driver 認得。</p>
+    </div>
+  </section>
+
+  <section id="flush">
+    <div class="rail"><span class="no">10a.5</span><b>傳輸</b>flush</div>
+    <div class="content">
+      <h2>一次 flush：失敗了，下次就從頭來</h2>
+      <p>所有 I2C 傳輸都經過兩個函式。<code>edge_oled_send()</code> 把 control byte 放在前面、送一個訊息；<code>edge_oled_flush()</code> 決定要送哪些訊息：</p>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:56–93 — 一個訊息 = control + data；flush 送呼叫者給的 src，需要時先送 init，結尾才 Display ON；任何錯誤都讓 initialized 變 false</figcaption>
+<pre data-start="56" data-hot="63,64,65,66,76,86,88,89,91">/* One I2C write: [control][data]. Returns 0 or a negative errno. */
+static int edge_oled_send(struct edge_oled *oled, u8 control, const u8 *data, size_t len)
+{
+	int ret;
+
+	oled-&gt;tx[0] = control;
+	memcpy(oled-&gt;tx + 1, data, len);
+	ret = i2c_master_send(oled-&gt;client, oled-&gt;tx, len + 1);
+	if (ret &lt; 0)
+		return ret;
+	return (size_t)ret == len + 1 ? 0 : -EIO;
+}
+
+/* Put the frame src on the panel; first (re)initialise the chip if needed. */
+static int edge_oled_flush(struct edge_oled *oled, const u8 *src)
+{
+	static const u8 on = EDGE_OLED_CMD_DISPLAY_ON;
+	bool init = !oled-&gt;initialized;
+	int page, ret;
+
+	if (!oled-&gt;initialized) {
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_init_seq,
+				     sizeof(edge_oled_init_seq));
+		if (ret)
+			goto out;
+	}
+	ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_window,
+			     sizeof(edge_oled_window));
+	for (page = 0; !ret &amp;&amp; page &lt; EDGE_OLED_PAGES; page++)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_DATA,
+				     src + page * EDGE_OLED_WIDTH, EDGE_OLED_WIDTH);
+	/* Display ON after the frame, so the old RAM content never flashes up. */
+	if (!ret &amp;&amp; init)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &amp;on, 1);
+out:
+	oled-&gt;initialized = ret == 0;
+	return ret;
+}</pre></figure>
+      <p>幾個選擇：</p>
+      <ul>
+        <li><b>錯誤只回報、不重試</b>（phase04：「不要在 probe 裡無限 retry」）。<code>i2c_master_send()</code> 的負值原樣往上傳：沒 ACK 是 <code>-EREMOTEIO</code>，userspace 看到的就是 <code>Remote I/O error</code>。回傳的 byte 數比要求的少（正常不會發生）也當成 <code>-EIO</code>，不假裝成功。</li>
+        <li><b>init 不是只在 probe 做一次</b>。直覺的做法是「probe 初始化，之後只送畫面」。可是 OLED 斷電再接回時，晶片回到 power-on reset（Step 9 實測螢幕全黑；依 datasheet，reset 後 display OFF、charge pump 也關），只送畫面會全部 ACK、螢幕卻是黑的。所以 <code>initialized</code> 在任何一次失敗後變成 false，下一次 flush 會重送 25 byte 的 init，畫面送完再開顯示。驗收時四條線全拔再接回，<b class="hl-ok">下一次 write 自己把畫面帶回來了</b>（10a.10 的 ⑩）。</li>
+        <li><b>byte 不在 driver 裡</b>。init 序列與 window 指令放在 <code>include/edge_oled_proto.h</code>（plain C，kernel 能 include），<code>test_edge_oled_proto</code> 把它和 Step 9 的 <code>ssd1306.h</code> 逐 byte 比對：driver 送的就是 Step 9 在實機驗證過的那一串。</li>
+      </ul>
+      <div class="callout"><p><b class="hl-bad">這個設計的盲點</b>：driver 只有在「傳輸失敗」時才知道要重新 init。如果 OLED 在兩次寫入<b>之間</b>斷電又接回、中間沒有人寫，下一次寫入會成功 ACK，但只送了畫面，螢幕會一直是黑的（依 reset 狀態推論，<b>沒有實測</b>）。Step 10-c 要長時間週期刷新，這會變成真問題，已排進 Step 10-b 的「從 Step 10-a 帶過來的」：先寫出重現步驟，再決定是每次都送 init（約 2.5 ms）還是別的做法。</p></div>
+    </div>
+  </section>
+
+  <section id="write">
+    <div class="rail"><span class="no">10a.6</span><b>buffer</b>誰擁有畫面</div>
+    <div class="content">
+      <h2>先複製，再上鎖</h2>
+      <p>phase04 要求「buffer ownership 要明確」。這裡的答案是：<b>畫面屬於 driver</b>，userspace 的 buffer 只是來源。<code>write()</code> 的順序是重點：</p>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:113–137 — 大小不對立刻拒絕；先複製到暫存區；送成功了才寫進 shadow frame</figcaption>
+<pre data-start="113" data-hot="120,121,122,126,127,128,130,131,132,136">static ssize_t edge_oled_write(struct file *file, const char __user *buf, size_t count,
+			       loff_t *ppos)
+{
+	struct edge_oled *oled = to_oled(file);
+	u8 *next;
+	int ret;
+
+	if (count != EDGE_OLED_FRAME_SIZE)
+		return -EINVAL;
+	next = memdup_user(buf, count);
+	if (IS_ERR(next))
+		return PTR_ERR(next);
+
+	mutex_lock(&amp;oled-&gt;lock);
+	if (!oled-&gt;client) {
+		ret = -ENODEV;
+	} else {
+		ret = edge_oled_flush(oled, next);
+		if (!ret)
+			memcpy(oled-&gt;frame, next, count);
+	}
+	mutex_unlock(&amp;oled-&gt;lock);
+	kfree(next);
+	return ret ? ret : (ssize_t)count;
+}</pre></figure>
+      <ul>
+        <li><b>大小先檢查</b>：不是 1024 就 <code>-EINVAL</code>，什麼都沒動。device 測試寫了 0、1、1023、1025、128 byte，都是 <code>EINVAL</code>，而且讀回來的畫面還是之前那張。</li>
+        <li><b>先複製到暫存區</b>：如果直接 <code>copy_from_user()</code> 進 shadow frame，指標在中途失效時 shadow frame 會只剩一半。<code>memdup_user()</code> 失敗就直接回錯誤，shadow frame 完全沒動。</li>
+        <li><b>送成功了才寫進 shadow frame</b>：flush 送的是暫存區，全部 ACK 才 <code>memcpy</code> 進 <code>oled-&gt;frame</code>。第一版是先複製再送，code review（PR #14）指出：送到一半失敗時，<code>read()</code> 會讀回一張面板從沒完整收到的畫面。驗收腳本因此加了一項：拔線時寫一張不同的圖（失敗），讀回來必須還是拔線前的 EDGE（10a.10 的 ⑨）。</li>
+        <li><b>鎖裡先看 <code>client</code></b>：driver 已經被 unbind 時它是 NULL，回 <code>-ENODEV</code>（下一節）。</li>
+        <li><b>只收整張畫面</b>：如果讓 <code>write()</code> 照 offset 寫一部分，短寫或壞指標都會讓面板停在半張新、半張舊（10a.4）。</li>
+      </ul>
+      <p><code>read()</code> 直接在鎖裡 <code>simple_read_from_buffer()</code>（它會呼叫 <code>copy_to_user()</code>）。持有 <b>mutex</b> 時發生 page fault、睡一下是允許的（spinlock 才不行）；這個 driver 沒有 mmap，page fault 不會回頭要這把鎖，所以不會自己鎖死。第一版另外配一塊暫存區、解鎖後才複製，理由寫成「不該在持鎖時做」，那是說得太重了，code review 後拿掉。</p>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:139–153 — 鎖裡直接複製給 userspace；unbind 之後回 -ENODEV</figcaption>
+<pre data-start="139" data-hot="148,149,150">static ssize_t edge_oled_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	struct edge_oled *oled = to_oled(file);
+	ssize_t ret = -ENODEV;
+
+	/*
+	 * copy_to_user() may fault and sleep, which a mutex allows; no page fault
+	 * needs this lock (there is no mmap), so it cannot deadlock.
+	 */
+	mutex_lock(&amp;oled-&gt;lock);
+	if (oled-&gt;client)
+		ret = simple_read_from_buffer(buf, count, ppos, oled-&gt;frame, EDGE_OLED_FRAME_SIZE);
+	mutex_unlock(&amp;oled-&gt;lock);
+	return ret;
+}</pre></figure>
+      <p>ioctl 的 CLEAR / FILL 也一樣：先在暫存區填好，送成功了才寫進 shadow frame，呼叫同一個 flush。所有傳輸都在 mutex 底下同步做完，<b>沒有 timer、沒有 work queue</b>：phase04 說「remove 時取消 pending work」，這一步的答案是根本不留 pending work。</p>
+    </div>
+  </section>
+
+  <section id="life">
+    <div class="rail"><span class="no">10a.7</span><b>lifecycle</b>unbind 時檔案還開著</div>
+    <div class="content">
+      <h2>結構要活得比綁定久</h2>
+      <p>Step 5-b 的按鍵 driver 用 <code>devm_</code> 配記憶體，unbind 時自動釋放。這裡如果照做會出事：sysfs 的 <code>unbind</code> 不需要卸載 module（<code>fops.owner</code> 只擋 rmmod），所以有人開著 <code>/dev/edge_oled</code> 時照樣能 unbind；remove() 返回、<code>devm_</code> 的記憶體被釋放之後，那個檔案再 <code>write()</code>，driver 就會去用已經釋放的結構。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 300" role="img" aria-label="時間由左到右五個事件，每個框下面是引用計數。probe：kzalloc、kref_init，計數 1。open：kref_get，計數 2。unbind：misc_deregister、送 Display OFF、client 設成 NULL、kref_put，計數 1，結構仍在。write：鎖裡看到 client 是 NULL，回 -ENODEV。close：kref_put，計數 0，kfree。">
+          <defs>
+            <marker id="m10Right" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="26">TIME →</text>
+          <rect class="s-box" x="14" y="40" width="124" height="120" rx="8" style="stroke: var(--drv)"/>
+          <text class="s-key" x="76" y="64" text-anchor="middle">probe</text>
+          <text class="s-sm" x="76" y="88" text-anchor="middle">kzalloc</text>
+          <text class="s-sm" x="76" y="108" text-anchor="middle">kref_init</text>
+          <text class="s-sm" x="76" y="128" text-anchor="middle">misc_register</text>
+          <rect class="s-box" x="156" y="40" width="124" height="120" rx="8" style="stroke: var(--user)"/>
+          <text class="s-key" x="218" y="64" text-anchor="middle">open</text>
+          <text class="s-sm" x="218" y="88" text-anchor="middle">在 misc_mtx 裡</text>
+          <text class="s-sm" x="218" y="108" text-anchor="middle">kref_get</text>
+          <rect class="s-box" x="298" y="40" width="140" height="120" rx="8" style="stroke: var(--kern)"/>
+          <text class="s-key" x="368" y="64" text-anchor="middle">unbind</text>
+          <text class="s-sm" x="368" y="86" text-anchor="middle">misc_deregister</text>
+          <text class="s-sm" x="368" y="104" text-anchor="middle">送 Display OFF</text>
+          <text class="s-sm" x="368" y="122" text-anchor="middle">client = NULL</text>
+          <text class="s-sm" x="368" y="140" text-anchor="middle">kref_put</text>
+          <rect class="s-box" x="456" y="40" width="124" height="120" rx="8" style="stroke: var(--user)"/>
+          <text class="s-key" x="518" y="64" text-anchor="middle">write</text>
+          <text class="s-sm" x="518" y="88" text-anchor="middle">鎖裡看到 NULL</text>
+          <text class="s-sm" x="518" y="108" text-anchor="middle">回 -ENODEV</text>
+          <rect class="s-box" x="598" y="40" width="110" height="120" rx="8" style="stroke: var(--user)"/>
+          <text class="s-key" x="653" y="64" text-anchor="middle">close</text>
+          <text class="s-sm" x="653" y="88" text-anchor="middle">kref_put</text>
+          <text class="s-sm" x="653" y="108" text-anchor="middle">→ kfree</text>
+          <line class="sv-down" x1="139" y1="100" x2="152" y2="100" marker-end="url(#m10Right)"/>
+          <line class="sv-down" x1="281" y1="100" x2="294" y2="100" marker-end="url(#m10Right)"/>
+          <line class="sv-down" x1="439" y1="100" x2="452" y2="100" marker-end="url(#m10Right)"/>
+          <line class="sv-down" x1="581" y1="100" x2="594" y2="100" marker-end="url(#m10Right)"/>
+          <text class="s-mono" x="14" y="196">REFCOUNT</text>
+          <text class="s-key" x="76" y="226" text-anchor="middle">1</text>
+          <text class="s-key" x="218" y="226" text-anchor="middle">2</text>
+          <text class="s-key" x="368" y="226" text-anchor="middle">1</text>
+          <text class="s-key" x="518" y="226" text-anchor="middle">1</text>
+          <text class="s-key" x="653" y="226" text-anchor="middle">0</text>
+          <text class="s-sm" x="76" y="250" text-anchor="middle">綁定持有</text>
+          <text class="s-sm" x="218" y="250" text-anchor="middle">綁定 + 檔案</text>
+          <text class="s-sm" x="368" y="250" text-anchor="middle">只剩檔案</text>
+          <text class="s-sm" x="518" y="250" text-anchor="middle">結構還在</text>
+          <text class="s-sm" x="653" y="250" text-anchor="middle">真正釋放</text>
+          <text class="s-sm" x="14" y="286">驗收實測：unbind 後同一個 fd 的 write 與 read 都是 ENODEV，dmesg 沒有 Oops。</text>
+        </svg>
+        <figcaption>圖 10.2 — 綁定和每個開著的檔案各持一個 reference。unbind 只放掉綁定那一個；結構等最後一個檔案關掉才釋放，在那之前每個操作都看得到 <code>client == NULL</code>。</figcaption>
+      </figure>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:95–111 — misc_open 已經把 file->private_data 設成 &oled->misc；open 加一、release 減一</figcaption>
+<pre data-start="95" data-hot="100,103,109">static struct edge_oled *to_oled(struct file *file)
+{
+	return container_of(file-&gt;private_data, struct edge_oled, misc);
+}
+
+/* misc_open() holds misc_mtx here, and misc_deregister() takes it: no race with remove. */
+static int edge_oled_open(struct inode *inode, struct file *file)
+{
+	kref_get(&amp;to_oled(file)-&gt;ref);
+	return 0;
+}
+
+static int edge_oled_release(struct inode *inode, struct file *file)
+{
+	kref_put(&amp;to_oled(file)-&gt;ref, edge_oled_free);
+	return 0;
+}</pre></figure>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:244–260 — 先讓新的 open 進不來，再在鎖裡關顯示、清掉 client，最後放掉綁定的 reference</figcaption>
+<pre data-start="244" data-hot="249,253,255,258">static int edge_oled_remove(struct i2c_client *client)
+{
+	struct edge_oled *oled = i2c_get_clientdata(client);
+	static const u8 off = EDGE_OLED_CMD_DISPLAY_OFF;
+
+	misc_deregister(&amp;oled-&gt;misc);	/* no new opens from here on */
+
+	mutex_lock(&amp;oled-&gt;lock);
+	/* Dark panel = no driver; a failure here (OLED unplugged) changes nothing. */
+	if (edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &amp;off, 1))
+		dev_warn(&amp;client-&gt;dev, "display off failed\n");
+	oled-&gt;client = NULL;		/* open files get -ENODEV */
+	mutex_unlock(&amp;oled-&gt;lock);
+
+	kref_put(&amp;oled-&gt;ref, edge_oled_free);
+	dev_info(&amp;client-&gt;dev, "removed\n");
+	return 0;</pre></figure>
+      <p>open 和 remove 會不會撞在一起？<code>misc_open()</code> 是在持有 <code>misc_mtx</code> 的情況下呼叫我們的 open，而 <code>misc_deregister()</code> 也要拿這把鎖（依 upstream v5.15 的 <code>drivers/char/misc.c</code>；這台沒有 kernel 原始碼，沒對照 NVIDIA 的版本）：remove 一旦走過 <code>misc_deregister()</code>，就不會再有新的 open，進行中的 open 也一定已經拿到 reference。remove 順手送 Display OFF：<b>螢幕黑了，就代表沒有 driver 在管它</b>；這個指令失敗（OLED 已經拔掉）只記一行 warning，不影響 remove。probe 的最後一步 <code>misc_register()</code> 失敗時也一樣先送 Display OFF 再釋放（code review 補上；只有接第二片 SSD1306、名稱撞到時才會發生，沒有實測）。</p>
+      <div class="sim">
+        <div class="sim-label">模擬（不是實機）：在瀏覽器裡按按鈕，看引用計數和每個操作的結果</div>
+        <div class="sim-ctl">
+          <button data-act="insmod">insmod</button><button data-act="open">open</button><button data-act="write">write</button><button data-act="close">close</button><span class="sim-sep"></span><button data-act="unbind">unbind</button><button data-act="bind">bind</button><button data-act="rmmod">rmmod</button><button data-act="reset">重來</button>
+        </div>
+        <div class="sim-body">
+          <div id="lifeState" class="sim-state"></div>
+          <pre id="lifeLog" class="sim-log"></pre>
+        </div>
+      </div>
+      <p>試試看：insmod → open → unbind → write，會看到 <code>-ENODEV</code>；這時再 bind，<b>舊的那個檔案仍然是 <code>-ENODEV</code></b>，因為它指著舊的結構，新的綁定配了一個新的。要先 close 再重新 open。模擬裡「檔案開著時 rmmod 會被拒絕」是依 <code>fops.owner</code> 的規則推論，這次沒有實測。</p>
+    </div>
+  </section>
+
+  <section id="guard">
+    <div class="rail"><span class="no">10a.8</span><b>共存</b>oled_probe</div>
+    <div class="content">
+      <h2>driver 在的時候，userspace 工具要讓路</h2>
+      <p>Step 9 的 code review 指出：<code>oled_probe</code> 用 <code>I2C_RDWR</code>，位址寫在每個訊息裡，從不「佔用」位址，所以 driver 綁定 0x3C 之後它照樣寫得進去，會在 driver 底下重新 init、換掉畫面，而 driver 的 shadow frame 毫不知情。Step 7 的 <code>i2cget</code> 會被 kernel 擋下（<code>EBUSY</code>），是因為它走的 <code>I2C_SLAVE</code> 會檢查位址有沒有 driver；<code>I2C_RDWR</code> 不做這個檢查。所以這次由工具自己檢查：</p>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp:76–88 — client 目錄下的 driver 連結存在，就是有 driver 綁定；連結指向的目錄名就是 driver 名稱</figcaption>
+<pre data-start="76" data-hot="80,82">std::string bound_driver(long bus, long addr)
+{
+    const char *root = std::getenv("OLED_PROBE_SYSFS");
+    char link[256], target[256];
+    std::snprintf(link, sizeof link, "%s/bus/i2c/devices/%ld-%04lx/driver", root ? root : "/sys",
+                  bus, addr);
+    ssize_t n = readlink(link, target, sizeof target - 1);
+    if (n &lt;= 0)
+        return "";
+    target[n] = '\0';
+    const char *slash = std::strrchr(target, '/');
+    return slash ? slash + 1 : target;
+}</pre></figure>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp:118–123 — 有綁定就結束碼 1，沿用 EBUSY 的字樣；--force 才跳過</figcaption>
+<pre data-start="118" data-hot="118,119">    std::string drv = force ? "" : bound_driver(bus, addr);
+    if (!drv.empty()) {
+        std::fprintf(stderr, "%ld-%04lx is bound to driver %s (%s): use its interface, or --force\n",
+                     bus, addr, drv.c_str(), std::strerror(EBUSY));
+        return 1;
+    }</pre></figure>
+      <p>測試不需要真的載入 driver：環境變數 <code>OLED_PROBE_SYSFS</code> 換掉 <code>/sys</code>，在暫存目錄做一個假的 <code>bus/i2c/devices/250-003c/driver</code> 連結。驗收時則是真的：<code>1-003c is bound to driver edge_oled (Device or resource busy): use its interface, or --force</code>（10a.10 的 ⑥）。<code>--force</code> 在實機上沒有測：它會照樣寫，而如果寫的是 <code>off</code>，driver 不會知道螢幕被關了。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">10a.9</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：byte 對 Step 9，行為對實機</h2>
+      <ul>
+        <li><b><code>tests/test_edge_oled_proto.cpp</code></b>：driver 的 header 和 Step 9 的 <code>ssd1306.h</code> 比對。畫面大小、control byte、Display ON/OFF、init 序列逐 byte、window 指令、ioctl 的方向與大小、和 edge_test 的編號不重複、<code>test_picture()</code> 四張圖的點數與位置。五種改法（init 的 <code>C8</code> 改 <code>C0</code>、window 結束欄 <code>7F</code> 改 <code>7E</code>、data control byte 改 <code>0x80</code>、FILL 編號改成 edge_test 的 <code>0x02</code>、CLEAR 改 <code>0x01</code>）每一種都讓它失敗。</li>
+        <li><b><code>tests/test_edge_oled_static.py</code></b>：<span data-tests="tests/test_edge_oled_static.py">41</span> 個，不需要硬體。overlay 6 個（節點在 0x3c、target 是 <code>gen2_i2c</code> 而不是 <code>hdr40_i2c1</code>、和這台開機用的 FDT 合併後節點落在 <code>i2c@c240000</code>、client 名稱沒有 module 認領……）；driver 原始碼契約 11 個（訊息走 <code>i2c_master_send</code> 且錯誤往上傳、flush 與 probe 沒有迴圈或 sleep、失敗後清掉 <code>initialized</code>、<code>memdup_user</code> 在上鎖前、kref 與 <code>-ENODEV</code>、沒有 <code>devm_kzalloc</code>、沒有字型與 INA219……）；module 能對這台 kernel 編譯且沒有 warning、向量通過；<code>edge_oled_ctl</code> 的 CLI 3 個；<code>oled_probe</code> 的綁定檢查 4 個；驗收腳本 9 個；code review（PR #14）找到的問題 6 個（shadow frame 只在完整送出後更新、註冊失敗時關顯示、<code>(ssize_t)count</code>、<code>read()</code> 不配暫存區、header 說明 offset、驗收腳本拔線時檢查讀回）。</li>
+        <li><b><code>tests/test_edge_oled_device.py</code></b>：<span data-tests="tests/test_edge_oled_device.py">8</span> 個，<code>/dev/edge_oled</code> 存在才跑：綁定、mode 0666、寫入後讀回、錯的大小、CLEAR / FILL、未知 ioctl <code>ENOTTY</code>、<code>oled_probe</code> 被拒、連寫 200 張。</li>
+      </ul>
+      <p>實作前先跑 static：24 個 fail、4 個 error（兩個 <code>setUpClass</code> 建置失敗，蓋住 7 個案例）；device 8 個 skip。實作後還紅了兩個<b>測試本身</b>的錯：一個假設腳本寫 <code>ctl clear</code>（實際是 <code>show "問題" clear</code>），改 regex；Step 9 的 <span data-tests="tests/test_oled_probe.py">29</span> 個測試裡，「原始碼不能出現 <code>I2C_SLAVE</code>」被我寫進註解的這個字弄紅，改註解措辭。code review 的 6 個先紅才改：driver 的 5 個在改 driver 前紅；驗收腳本那個是和腳本一起改的，事後拿舊版腳本跑，確認是紅的。<b class="hl-bad">device 測試沒有看過紅燈</b>：driver 載入前它們是 skip。</p>
+      <p>在 repo 根目錄跑（不需要 OLED、不需要 root；static 會編一次 module，約 2 秒）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_edge_oled_proto &gt;/dev/null &amp;&amp; build/test_edge_oled_proto</pre>
+<pre class="out">OK (0 failure(s))</pre>
+<pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_oled_*.py'</pre>
+<pre class="out">ssssssss.........................................
+----------------------------------------------------------------------
+Ran 49 tests in 1.494s
+
+OK (skipped=8)</pre>
+      <p>8 個 skip 是 device 測試（沒有 <code>/dev/edge_oled</code>）。如果你的機器沒有 <code>dtc</code>、<code>fdtoverlay</code> 或 <code>/boot</code> 下這塊板子的 FDT，overlay 相關的測試也會 skip，數字會不同。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">10a.10</span><b>驗收</b>人眼 + errno</div>
+    <div class="content">
+      <h2>實測：probe、畫圖、unbind、拔線</h2>
+      <p>前提：overlay 已經裝好並重開機（10a.3 的指令看得到 <code>oled@3c</code>），OLED 接在 pin 17/20/27/28，<code>edge_oled</code> 沒有載入。在 repo 根目錄、終端機裡跑（要 root：insmod、unbind；腳本會讀鍵盤，不能用管線或背景執行）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_oled.sh</pre>
+      <p>腳本替你做了很多事，哪些不用自己來：</p>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>make</code> module、<code>cmake --build</code></td><td>腳本以你的身分（<code>SUDO_USER</code>）建置，build 產物不會變成 root 的。</td></tr>
+          <tr><td>找出 OLED 在第幾號 bus</td><td>用 <code>i2cdetect -l</code> 找名字是 <code>c240000.i2c</code> 的 adapter。</td></tr>
+          <tr><td>insmod 前把螢幕弄成某個樣子</td><td>腳本先跑 <code>oled_probe edge</code> 再用 <code>i2ctransfer</code> 送 <code>A7</code>（反白），問你看到的是不是白底黑字。</td></tr>
+          <tr><td>測完 rmmod、刪掉測試用的 0x3d client</td><td>EXIT trap 會做；中途 Ctrl-C 也一樣。</td></tr>
+        </tbody>
+      </table>
+      <p>下面是 2026-10-13 code review 修正後重跑的完整輸出（含拔線）：</p>
+<pre class="out" data-marks>PASS build edge_oled.ko
+PASS build edge_oled_ctl, oled_probe, test_edge_oled_proto (CMake)
+PASS protocol vectors (driver bytes = Step 9's) «1»
+PASS vermagic matches running kernel
+    bus: c240000.i2c = i2c-1
+--- NODE present (/proc/device-tree/bus@0/i2c@c240000/oled@3c): probe, drawing from userspace, unbind
+    DT node: compatible 'edge,edge-ssd1306', reg  00 00 00 3c
+PASS client 1-003c exists, unbound, before insmod
+PASS client name 'edge-ssd1306' (compatible minus vendor prefix)
+PASS no installed module claims i2c:edge-ssd1306
+== before insmod: EDGE from oled_probe, then inverse (0xA7) with i2ctransfer
+&gt;&gt;&gt; Before insmod: black EDGE on a white panel? [y/n] y «2»
+PASS panel scrambled before insmod
+PASS 1-003c bound to edge_oled
+&gt;&gt;&gt; After insmod: is the panel completely dark (no white, no EDGE)? [y/n] y «3»
+PASS probe: init (normal, not inverse) + clear
+PASS i2cdetect shows UU at 0x3c
+PASS /dev/edge_oled is a char device, mode 666
+== drawing from userspace
+    fill: ioctl FILL on /dev/edge_oled «4»
+&gt;&gt;&gt; Every pixel lit (whole panel white)? [y/n] y
+PASS ctl fill 0xff: Every pixel lit (whole panel white)?
+    pattern: write on /dev/edge_oled
+&gt;&gt;&gt; Border plus a diagonal from the TOP-LEFT corner? [y/n] y
+PASS ctl pattern: Border plus a diagonal from the TOP-LEFT corner?
+    pixel: write on /dev/edge_oled
+&gt;&gt;&gt; Five dots: the four corners and the centre? [y/n] y
+PASS ctl pixel: Five dots: the four corners and the centre?
+    edge: write on /dev/edge_oled
+&gt;&gt;&gt; White EDGE on black, centred, readable (not mirrored, not upside down)? [y/n] y
+PASS ctl edge: White EDGE on black, centred, readable (not mirrored, not upside down)?
+    clear: ioctl CLEAR on /dev/edge_oled
+&gt;&gt;&gt; Completely dark? [y/n] y
+PASS ctl clear: Completely dark?
+PASS device unittest as nvidia (Ran 8 tests in 19.767s; 96.4 ms per frame) «5»
+PASS oled_probe without --force refused: 1-003c is bound to driver edge_oled (Device or resource busy): use its interface, or --force «6»
+    write ENODEV
+    read ENODEV
+PASS file opened before unbind: write/read ENODEV «7»
+PASS unbind removes /dev/edge_oled
+&gt;&gt;&gt; After unbind: panel dark (driver turned the display off)? [y/n] y
+PASS remove: display off
+PASS bind again: /dev/edge_oled back
+    edge: write on /dev/edge_oled
+&gt;&gt;&gt; After bind: EDGE again? [y/n] y
+PASS ctl edge: After bind: EDGE again?
+== OLED off while bound (--no-unplug skips this)
+&gt;&gt;&gt; Disconnect all four wires of the OLED (VCC, GND, SDA, SCL), then press Enter y
+    write /dev/edge_oled: Remote I/O error «8»
+PASS write with the OLED unplugged: Remote I/O error
+PASS read() after the failed write: still the last frame sent (EDGE) «9»
+&gt;&gt;&gt; Reconnect all four wires, then press Enter 
+&gt;&gt;&gt; Reconnected: panel dark (power-on reset) before anything is sent? [y/n] y
+PASS power-on reset seen
+    edge: write on /dev/edge_oled
+&gt;&gt;&gt; EDGE back (driver re-sent the init sequence by itself)? [y/n] y «10»
+PASS ctl edge: EDGE back (driver re-sent the init sequence by itself)?
+PASS client at 0x3d created and left unbound
+PASS module, /sys/bus/i2c/drivers/edge_oled and /dev/edge_oled gone
+PASS client stays, unbound
+PASS i2cdetect shows 3c again
+PASS dmesg free of Oops/BUG/WARNING
+PASS dmesg shows 2 probe / 2 remove for 1-003c
+PASS probe at 0x3d failed with -EREMOTEIO
+    [ 3831.548809] edge_oled verify 18426 1791889108
+    [ 3838.940388] edge_oled 1-003c: probed: 128x64, /dev/edge_oled
+    [ 3876.462130] edge_oled 1-003c: removed
+    [ 3887.067656] edge_oled 1-003c: probed: 128x64, /dev/edge_oled
+    [ 3933.174973] edge_oled 1-003d: error -EREMOTEIO: cannot initialise the panel «11»
+    [ 3933.174991] edge_oled: probe of 1-003d failed with error -121
+    [ 3933.175028] i2c i2c-1: new_device: Instantiated device edge_oled at 0x3d
+    [ 3933.192436] i2c i2c-1: delete_device: Deleting device edge_oled at 0x3d
+    [ 3933.196487] edge_oled 1-003c: removed
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>driver 的 byte 和 Step 9 相同，這是後面每張畫面能和 Step 9 比的前提。</span></li>
+        <li><span class="mk">2</span><span>insmod 前，螢幕是 userspace 留下的「錯誤」狀態：反白的 EDGE。</span></li>
+        <li><span class="mk">3</span><span><b class="hl-ok">probe 後全黑</b>：init 把反白改回正常（<code>A6</code>），全 0 的畫面清掉了 EDGE。如果 probe 只開顯示、不送 init，這裡會是白的。</span></li>
+        <li><span class="mk">4</span><span><code>fill</code> 與 <code>clear</code> 走 ioctl，三張圖走 <code>write()</code>；人眼看到的五張畫面都和 Step 9 一樣，方向沒錯。</span></li>
+        <li><span class="mk">5</span><span>device 測試以一般使用者身分跑：mode 0666 不需要 root。連寫 200 張平均 96.4 ms（第一輪 96.6 ms），和 100 kHz 的估算一致。</span></li>
+        <li><span class="mk">6</span><span>Step 9 code review 排過來的那一項：<code>oled_probe</code> 不加 <code>--force</code> 時被自己的檢查擋下。</span></li>
+        <li><span class="mk">7</span><span><b class="hl-ok">開著的檔案在 unbind 後拿到 <code>ENODEV</code></b>，沒有 Oops（最後的 dmesg 檢查）。接著人確認螢幕黑了（remove 的 Display OFF），bind 回來能再畫。</span></li>
+        <li><span class="mk">8</span><span>driver 綁定時四條線全拔，寫一張 <code>pattern</code>：<code>write()</code> 回 <code>-EREMOTEIO</code>，<b class="hl-ok">I2C 錯誤原樣傳到 userspace</b>。</span></li>
+        <li><span class="mk">9</span><span><b class="hl-ok">失敗的那張沒有進 shadow frame</b>：<code>cmp</code> 比對 <code>/dev/edge_oled</code> 讀回的內容和 EDGE 的 frame，相同。這項是 code review 後加的；舊版 driver 在這裡會讀回 <code>pattern</code>（依程式推論，舊版沒有在板子上跑這項）。</span></li>
+        <li><span class="mk">10</span><span>接回後先確認全黑（真的經過 power-on reset，Step 9 學到只拔 VCC 不算），然後一次普通的 <code>edge</code> 就讓畫面回來：上一次失敗清掉了 <code>initialized</code>，這次 flush 先重送 init。</span></li>
+        <li><span class="mk">11</span><span>0x3d 沒有東西：probe 送第一個訊息就沒 ACK，<code>dev_err_probe</code> 印出原因，不綁定、不重試。開機後第一次 insmod 時 dmesg 還會多一行 <code>module verification failed: signature and/or required key missing</code>：out-of-tree module 沒簽章，不是錯誤（這一輪不是開機後第一次載入，所以沒有）。</span></li>
+      </ol>
+      <p>你的輸出會在時間戳記和 y/n 上不同，unittest 的秒數與每張 ms 也會略有差異。不方便拔線就加 <code>--no-unplug</code>，「OLED off while bound」那段會印 <code>SKIP</code>，⑧⑨⑩就沒有驗到。看到 <code>--- no /proc/device-tree/... in this boot</code> 表示 overlay 還沒裝或還沒重開機，腳本只會確認 driver 不綁定任何東西。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：OLED 在兩次寫入之間斷電又接回、中間沒有人寫（10a.5，排進 Step 10-b）；<code>oled_probe --force</code> 在 driver 底下寫入；檔案開著時 rmmod 被拒；兩片 SSD1306 同時綁定（裝置名稱固定 <code>edge_oled</code>，這一步只支援一片）；128x32 面板。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">10a.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 devm_ 可以管 misc device 的結構</h4><dl><dt>症狀</dt><dd>照 Step 4-b、5-b 的習慣用 <code>devm_kzalloc</code>（設計時發現，這個 driver 沒有實際踩到）。</dd><dt>後果</dt><dd>unbind 不需要卸載 module；remove 後記憶體已釋放，開著的檔案再 write 就用到釋放過的結構。<code>edge_gpio</code>、<code>edge_button</code> 正是這樣寫的（讀碼發現、未實測，排進 Step 19）。</dd><dt>正解</dt><dd class="fix"><code>kzalloc</code> + <code>kref</code>，每個 open 一個 reference；remove 清掉 <code>client</code>，之後回 <code>ENODEV</code>。</dd></dl></div>
+        <div class="pit"><h4>以為 probe 時 init 一次就夠</h4><dl><dt>症狀</dt><dd>（推論）OLED 斷電再接回後，write 全部 ACK，螢幕卻是黑的。</dd><dt>後果</dt><dd>晶片回到 reset（display OFF、charge pump 關），只送畫面看不到任何東西。</dd><dt>正解</dt><dd class="fix">任何傳輸失敗都清掉 <code>initialized</code>，下次先重送 init；「之間斷電」的情況排進 10-b。</dd></dl></div>
+        <div class="pit"><h4>以為 I2C_RDWR 也會被 kernel 擋</h4><dl><dt>症狀</dt><dd>Step 7 的 <code>i2cget</code> 在 driver 綁定時得到 <code>EBUSY</code>。</dd><dt>後果</dt><dd><code>oled_probe</code> 不用 <code>I2C_SLAVE</code>，照樣寫得進去，在 driver 底下換掉畫面。</dd><dt>正解</dt><dd class="fix">工具自己看 sysfs 的 <code>driver</code> 連結，有綁定就拒絕，<code>--force</code> 例外。</dd></dl></div>
+        <div class="pit"><h4>測試照自己想像的寫法長</h4><dl><dt>症狀</dt><dd>實作後兩個測試紅：一個要找 <code>ctl clear</code>，腳本寫的是 <code>show "問題" clear</code>；Step 9 的「不能有 <code>I2C_SLAVE</code>」被我寫在註解裡的這個字弄紅。</dd><dt>後果</dt><dd>紅燈不是程式錯，是測試假設了某種寫法；搞混的話會為了讓測試過而改壞程式。</dd><dt>正解</dt><dd class="fix">先判斷紅的是行為還是字面，字面的就改測試或措辭，並在紀錄裡寫清楚是哪一種。</dd></dl></div>
+        <div class="pit"><h4>先改 shadow frame 再送</h4><dl><dt>症狀</dt><dd>第一版 write 先 <code>memcpy</code> 進 <code>oled-&gt;frame</code> 才 flush（code review 找到）。</dd><dt>後果</dt><dd>送到一半失敗時，<code>read()</code> 讀回面板沒收到的畫面，和 header 說的「送出的內容」不符。</dd><dt>正解</dt><dd class="fix">flush 送暫存區，成功了才寫進 shadow frame；驗收拔線時寫別的圖，<code>cmp</code> 讀回必須是上一張。</dd></dl></div>
+        <div class="pit"><h4>照 phase 文件的行數估算動工</h4><dl><dt>症狀</dt><dd>phase04 估 250–450 行，沒重估就開始寫。</dd><dt>後果</dt><dd>寫完約 1220 行非空白，超過 800 行上限；driver 本身只有 245 行，其餘是 app、工具、header 與佔六成的測試和腳本。</dd><dt>正解</dt><dd class="fix">動工前把測試與驗收腳本一起估（Step 7–10-a 約佔一半）；超過就先拆。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">10a.12</span><b>收尾</b>10-a → 10-b</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">overlay 的 <code>fragment@5</code> 在 <code>gen2_i2c</code> 下建立 <code>oled@3c</code>；<code>edge_oled.ko</code> 綁定 <code>1-003c</code>，probe 時 init + 清畫面 + Display ON，提供 <code>/dev/edge_oled</code>（整張 write、讀回、CLEAR / FILL）。</li>
+        <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：driver 載入後，從 userspace 觸發 clear 與固定圖案（fill、pattern、pixel、edge），人眼確認和 Step 9 相同。</li>
+        <li class="y">錯誤往上回報（沒 ACK = <code>Remote I/O error</code>）、不重試；斷線再接回後下一次寫入自己重送 init。unbind 時開著的檔案得到 <code>ENODEV</code>，無 Oops。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y"><code>oled_probe</code> 在 driver 綁定時拒絕寫入（<code>--force</code> 例外）。</li>
+        <li class="y">測試：協定向量（5 種改法都會紅）、<span data-tests="tests/test_edge_oled_static.py">41</span> 個 static、<span data-tests="tests/test_edge_oled_device.py">8</span> 個 device。</li>
+        <li class="n">沒有實測：兩次寫入之間斷電、<code>--force</code>、檔案開著時 rmmod、兩片面板、128x32；device 測試沒看過紅燈；這一步的行數超過上限（使用者決定保留不拆）。</li>
+      </ul>
+      <p>Step 10-b 處理文字：一套最小的 bitmap 字型、<code>draw_char</code> / <code>draw_string</code>、換行與超出範圍。這一步的 shadow frame 就是它要畫上去的地方；10a.5 那個「之間斷電」的盲點也在 10-b 先處理，因為 10-c 會讓螢幕長時間顯示。</p>
+      <details class="quiz"><summary>1. 為什麼 <code>write()</code> 先 <code>memdup_user()</code>，而不是在鎖裡直接 <code>copy_from_user()</code> 進 shadow frame？</summary><p>複製可能失敗一半（壞指標），直接寫進 shadow frame 就會留下半張畫面。而且就算複製成功，送到面板也可能失敗；shadow frame 要等全部送成功才更新，所以一定需要一個暫存區。（持有 mutex 時 <code>copy_from_user()</code> 睡一下本身是允許的，那不是理由。）</p></details>
+      <details class="quiz"><summary>2. 開著 <code>/dev/edge_oled</code> 時 unbind，再 bind，用舊的 fd 寫入會怎樣？</summary><p>還是 <code>-ENODEV</code>。舊的 fd 指著舊的結構，它的 <code>client</code> 已經是 NULL；bind 時 probe 配了一個新的結構。要關掉重新 open 才會用到新的。</p></details>
+      <details class="quiz"><summary>3. probe 送 11 個訊息，之後每次 write 只送 9 個。少的是哪兩個？什麼時候 write 又會送 11 個？</summary><p>少了 init 序列與最後的 Display ON。上一次 flush 有任何一個訊息失敗（<code>initialized</code> 變成 false）時，下一次 flush 會再送 init，畫面送完再送 Display ON。</p></details>
+      <details class="quiz"><summary>4. driver 綁定時 <code>i2cget</code> 會被 kernel 擋下，<code>oled_probe</code> 卻不會。差在哪？</summary><p><code>i2cget</code> 先用 <code>ioctl(I2C_SLAVE)</code> 設定位址，i2c-dev 在這一步檢查位址有沒有 driver，有就回 <code>EBUSY</code>。<code>oled_probe</code> 用 <code>I2C_RDWR</code>，位址寫在每個訊息裡，沒有這個檢查，所以只能由工具自己看 sysfs。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><span class="disabled">Step 10-b →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A simulation of edge_oled's reference counting, not the real driver.
+  var st, nextId;
+  var stateEl = document.getElementById('lifeState'), logEl = document.getElementById('lifeLog');
+  function reset() { st = { loaded: false, bound: null, structs: {}, fds: [] }; nextId = 1; logEl.textContent = ''; render(); }
+  function log(s) { logEl.textContent += s + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+  function put(id) { var s = st.structs[id]; s.ref--; if (s.ref === 0) { delete st.structs[id]; return '  kref_put → 0：kfree(結構 #' + id + ')'; } return '  kref_put → ' + s.ref; }
+  function probe() { var id = nextId++; st.structs[id] = { ref: 1, client: true }; st.bound = id; return '  probe：結構 #' + id + '，ref 1，/dev/edge_oled 出現'; }
+  function remove() { var id = st.bound, s = st.structs[id]; s.client = false; st.bound = null; return '  remove：misc_deregister、Display OFF、client = NULL\n' + put(id); }
+  var acts = {
+    insmod: function () { if (st.loaded) return 'insmod: File exists'; st.loaded = true; return 'insmod\n' + probe(); },
+    open: function () { if (!st.bound) return 'open: No such file or directory'; var id = st.bound; st.structs[id].ref++; st.fds.push(id); return 'open → fd' + st.fds.length + '（結構 #' + id + '，ref ' + st.structs[id].ref + '）'; },
+    write: function () { if (!st.fds.length) return 'write：沒有開著的檔案'; var id = st.fds[st.fds.length - 1]; return 'write fd' + st.fds.length + ' → ' + (st.structs[id].client ? '1024' : '-ENODEV'); },
+    close: function () { if (!st.fds.length) return 'close：沒有開著的檔案'; var n = st.fds.length, id = st.fds.pop(); return 'close fd' + n + '\n' + put(id); },
+    unbind: function () { if (!st.bound) return 'unbind: No such device'; return 'unbind\n' + remove(); },
+    bind: function () { if (!st.loaded) return 'bind：driver 不存在'; if (st.bound) return 'bind: Device or resource busy'; return 'bind\n' + probe(); },
+    rmmod: function () { if (!st.loaded) return 'rmmod: Module edge_oled is not currently loaded'; if (st.fds.length) return 'rmmod: Module edge_oled is in use（推論：fops.owner 持有 module）'; var out = 'rmmod'; if (st.bound) out += '\n' + remove(); st.loaded = false; return out; }
+  };
+  function render() {
+    var ids = Object.keys(st.structs);
+    stateEl.innerHTML = '<div>module：<b>' + (st.loaded ? '已載入' : '未載入') + '</b></div>' +
+      '<div>/dev/edge_oled：<b>' + (st.bound ? '存在' : '不存在') + '</b></div>' +
+      '<div>開著的檔案：<b>' + st.fds.length + '</b></div>' +
+      '<div>結構：<b>' + (ids.length ? ids.map(function (i) { var s = st.structs[i]; return '#' + i + ' ref ' + s.ref + (s.client ? '' : '（client NULL）'); }).join('、') : '無') + '</b></div>';
+  }
+  document.querySelectorAll('.sim-ctl button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.act === 'reset') { reset(); return; }
+      log(acts[b.dataset.act]()); render();
+    });
+  });
+  reset();
+})();
+</script>
+</body>
+</html>

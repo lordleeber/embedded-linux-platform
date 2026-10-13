@@ -142,7 +142,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><span class="disabled">Step 10-a →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><a href="step10a.html">Step 10-a →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 9 · SSD1306 OLED（userspace 先證明協定）</div>
     <h1>OLED：先在 userspace 點亮 EDGE</h1>
@@ -411,7 +411,7 @@ inline std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; frame_writes(const Fra
 }</pre></figure>
       <p><code>21</code> 設 column 範圍、<code>22</code> 設 page 範圍。SSD1306 內部有一個「下一個 byte 寫到哪」的位址指標，寫入時自動前進，在 horizontal addressing 下寫滿 page 的 128 欄就換下一個 page。上一個程式寫到一半結束時，指標就停在那裡；不先送 window 指令，這次的畫面會從那裡開始寫，整片錯位。變異測試把這行拿掉，向量會紅。</p>
       <p>一個 page 一個訊息（1 + 128 = 129 byte）。i2c-dev 允許一個 <code>I2C_RDWR</code> 訊息最長 8192 byte，整張 1024 byte 一次送也可以，分成 8 個是為了錯誤訊息能指出「第幾個訊息」失敗。SMBus 的 block write 一次只能 32 byte，所以這裡不用 SMBus API。</p>
-      <figure class="listing"><figcaption>tools/oled_probe.cpp:52–68 — 一個 i2c_msg，flags 0 = 寫；位址在訊息裡，不必先 ioctl(I2C_SLAVE)</figcaption>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp@98a6ac2:52–68 — 一個 i2c_msg，flags 0 = 寫；位址在訊息裡，不必先 ioctl(I2C_SLAVE)</figcaption>
 <pre data-start="52" data-hot="56,57,60,61,63,64">// One write message; the controller sends START, address+W, the bytes, STOP.
 bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; &amp;bytes)
 {
@@ -430,7 +430,8 @@ bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; &amp;
     return true;
 }</pre></figure>
       <p>不用 <code>I2C_SLAVE</code> 有一個副作用要記住。Step 7 踩過：位址被 kernel driver 綁定後，<code>I2C_SLAVE</code> 會回 <code>EBUSY</code>，這是 kernel 的保護；<code>I2C_RDWR</code> 不做這個檢查。所以 Step 10-a 的 driver 綁定 0x3C 之後，這個工具照樣寫得進去，會在 driver 底下重新 init 控制器、蓋掉 driver 的狀態。code review 指出了這點，已排進 Step 10-a：工具要先看 0x3C 有沒有被 driver 綁定，有的話就拒絕，除非加 <code>--force</code>。</p>
-      <figure class="listing"><figcaption>tools/oled_probe.cpp:131–149 — init、window + 8 page、Display ON，依序送；任何一個沒 ACK 就停</figcaption>
+      <div class="callout"><p>Step 10-a 已經加上這個檢查，也把 <code>draw()</code> 搬進 <code>ssd1306.h</code>（改名 <code>test_picture()</code>，給 <code>edge_oled_ctl</code> 共用）。所以這一章 <code>oled_probe.cpp</code> 的兩段節錄釘在 Step 9 合併時的 commit（外框標 <code>@98a6ac2</code>）；現在的檔案見下一章。</p></div>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp@98a6ac2:131–149 — init、window + 8 page、Display ON，依序送；任何一個沒 ACK 就停</figcaption>
 <pre data-start="131" data-hot="136,137,139,142,144">    const auto a = static_cast&lt;std::uint16_t&gt;(addr);
     std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; msgs;
     if (mode == "off") {
@@ -681,7 +682,7 @@ PASS edge: After the power cycle: EDGE is back, same as before?
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><span class="disabled">Step 10-a →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><a href="step10a.html">Step 10-a →</a></nav>
 </main>
 
 <script>

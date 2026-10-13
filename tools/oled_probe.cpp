@@ -6,14 +6,15 @@
 // as well as on one a previous program left in any state. The chip cannot be read back
 // over I2C; a person checks the picture (scripts/verify_oled_probe.sh).
 //
-// Usage: oled_probe [--bus N] [--addr 0xNN] [clear|pixel|pattern|edge|off]
+// Usage: oled_probe [--bus N] [--addr 0xNN] [--force] [clear|pixel|pattern|edge|off]
 //   default: bus 1 (header pins 27/28), address 0x3C, mode edge
+//   --force  write even when a kernel driver (Step 10-a's edge_oled) is bound to the address
 //   clear   blank screen, display on
 //   pixel   the four corners and the centre (128x64: (0,0) (127,0) (0,63) (127,63) (64,32))
 //   pattern 1-pixel border and a diagonal from the top-left corner
 //   edge    "EDGE", 4x scaled, centred
 //   off     display off (RAM kept); no init
-// Exit status: 0 = done, 1 = bus or I/O error, 2 = usage.
+// Exit status: 0 = done, 1 = bus or I/O error, or the address is bound to a driver, 2 = usage.
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -32,7 +33,8 @@ namespace {
 
 int usage(const char *argv0)
 {
-    std::fprintf(stderr, "usage: %s [--bus N] [--addr 0x03..0x77] [clear|pixel|pattern|edge|off]\n",
+    std::fprintf(stderr,
+                 "usage: %s [--bus N] [--addr 0x03..0x77] [--force] [clear|pixel|pattern|edge|off]\n",
                  argv0);
     return 2;
 }
@@ -67,32 +69,22 @@ bool write_msg(int fd, std::uint16_t addr, std::vector<std::uint8_t> &bytes)
     return true;
 }
 
-ssd1306::Frame draw(const std::string &mode)
+// Step 10-a: with edge_oled.ko bound to this address, I2C_RDWR would still reach the chip
+// (it never claims the address, so no EBUSY) and re-init it under the driver. Returns the
+// driver's name, or "" when the client does not exist or is unbound. OLED_PROBE_SYSFS
+// replaces /sys (tests).
+std::string bound_driver(long bus, long addr)
 {
-    using namespace ssd1306;
-    Frame f{};
-    if (mode == "pixel") {
-        set_pixel(f, 0, 0);
-        set_pixel(f, kWidth - 1, 0);
-        set_pixel(f, 0, kHeight - 1);
-        set_pixel(f, kWidth - 1, kHeight - 1);
-        set_pixel(f, kWidth / 2, kHeight / 2);
-    } else if (mode == "pattern") {
-        for (int x = 0; x < kWidth; ++x) {
-            set_pixel(f, x, 0);
-            set_pixel(f, x, kHeight - 1);
-        }
-        for (int y = 0; y < kHeight; ++y) {
-            set_pixel(f, 0, y);
-            set_pixel(f, kWidth - 1, y);
-            set_pixel(f, y, y);
-        }
-    } else if (mode == "edge") {
-        const int scale = 4;
-        draw_text(f, (kWidth - text_width("EDGE", scale)) / 2, (kHeight - 7 * scale) / 2,
-                  "EDGE", scale);
-    }
-    return f;
+    const char *root = std::getenv("OLED_PROBE_SYSFS");
+    char link[256], target[256];
+    std::snprintf(link, sizeof link, "%s/bus/i2c/devices/%ld-%04lx/driver", root ? root : "/sys",
+                  bus, addr);
+    ssize_t n = readlink(link, target, sizeof target - 1);
+    if (n <= 0)
+        return "";
+    target[n] = '\0';
+    const char *slash = std::strrchr(target, '/');
+    return slash ? slash + 1 : target;
 }
 
 }  // namespace
@@ -101,8 +93,11 @@ int main(int argc, char **argv)
 {
     long bus = 1, addr = 0x3C;
     std::string mode;
+    bool force = false;
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--bus") || !std::strcmp(argv[i], "--addr")) {
+        if (!std::strcmp(argv[i], "--force")) {
+            force = true;
+        } else if (!std::strcmp(argv[i], "--bus") || !std::strcmp(argv[i], "--addr")) {
             bool is_bus = argv[i][2] == 'b';
             if (i + 1 >= argc ||
                 !parse(argv[i + 1], is_bus ? 10 : 0, is_bus ? 0 : 0x03, is_bus ? 255 : 0x77,
@@ -120,6 +115,13 @@ int main(int argc, char **argv)
     if (mode.empty())
         mode = "edge";
 
+    std::string drv = force ? "" : bound_driver(bus, addr);
+    if (!drv.empty()) {
+        std::fprintf(stderr, "%ld-%04lx is bound to driver %s (%s): use its interface, or --force\n",
+                     bus, addr, drv.c_str(), std::strerror(EBUSY));
+        return 1;
+    }
+
     char path[32];
     std::snprintf(path, sizeof path, "/dev/i2c-%ld", bus);
     int fd = open(path, O_RDWR);
@@ -134,7 +136,7 @@ int main(int argc, char **argv)
         msgs.push_back(ssd1306::command_frame({ssd1306::kDisplayOff}));
     } else {
         msgs.push_back(ssd1306::command_frame(ssd1306::init_sequence()));
-        for (auto &m : ssd1306::frame_writes(draw(mode)))
+        for (auto &m : ssd1306::frame_writes(ssd1306::test_picture(mode.c_str())))
             msgs.push_back(std::move(m));
         msgs.push_back(ssd1306::command_frame({ssd1306::kDisplayOn}));
     }

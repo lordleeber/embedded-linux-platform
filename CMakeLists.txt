@@ -35,3 +35,9 @@ add_executable(test_edge_ina219_conv tests/test_edge_ina219_conv.cpp)
 # Step 9: SSD1306 OLED from userspace (i2c-dev, I2C_RDWR); protocol bytes in tools/ssd1306.h.
 add_executable(oled_probe tools/oled_probe.cpp)
 add_executable(test_ssd1306 tests/test_ssd1306.cpp)
+
+# Step 10-a: userspace side of edge_oled.ko (/dev/edge_oled); the driver's SSD1306 bytes vs Step 9's.
+add_executable(edge_oled_ctl apps/edge_oled_ctl.cpp)
+target_include_directories(edge_oled_ctl PRIVATE include tools)
+add_executable(test_edge_oled_proto tests/test_edge_oled_proto.cpp)
+target_include_directories(test_edge_oled_proto PRIVATE include)

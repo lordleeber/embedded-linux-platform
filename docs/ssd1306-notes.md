@@ -109,3 +109,13 @@ frame[page * 128 + x] 的 bit n  =  點 (x, 8 * page + n)，bit 0 在上
 | `81 00` | 全黑（contrast 0 在這片模組上不只是變暗） |
 
 另一個教訓：螢幕關著（`AE`）時送這些指令，人什麼都看不到；要先確認 display 是開的、有已知畫面。
+
+## 由 kernel driver 送（Step 10-a，`kernel/edge_oled`）
+
+同樣的 byte（`include/edge_oled_proto.h`，`test_edge_oled_proto` 逐 byte 對 `ssd1306.h`），改由 `edge_oled.ko` 用 `i2c_master_send()` 送：
+probe 時 init → window + 8 page（全 0）→ Display ON；之後每次 `write()` / ioctl 送 window + 8 page。
+
+- 速度：`c240000.i2c` 的 `clock-frequency` 是 100000（100 kHz）。一張 frame 約 1050 byte（含每個 message 的位址 byte）× 9 bit ≈ 94 ms；實測連寫 200 張平均 **96.6 ms / 張**（2026-10-13）。
+- 斷電後：晶片回到 reset（display OFF、charge pump 關），只送 frame 什麼都看不到。driver 在任何一次傳輸失敗後清掉 `initialized`，下一次寫入先重送 init sequence；實測四條線全拔時 `write` 回 `Remote I/O error`，接回後螢幕全黑，下一次 `edge_oled_ctl edge` 畫面恢復。
+- 反過來的限制：driver 只在「傳輸失敗」時知道要重新 init。如果 OLED 在兩次寫入之間斷電又接回（中間沒有人寫），下一次寫入會成功 ACK、但只送 frame，螢幕仍是黑的（依 reset 狀態推論，沒有實測）。
+- driver 綁定時 `oled_probe` 會先看 sysfs 的 `driver` 連結並拒絕（結束碼 1）；`--force` 會照樣寫，而且如果送了 `off`，driver 不會知道螢幕被關掉。
