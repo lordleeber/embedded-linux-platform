@@ -122,10 +122,23 @@ data byte(s)
 
 不是單純把 ASCII `"HELLO"` 寫進 I2C 就會顯示。
 
+### 實作決策（Step 9 落地時裁決）
+
+- 誰和誰互動：`oled_probe` → `ioctl(I2C_RDWR)` → i2c-dev → i2c-tegra（`c240000.i2c` = `i2c-1`，controller）→ SSD1306（target，0x3C）。只寫不讀：SSD1306 在 I2C 模式下不能讀回 display RAM，畫面由人眼確認
+- 接線：OLED（128x64 I2C 模組）VCC → pin 17（3.3 V）、GND → pin 20、SDA → pin 27、SCL → pin 28。pin 3/5（`i2c-7`）已經插著 UPS 的線，所以改用 pin 27/28；這條 bus 上還有板載的 fusb301（0x25）與 ina3221（0x40），位址不衝突
+- 每個 I2C message = control byte（`0x00` command / `0x40` data）+ stream；一個 message 一個 `I2C_RDWR`，沒有 `I2C_SLAVE`（Step 10-a 的 driver 綁定 0x3C 之後工具仍可開 bus，不會 `EBUSY`）
+- 協定 byte 全放在無 I/O 的 `tools/ssd1306.h`（init sequence、framing、GDDRAM 版面、只含 `D` `E` `G` 與空白的 5x7 glyph），由 `tests/test_ssd1306.cpp` 的 datasheet 向量檢查；完整字型是 Step 10-b
+- 每次執行都送完整 init → window 指令 → 8 個 page → Display ON（`0xAF` 最後送，避免上電後的亂碼閃一下）
+- 「不依賴前一次狀態」的驗法有兩個：用 `i2ctransfer`（獨立工具）把晶片打亂成反白 / 鏡像 / vertical addressing / contrast 0 再跑；以及整片 OLED 拔下再接上（插回後先確認螢幕全黑，證明真的經過上電 reset）
+- 只拔 VCC 不算斷電（實測：螢幕變暗但 EDGE 還在、照樣 ACK），驗收改成四條線全拔
+
 ### 預期檔案
 
 ```text
 tools/oled_probe.cpp
+tools/ssd1306.h（協定 byte，無 I/O）
+tests/test_ssd1306.cpp、tests/test_oled_probe.py
+scripts/verify_oled_probe.sh
 docs/ssd1306-notes.md
 ```
 

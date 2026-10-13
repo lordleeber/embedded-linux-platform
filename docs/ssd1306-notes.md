@@ -1,6 +1,6 @@
 # SSD1306 筆記（Step 9）
 
-對象：128x64、I2C 介面的 0.96 吋 OLED 模組（SSD1306 控制器，模組上有自己的 regulator 與 I2C pull-up）。
+對象：128x64、I2C 介面的 OLED 模組（SSD1306 控制器；模組板上的元件沒有逐一核對）。
 出處：SSD1306 datasheet Rev 1.1（Solomon Systech）的 8.1.5 I2C、9 Command Table、10 Command Descriptions、
 以及 charge pump 的 application note。程式裡的 byte 全部在 `tools/ssd1306.h`，向量在 `tests/test_ssd1306.cpp`。
 
@@ -88,3 +88,10 @@ frame[page * 128 + x] 的 bit n  =  點 (x, 8 * page + n)，bit 0 在上
 | 字左右相反 / 上下顛倒 | `A1` / `C8` 沒寫或寫反 |
 | 隔一行才有點、字被拉長 | `DA` 的 COM pins 配置錯（128x32 與 128x64 不同）或 `A8` 不對 |
 | 畫面錯位、從中間開始 | 沒先送 window 指令，位址指標停在前一次的位置 |
+
+## 斷電與「偷供電」（Step 9 實測，2026-10-13）
+
+只拔 VCC、SDA / SCL / GND 還接著時：螢幕**變暗但 EDGE 還看得到**，`oled_probe` 照樣全部 ACK（結束碼 0）。
+最可能的路徑是 bus 的 pull-up 經 SSD1306 腳位的 ESD 保護二極體餵進晶片的 VDD（推論，沒有量電壓）。
+所以「拔 VCC」不等於 power-cycle。驗收改成四條線全拔、再接上（先接 GND），並在送任何指令前確認螢幕全黑：
+上電 reset 後 display 是 OFF（`AE`），全黑才證明晶片真的斷過電。

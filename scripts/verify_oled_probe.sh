@@ -8,8 +8,9 @@
 # the panel shows. Checks: the bus scan, every mode of the tool (person looks), the unit
 # tests against the real OLED, a state scrambled by i2ctransfer (inverse, mirrored, vertical
 # addressing, contrast 0) that the next run must undo by itself, an absent address as an
-# I/O error, then (unless --no-power-cycle) the person unplugs the OLED's VCC: the tool must
-# fail with no ACK, and after VCC is back it must bring the panel up again.
+# I/O error, then (unless --no-power-cycle) the person disconnects the whole OLED: the tool
+# must fail with no ACK; after reconnecting the panel must be dark (power-on reset, display
+# off) and the tool must bring it up again.
 # Exit status: 0 = all checks passed, 1 = a check failed, 2 = environment/usage problem.
 set -uo pipefail
 
@@ -44,7 +45,7 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 UNPLUGGED=0
 on_int() {
-    [[ $UNPLUGGED -eq 1 ]] && echo ">>> Interrupted: plug the OLED's VCC back in."
+    [[ $UNPLUGGED -eq 1 ]] && echo ">>> Interrupted: reconnect the OLED."
     exit 2
 }
 trap on_int INT TERM
@@ -113,18 +114,28 @@ if [[ $rc -eq 1 && $err == *"Remote I/O error"* ]]; then pass "$other: exit 1, R
 else fail "$other: exit $rc, '$err'"; fi
 
 if [[ $CYCLE -eq 1 ]]; then
+    # Unplugging VCC alone is not a power cycle: measured 2026-10-13, the SSD1306 still
+    # ACKed with VCC out (most likely fed through the SDA/SCL pull-ups). Take all four off.
     echo
-    echo ">>> UNPLUG the OLED's VCC wire now (leave GND, SDA, SCL), then answer."
+    echo ">>> DISCONNECT the OLED: all four wires (VCC, GND, SDA, SCL), then answer."
     UNPLUGGED=1
-    ask "VCC unplugged?" || die "power cycle not done"
+    ask "OLED disconnected (all four wires)?" || die "power cycle not done"
     err="$(tool edge 2>&1 >/dev/null)"; rc=$?
     echo "  $err"
-    if [[ $rc -eq 1 && $err == *"Remote I/O error"* ]]; then pass "unpowered OLED: exit 1, no ACK"
-    else fail "unpowered OLED: exit $rc, '$err' (was VCC really unplugged?)"; fi
-    echo ">>> PLUG VCC back in now."
-    ask "VCC back in?" || die "VCC not restored"
+    if [[ $rc -eq 1 && $err == *"Remote I/O error"* ]]; then pass "disconnected OLED: exit 1, no ACK"
+    else fail "disconnected OLED: exit $rc, '$err' (still connected?)"; fi
+    sleep 2
+    echo ">>> RECONNECT the OLED (VCC pin 17, GND pin 20, SDA pin 27, SCL pin 28)."
+    ask "OLED reconnected?" || die "OLED not reconnected"
     UNPLUGGED=0
     sleep 1
+    # Power-on reset leaves the display OFF (0xAE); nothing has been sent since, so a lit
+    # panel here means the chip never lost power and the check below would prove nothing.
+    if ask "Before any command: is the screen completely dark (EDGE gone)?"; then
+        pass "power-on reset seen: panel dark after reconnecting"
+    else
+        fail "panel not dark after reconnecting: the chip kept power, not a real power cycle"
+    fi
     if present; then pass "OLED answers again after power-up"
     else fail "nothing at $ADDR after power-up"; fi
     show edge "After the power cycle: EDGE is back, same as before?"

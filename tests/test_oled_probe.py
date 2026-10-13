@@ -158,7 +158,21 @@ class VerifyScriptTest(unittest.TestCase):
     def test_has_a_power_cycle_check(self):
         # Acceptance: after the OLED loses power the tool must bring it up again.
         self.assertIn("--no-power-cycle", self.text)
-        self.assertRegex(self.text, r"(?i)unplug.*VCC")
+
+    def test_power_cycle_disconnects_the_whole_module(self):
+        # Measured 2026-10-13: with only VCC unplugged the SSD1306 still ACKed (exit 0) -
+        # most likely fed through the SDA/SCL pull-ups. All four wires have to come off.
+        self.assertRegex(self.text, r"(?i)all four wires")
+        self.assertNotRegex(self.text, r"(?i)unplug the OLED's VCC wire")
+
+    def test_power_on_reset_is_seen_before_the_tool_runs(self):
+        # Proof the chip really lost power: after power-on reset the display is OFF (0xAE is
+        # the reset state), so the panel is dark until oled_probe sends anything. Ask that
+        # first, then run the tool.
+        cycle = self.text[self.text.index("if [[ $CYCLE -eq 1 ]]"):]
+        dark = re.search(r"ask \"[^\"]*(?i:dark)[^\"]*\"", cycle)
+        self.assertIsNotNone(dark, "no 'dark?' question in the power-cycle block")
+        self.assertLess(dark.start(), cycle.index("show edge"))
 
     def test_scrambles_state_with_an_independent_tool(self):
         # i2ctransfer leaves the controller inverted / mirrored / in vertical mode; the next
