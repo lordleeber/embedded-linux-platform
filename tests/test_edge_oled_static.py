@@ -224,6 +224,64 @@ class OledDriverContractTest(unittest.TestCase):
         self.assertNotRegex(self.code, r"(?i)glyph|font|ina219|hwmon")
 
 
+
+class ReviewFixTest(unittest.TestCase):
+    """Code review findings on PR #14, each one red before its fix."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = DRIVER.read_text()
+        cls.code = code_only(cls.src)
+
+    def body(self, name):
+        b = function_body(self.src, name)
+        self.assertIsNotNone(b, f"no {name}()")
+        return b
+
+    def test_frame_changes_only_after_a_complete_send(self):
+        # Finding 1: write() copied into oled->frame before flushing, so after a failed
+        # flush read() returned a frame the panel never got. flush sends the caller's
+        # buffer; the shadow frame is updated only when it returned 0.
+        self.assertRegex(self.code, r"static int edge_oled_flush\(struct edge_oled \*oled, const u8 \*src\)")
+        for fn in ("edge_oled_write", "edge_oled_ioctl"):
+            with self.subTest(fn=fn):
+                b = self.body(fn)
+                self.assertNotRegex(b, r"(memcpy|memset)\(oled->frame,[^;]*;\s*ret = edge_oled_flush")
+                flush = b.index("edge_oled_flush(")
+                self.assertRegex(b[flush:], r"if \(!ret\)\s*memcpy\(oled->frame,")
+
+    def test_probe_turns_the_display_off_when_registration_fails(self):
+        # Finding 2: probe has already sent Display ON when misc_register() fails.
+        b = self.body("edge_oled_probe")
+        fail = b[b.index("misc_register("):b.index("dev_info(")]
+        self.assertIn("EDGE_OLED_CMD_DISPLAY_OFF", fail)
+        self.assertLess(fail.index("EDGE_OLED_CMD_DISPLAY_OFF"), fail.index("kfree("))
+
+    def test_write_returns_a_signed_count(self):
+        # Finding 3: ret ? ret : count mixes int and size_t.
+        self.assertIn("return ret ? ret : (ssize_t)count;", self.body("edge_oled_write"))
+
+    def test_read_copies_out_under_the_lock(self):
+        # Finding 4: no 1 KiB allocation per read; copy_to_user may sleep under a mutex.
+        b = self.body("edge_oled_read")
+        self.assertNotIn("kmalloc(", b)
+        self.assertIn("simple_read_from_buffer(buf, count, ppos, oled->frame", b)
+
+    def test_header_explains_the_file_offset(self):
+        # Finding 5: write() ignores the offset, read() follows it.
+        text = UAPI.read_text()
+        self.assertIn("pread", text)
+        self.assertIn("lseek", text)
+        self.assertIn("last frame sent completely", text)
+
+    def test_script_checks_read_back_after_a_failed_write(self):
+        # Finding 1 on the board: while unplugged, write a different picture (it fails);
+        # what read() returns must still be the last picture that got through.
+        text = VERIFY.read_text()
+        block = text[text.index("== OLED off while bound"):text.index('wait_enter "Reconnect')]
+        self.assertRegex(block, r"ctl pattern")
+        self.assertRegex(block, r"cmp [^\n]*\$DEV")
+
 @unittest.skipUnless(KDIR.exists(), "needs the kernel headers")
 class OledBuildTest(unittest.TestCase):
     def test_module_builds_against_running_kernel(self):

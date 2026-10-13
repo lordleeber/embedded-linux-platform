@@ -4,9 +4,14 @@
  *
  *   write()  exactly EDGE_OLED_FRAME_SIZE bytes = one whole frame, sent to the
  *            panel before write() returns; any other size is -EINVAL and the
- *            frame is left as it was. The file offset is ignored.
- *   read()   the driver's copy of the last frame (SSD1306 cannot be read back
- *            over I2C, so this is what was sent, not what the chip holds).
+ *            frame is left as it was. The file offset is ignored (not used,
+ *            not moved).
+ *   read()   the last frame sent completely (SSD1306 cannot be read back over
+ *            I2C, so this is the driver's copy, not what the chip holds). A
+ *            write that failed half way does not change it, although the panel
+ *            may already show part of the new frame. read() follows the file
+ *            offset like a regular file: after reading the frame once, lseek()
+ *            to 0 or use pread() to read it again.
  *   ioctl    EDGE_OLED_IOC_CLEAR: all pixels off; EDGE_OLED_IOC_FILL: every
  *            frame byte set to the __u8 argument (0xFF = all on).
  *

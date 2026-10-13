@@ -190,9 +190,13 @@ EOF
         echo "== OLED off while bound (--no-unplug skips this)"
         UNPLUGGED=1
         wait_enter "Disconnect all four wires of the OLED (VCC, GND, SDA, SCL)"
-        out="$(ctl edge 2>&1)"; rc=$?
+        # A different picture than the one on the panel (EDGE): the write fails, and read()
+        # must still return EDGE, the last frame that got through (PR #14 review).
+        out="$(ctl pattern 2>&1)"; rc=$?
         echo "    $out"
         if [[ $rc -eq 1 && $out == *"Remote I/O error"* ]]; then pass "write with the OLED unplugged: Remote I/O error"; else fail "unplugged write: exit $rc"; fi
+        : > "$tmpdir/edge.bin" && ctl --dev "$tmpdir/edge.bin" edge >/dev/null
+        if cmp -s "$DEV" "$tmpdir/edge.bin"; then pass "read() after the failed write: still the last frame sent (EDGE)"; else fail "read() after the failed write is not the last frame sent"; fi
         wait_enter "Reconnect all four wires"
         UNPLUGGED=0
         if ask "Reconnected: panel dark (power-on reset) before anything is sent?"; then pass "power-on reset seen"; else fail "panel not dark after reconnect: not a real power cycle"; fi

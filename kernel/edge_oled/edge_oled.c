@@ -10,11 +10,12 @@
  *     -> write(1024 bytes) / ioctl CLEAR, FILL: update the frame, send it
  *     -> remove(): no more opens, display off, files still open get -ENODEV
  *
- * Buffer ownership: the driver keeps the frame (what the panel should show).
- * write() copies the user's bytes into a temporary buffer first, so a bad
- * pointer or a wrong size leaves the frame alone. Every transfer is synchronous
- * under the mutex: there is no timer or work item that could still be pending
- * when the device goes away.
+ * Buffer ownership: the driver keeps the last frame sent completely. write()
+ * and the ioctls build the next frame in a temporary buffer, send it, and copy
+ * it into the frame only when every message got through, so a bad pointer, a
+ * wrong size or a failed transfer leaves the frame (and read()) as it was.
+ * Every transfer is synchronous under the mutex: there is no timer or work
+ * item that could still be pending when the device goes away.
  *
  * Errors: a transfer that fails (no ACK = -EREMOTEIO) is returned to the caller
  * once, not retried. It also clears ->initialized, because the usual cause is
@@ -65,8 +66,8 @@ static int edge_oled_send(struct edge_oled *oled, u8 control, const u8 *data, si
 	return (size_t)ret == len + 1 ? 0 : -EIO;
 }
 
-/* Put the whole frame on the panel; first (re)initialise the chip if needed. */
-static int edge_oled_flush(struct edge_oled *oled)
+/* Put the frame src on the panel; first (re)initialise the chip if needed. */
+static int edge_oled_flush(struct edge_oled *oled, const u8 *src)
 {
 	static const u8 on = EDGE_OLED_CMD_DISPLAY_ON;
 	bool init = !oled->initialized;
@@ -82,7 +83,7 @@ static int edge_oled_flush(struct edge_oled *oled)
 			     sizeof(edge_oled_window));
 	for (page = 0; !ret && page < EDGE_OLED_PAGES; page++)
 		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_DATA,
-				     oled->frame + page * EDGE_OLED_WIDTH, EDGE_OLED_WIDTH);
+				     src + page * EDGE_OLED_WIDTH, EDGE_OLED_WIDTH);
 	/* Display ON after the frame, so the old RAM content never flashes up. */
 	if (!ret && init)
 		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &on, 1);
@@ -126,38 +127,35 @@ static ssize_t edge_oled_write(struct file *file, const char __user *buf, size_t
 	if (!oled->client) {
 		ret = -ENODEV;
 	} else {
-		memcpy(oled->frame, next, count);
-		ret = edge_oled_flush(oled);
+		ret = edge_oled_flush(oled, next);
+		if (!ret)
+			memcpy(oled->frame, next, count);
 	}
 	mutex_unlock(&oled->lock);
 	kfree(next);
-	return ret ? ret : count;
+	return ret ? ret : (ssize_t)count;
 }
 
 static ssize_t edge_oled_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
 	struct edge_oled *oled = to_oled(file);
-	ssize_t ret;
-	u8 *copy;
+	ssize_t ret = -ENODEV;
 
-	copy = kmalloc(EDGE_OLED_FRAME_SIZE, GFP_KERNEL);
-	if (!copy)
-		return -ENOMEM;
+	/*
+	 * copy_to_user() may fault and sleep, which a mutex allows; no page fault
+	 * needs this lock (there is no mmap), so it cannot deadlock.
+	 */
 	mutex_lock(&oled->lock);
 	if (oled->client)
-		memcpy(copy, oled->frame, EDGE_OLED_FRAME_SIZE);
-	ret = oled->client ? 0 : -ENODEV;
+		ret = simple_read_from_buffer(buf, count, ppos, oled->frame, EDGE_OLED_FRAME_SIZE);
 	mutex_unlock(&oled->lock);
-	if (!ret)	/* copy_to_user may fault: never under the lock */
-		ret = simple_read_from_buffer(buf, count, ppos, copy, EDGE_OLED_FRAME_SIZE);
-	kfree(copy);
 	return ret;
 }
 
 static long edge_oled_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct edge_oled *oled = to_oled(file);
-	u8 value;
+	u8 value, *next;
 	int ret;
 
 	switch (cmd) {
@@ -172,14 +170,21 @@ static long edge_oled_ioctl(struct file *file, unsigned int cmd, unsigned long a
 		return -ENOTTY;
 	}
 
+	next = kmalloc(EDGE_OLED_FRAME_SIZE, GFP_KERNEL);
+	if (!next)
+		return -ENOMEM;
+	memset(next, value, EDGE_OLED_FRAME_SIZE);
+
 	mutex_lock(&oled->lock);
 	if (!oled->client) {
 		ret = -ENODEV;
 	} else {
-		memset(oled->frame, value, EDGE_OLED_FRAME_SIZE);
-		ret = edge_oled_flush(oled);
+		ret = edge_oled_flush(oled, next);
+		if (!ret)
+			memcpy(oled->frame, next, EDGE_OLED_FRAME_SIZE);
 	}
 	mutex_unlock(&oled->lock);
+	kfree(next);
 	return ret;
 }
 
@@ -208,7 +213,7 @@ static int edge_oled_probe(struct i2c_client *client)
 	kref_init(&oled->ref);
 
 	/* Nobody at the address fails here with -EREMOTEIO; tried once, no retry. */
-	ret = edge_oled_flush(oled);
+	ret = edge_oled_flush(oled, oled->frame);	/* all zero: a blank panel */
 	if (ret) {
 		kfree(oled);
 		return dev_err_probe(&client->dev, ret, "cannot initialise the panel\n");
@@ -223,6 +228,10 @@ static int edge_oled_probe(struct i2c_client *client)
 	i2c_set_clientdata(client, oled);
 	ret = misc_register(&oled->misc);
 	if (ret) {
+		static const u8 off = EDGE_OLED_CMD_DISPLAY_OFF;
+
+		/* The flush above turned the display on; nobody will own it now. */
+		edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &off, 1);
 		kfree(oled);
 		return dev_err_probe(&client->dev, ret, "cannot register /dev/edge_oled\n");
 	}
