@@ -9,7 +9,7 @@
 | INA219 SCL | 5 | 同上 | 3.3 V | UPS 模組上的 INA219 SCL | 已接線，同上 |
 | OLED VCC | 17（3.3 V） | 電源，非 bus | 3.3 V | OLED 模組 VCC（128x64 I2C SSD1306 模組；板上元件未逐一核對） | 已接線（2026-10-13，Step 9）。**只拔 VCC 不會斷電**：SDA/SCL 接著時晶片仍 ACK、螢幕變暗但畫面還在；要斷電得四條線全拔 |
 | OLED GND | 20 | GND，非 bus | 0 V | OLED GND | 已接線（Step 9）；重接時先接 GND |
-| OLED SDA | 27 | `i2c-1`（`c240000.i2c`），不經 TXB0108；同 bus 上有板載 fusb301（0x25）、ina3221（0x40），驅動綁定時顯示 `UU` | 3.3 V | OLED SDA | 已接線。Step 9：`i2cdetect -y -r 1` 在 0x3C 回應；`verify_oled_probe.sh` 0 failure |
+| OLED SDA | 27 | `i2c-1`（`c240000.i2c`），不經 TXB0108；同 bus 上有板載 fusb301（0x25）、ina3221（0x40），驅動綁定時顯示 `UU` | 3.3 V | OLED SDA | 已接線。Step 9：`i2cdetect -y -r 1` 在 0x3C 回應；`verify_oled_probe.sh` 0 failure。Step 10-a：DT 節點 `oled@3c`（`&gen2_i2c`），`edge_oled.ko` 綁定時顯示 `UU`；`verify_edge_oled.sh` 0 failure（2026-10-13） |
 | OLED SCL | 28 | 同上 | 3.3 V | OLED SCL | 已接線，同上 |
 | LED signal（已拆除） | 29（GPIO01） | `gpiochip0`（tegra234-gpio）line 105 = PQ.05；pad `soc_gpio32_pq5`（pinmux 暫存器 `0x02430068`）；DT cell `TEGRA234_MAIN_GPIO(Q, 5)` = 125 | 3.3 V | 330 Ω → 紅色 LED 正極（長腳） | 已接線，active-high。Step 4-a 實測：JP6 開機 pad 為 tristate，LED 不亮；pad 開啟後 `edge_gpio_blink` 可閃爍（人眼確認） |
 | LED GND | 30 | GND，非 bus | 0 V | 紅色 LED 負極（短腳） | 已拆除（Step 5-b） |

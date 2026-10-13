@@ -601,6 +601,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step07.html">Step 7 · 自製 INA219 I2C kernel driver（i2c_driver、Device Tree）</a><p class="toc-desc">overlay 加 <code>ina219@41</code> 讓 kernel 建立 I2C client，自己的 <code>struct i2c_driver</code> 在 probe 寫入 Calibration；<code>_swapped</code> SMBus API 處理 byte order，私有 sysfs 讀到的值和 <code>ina219_raw</code> 一致。</p></li>
     <li><a class="toc-title" href="step08.html">Step 8 · INA219 接上 hwmon（標準 subsystem）</a><p class="toc-desc">同一個 driver 改用 <code>devm_hwmon_device_register_with_info()</code>：<code>in0</code> / <code>in1</code> / <code>curr1</code> / <code>power1</code>，單位 mV / mA / µW；Calibration 0 回 ENODATA、unbind 與 rmmod 後不留 stale node。</p></li>
     <li><a class="toc-title" href="step09.html">Step 9 · OLED：先在 userspace 點亮 EDGE（SSD1306 協定）</a><p class="toc-desc">i2c-dev 的 <code>I2C_RDWR</code> 只寫不讀：control byte <code>0x00</code> / <code>0x40</code>、每次完整 init、page 排列的 framebuffer；<code>i2ctransfer</code> 打亂與四條線全拔後仍能重新點亮 <code>EDGE</code>。</p></li>
+    <li><a class="toc-title" href="step10a.html">Step 10-a · OLED：把協定搬進 kernel（I2C client driver 骨架）</a><p class="toc-desc"><code>edge_oled</code> 綁定 <code>gen2_i2c</code> 上的 <code>oled@3c</code>，<code>/dev/edge_oled</code> 收整張 1024 byte 畫面、CLEAR / FILL ioctl；錯誤原樣回報、斷線後自動重送 init；<code>kref</code> 讓 unbind 時開著的檔案得到 <code>ENODEV</code>。</p></li>
   </ol>
 </main>
 <script id="inline-js">

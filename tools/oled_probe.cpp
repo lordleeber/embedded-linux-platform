@@ -70,8 +70,9 @@ bool write_msg(int fd, std::uint16_t addr, std::vector<std::uint8_t> &bytes)
 }
 
 // Step 10-a: with edge_oled.ko bound to this address, I2C_RDWR would still reach the chip
-// (it never claims the address, so no EBUSY) and re-init it under the driver. Returns the driver's name,
-// or "" when the client does not exist or is unbound. OLED_PROBE_SYSFS replaces /sys (tests).
+// (it never claims the address, so no EBUSY) and re-init it under the driver. Returns the
+// driver's name, or "" when the client does not exist or is unbound. OLED_PROBE_SYSFS
+// replaces /sys (tests).
 std::string bound_driver(long bus, long addr)
 {
     const char *root = std::getenv("OLED_PROBE_SYSFS");

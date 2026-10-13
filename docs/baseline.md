@@ -370,3 +370,30 @@
   - 原本以為第一段（`A7 A0 C0 20 01`，不含 contrast 0）會是白底黑字、上下顛倒；實測還是全黑。在 EDGE 上一次送一個指令請人回報：`A7` 白底黑字、`C0` 上下顛倒、`A0` **立刻**左右鏡像（原本以為依 datasheet 只影響之後寫入的資料，這是錯的）、`20 01` 不變、`81 00` 全黑（不只是變暗）。單獨都正常，原因在打亂之前：硬體單元測試最後跑 `off`（`MODES` 的最後一個），螢幕是關著的，第一段沒送 `AF`。打亂前先 `oled_probe edge`，第一段題目照實測寫成「白底黑字、上下顛倒、左右鏡像」。第一版（含 `AF` 與 contrast 0）的修復檢查應該仍然有效：設定值照樣寫進晶片，只是人看不見（推論）。
   - 新增 4 個測試，改腳本前都紅（其中 `test_scramble_in_two_visible_stages` 第一次是被腳本註解裡的 `0x81` 誤判而紅，改成只看 `i2ctransfer` 那一行）。`test_oled_probe.py` 由 25 個變 29 個。
   - 最後一輪 `bash scripts/verify_oled_probe.sh` `=== 0 failure(s)`：第一段人確認白底黑字、上下顛倒、左右鏡像；第二段全黑；`edge` 恢復成白字黑底、亮度正常；四條線全拔與接回後全黑、重新顯示 EDGE 照舊通過。全套 250 個，`OK (skipped=57)`。
+
+## Step 10-a：OLED kernel driver skeleton（`kernel/edge_oled`、`/dev/edge_oled`、`edge_oled_ctl`）
+
+- 驗收主機與接線：同 Step 9（SSD1306 128x64 在 header pin 17/20/27/28 = `c240000.i2c` = `i2c-1`，0x3C）。overlay 加了 `fragment@5`（`oled@3c`，`target = <&gen2_i2c>`，`compatible = "edge,edge-ssd1306"`），`make -C dts`、install 後重開機；`/proc/device-tree/bus@0/i2c@c240000/oled@3c` 出現，`reg = 00 00 00 3c`。安裝前 `test_overlay_applies_to_the_boot_fdt` 用 `fdtoverlay` 合併基底 FDT + IMX219 + 新 overlay，確認節點落在 `/bus@0/i2c@c240000` 下、ina3221@40 還在。
+- 對照方法：`sudo bash scripts/verify_edge_oled.sh`（人在板子旁回答 y/n）。對照組是 Step 9 的基線：同樣五張圖（`clear` / `pixel` / `pattern` / `edge`，加上 `fill 0xff`）改由 driver 畫，人眼看到的要和 Step 9 一樣。實測（2026-10-13，重開機後）`=== 0 failure(s)`：
+  - insmod 前：client `1-003c` 已存在、沒有 driver，`name` 是 `edge-ssd1306`，`modules.alias` 沒有 `i2c:edge-ssd1306`。先用 `oled_probe edge` 加 `i2ctransfer ... 0x00 0xA7` 把螢幕弄成白底黑字（人確認）。
+  - insmod 後：`1-003c` 綁到 `edge_oled`，dmesg `probed: 128x64, /dev/edge_oled`；人確認**螢幕全黑**（probe 的 init 把反白改回正常、清掉 RAM）；`i2cdetect` 0x3c 是 `UU`；`/dev/edge_oled` 是 char device、mode 666。
+  - 從 userspace（`edge_oled_ctl`）：`fill 0xff` 全亮、`pattern` 外框 + 從左上角起的對角線、`pixel` 四角與中心、`edge` 白字黑底置中可讀、`clear` 全黑，人眼都和 Step 9 相同。
+  - device unittest 8 個（以 nvidia 身分、`EDGE_OLED_REQUIRE=1`）通過：綁定、mode 0666、寫入後讀回相同、錯的大小（0 / 1 / 1023 / 1025 / 128）`EINVAL` 且 frame 不變、CLEAR / FILL、未知 ioctl `ENOTTY`、`oled_probe` 被拒、連寫 200 張 frame 都成功，**96.6 ms / 張**。
+  - `oled_probe --bus 1 edge`（不加 `--force`）：結束碼 1，`1-003c is bound to driver edge_oled (Device or resource busy): use its interface, or --force`。
+  - 開著 `/dev/edge_oled` 時 unbind：同一個 fd 的 `write` 與 `read` 都是 `ENODEV`；`/dev/edge_oled` 消失；人確認螢幕全黑（remove 送 Display OFF）。bind 回來後 `/dev/edge_oled` 重現，`edge` 正常。
+  - driver 綁定時 OLED 四條線全拔：`edge_oled_ctl edge` 結束碼 1、`write /dev/edge_oled: Remote I/O error`。接回後人確認**送任何東西前全黑**（真的經過上電 reset），下一次 `edge` 畫面恢復：driver 在失敗後清掉 `initialized`，自己重送 init sequence。
+  - 0x3d 用 `new_device` 建 client：dmesg `edge_oled 1-003d: error -EREMOTEIO: cannot initialise the panel` / `probe of 1-003d failed with error -121`，沒有綁定。
+  - rmmod 後 driver 目錄與 `/dev/edge_oled` 消失，`1-003c` 還在但沒有 driver，`i2cdetect` 回到 `3c`；dmesg 2 probe / 2 remove（insmod、bind 各一次），無 Oops。
+- 容差：沒有數值容差；畫面是 y/n，I2C 是全部 ACK 或不是。速度只記錄不判定：100 kHz（`clock-frequency` 100000）下一張 frame 理論約 94 ms（約 1050 byte × 9 bit），實測 96.6 ms。Step 10-c 若要 1 s 刷新沒問題，要更快得改 bus 速度（範圍外）。
+- **未實測**：OLED 在兩次寫入之間斷電又接回、中間沒有人寫（見踩坑最後一條，排進 Step 10-b）；128x32 面板；兩個 SSD1306 同時綁定（misc 名稱固定 `edge_oled`，只支援一片）；`oled_probe --force` 在 driver 底下寫入（只用假 sysfs 測了「有 `--force` 就不檢查」）。
+- 自動測試：`tests/test_edge_oled_proto.cpp`（幾何、control byte、init sequence 逐 byte、window、ioctl 編號、`test_picture()` 四張圖）；`tests/test_edge_oled_static.py` 35 個（overlay 6、driver 原始碼契約 11、build 與向量 2、`edge_oled_ctl` CLI 3、`oled_probe` 綁定檢查 4、驗收腳本 9）；`tests/test_edge_oled_device.py` 8 個（沒有 `/dev/edge_oled` 時 skip）。全套 `python3 -m unittest discover -s tests`：293 個，`OK (skipped=65)`。
+- 紅燈紀錄：實作前 static 24 failures、4 errors（`edge_oled_ctl` / `oled_probe` 的兩個 `setUpClass` build 失敗，蓋住 7 個案例），device 8 個 skip；`test_label_is_the_controller_i2cdetect_calls_c240000`、`test_client_name_is_no_other_drivers_i2c_id`、`test_earlier_nodes_are_still_there` 是守門測試，先就會過。實作後還紅了 2 個：`test_acceptance_pictures_come_from_userspace` 假設腳本寫 `ctl clear`，腳本是 `show "問題" clear`，改測試的 regex；Step 9 的 `test_writes_through_i2c_rdwr` 被我在 `oled_probe.cpp` 註解裡寫的 `I2C_SLAVE` 字樣弄紅，改註解措辭。變異：init 的 `C8` 改 `C0`、window 結束欄 `7F` 改 `7E`、data control byte 改 `0x80`、FILL nr 改成 edge_test 的 `0x02`、CLEAR nr 改 `0x01`，5 種都讓 `test_edge_oled_proto` 失敗。**device 測試沒看過紅燈**（driver 載入前它們是 skip）。
+- 規模：`git diff --numstat`（不含 docs 與 .md）新增 1401 行、非空白約 1220：driver 245、`edge_oled_ctl` 89、兩個 header 74、overlay 18、`oled_probe` / `ssd1306.h` 改動 61、Makefile / CMake 16；測試 493（static 319、C++ 向量 88、device 86）、驗收腳本 224。**超過 800 行上限**，phase04 原估 250–450 行；動工前沒有重新估算，寫完才量。使用者決定保留不拆。
+
+### 踩坑
+
+- 原本以為照 phase04 的 250–450 行估計就好，沒在動工前重估。driver 本身 245 行在估計內，但這一步還多了 userspace 程式、`oled_probe` 的檢查、兩個 header，以及和前幾步同密度的測試與驗收腳本（佔 60%）。之後每一步動工前，要把測試和驗收腳本一起算進估計，參考 Step 7–9 實際「測試佔一半」的比例。
+- 原本以為 misc device 的結構可以用 `devm_kzalloc`；sysfs `unbind` 不需要卸載 module（`fops.owner` 只擋 rmmod），開著的檔案在 remove 之後還會呼叫 write / read，`devm_` 的記憶體那時已經釋放。改成 `kzalloc` + `kref`，每個 open 拿一個 reference，remove 把 `client` 設成 NULL，之後回 `ENODEV`；實測 unbind 後同一個 fd 讀寫都是 `ENODEV`、無 Oops。open 與 remove 不會互相競爭：`misc_open()` 在 `misc_mtx` 裡呼叫我們的 open，`misc_deregister()` 也拿同一把鎖（依 upstream v5.15 `drivers/char/misc.c`，這台沒有 kernel 原始碼可對照）。寫章時回頭看：Step 4-b 的 `edge_gpio`、Step 5-b 的 `edge_button` 都是 `devm_kzalloc` + misc device，`edge_button_remove()` 的註解還寫著「開著的檔案持有 module」，同樣的問題（讀碼發現，**未實測**）；範圍外，排進 phase08 Step 19 的順帶修正。
+- 原本以為 probe 時 init 一次就夠。OLED 斷電再接回後晶片回到 reset（display OFF），只送 frame 會成功 ACK 但什麼都看不到。改成任何傳輸失敗後清掉 `initialized`，下一次寫入先重送 init；四條線全拔的實測證明這條路有效。**但只有在斷電期間有人寫、得到錯誤時才會觸發**：斷電又接回、中間沒人寫的話，driver 不知道要重新 init（推論，未實測）。Step 10-c 會長時間週期刷新，所以排進 Step 10-b 的「從 Step 10-a 帶過來的」：先寫重現步驟再改。
+- 原本以為 `oled_probe.cpp` 註解裡寫 `I2C_SLAVE` 沒關係；Step 9 的原始碼契約測試是對全文找這個字串（包括註解）。改寫成「it never claims the address」。
+- 把 `draw()` 從 `oled_probe.cpp` 搬進 `ssd1306.h`（`test_picture()`）時，`ssd1306.h` 新函式加在檔尾，Step 9 章引用的行號不動；`oled_probe.cpp` 的兩段節錄（`write_msg` 位移 2 行、主迴圈改了內容）改釘在 Step 9 合併的 `98a6ac2`，章裡加一段說明。
