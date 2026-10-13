@@ -386,7 +386,7 @@
   - rmmod 後 driver 目錄與 `/dev/edge_oled` 消失，`1-003c` 還在但沒有 driver，`i2cdetect` 回到 `3c`；dmesg 2 probe / 2 remove（insmod、bind 各一次），無 Oops。
 - 容差：沒有數值容差；畫面是 y/n，I2C 是全部 ACK 或不是。速度只記錄不判定：100 kHz（`clock-frequency` 100000）下一張 frame 理論約 94 ms（約 1050 byte × 9 bit），實測 96.6 ms。Step 10-c 若要 1 s 刷新沒問題，要更快得改 bus 速度（範圍外）。
 - **未實測**：OLED 在兩次寫入之間斷電又接回、中間沒有人寫（見踩坑最後一條，排進 Step 10-b）；128x32 面板；兩個 SSD1306 同時綁定（misc 名稱固定 `edge_oled`，只支援一片）；`oled_probe --force` 在 driver 底下寫入（只用假 sysfs 測了「有 `--force` 就不檢查」）。
-- 自動測試：`tests/test_edge_oled_proto.cpp`（幾何、control byte、init sequence 逐 byte、window、ioctl 編號、`test_picture()` 四張圖）；`tests/test_edge_oled_static.py` 35 個（overlay 6、driver 原始碼契約 11、build 與向量 2、`edge_oled_ctl` CLI 3、`oled_probe` 綁定檢查 4、驗收腳本 9）；`tests/test_edge_oled_device.py` 8 個（沒有 `/dev/edge_oled` 時 skip）。全套 `python3 -m unittest discover -s tests`：293 個，`OK (skipped=65)`。
+- 自動測試：`tests/test_edge_oled_proto.cpp`（幾何、control byte、init sequence 逐 byte、window、ioctl 編號、`test_picture()` 四張圖）；`tests/test_edge_oled_static.py` 35 個（overlay 6、driver 原始碼契約 11、build 與向量 2、`edge_oled_ctl` CLI 3、`oled_probe` 綁定檢查 4、驗收腳本 9；code review 後 41 個，見下）；`tests/test_edge_oled_device.py` 8 個（沒有 `/dev/edge_oled` 時 skip）。全套 `python3 -m unittest discover -s tests`：293 個，`OK (skipped=65)`。
 - 紅燈紀錄：實作前 static 24 failures、4 errors（`edge_oled_ctl` / `oled_probe` 的兩個 `setUpClass` build 失敗，蓋住 7 個案例），device 8 個 skip；`test_label_is_the_controller_i2cdetect_calls_c240000`、`test_client_name_is_no_other_drivers_i2c_id`、`test_earlier_nodes_are_still_there` 是守門測試，先就會過。實作後還紅了 2 個：`test_acceptance_pictures_come_from_userspace` 假設腳本寫 `ctl clear`，腳本是 `show "問題" clear`，改測試的 regex；Step 9 的 `test_writes_through_i2c_rdwr` 被我在 `oled_probe.cpp` 註解裡寫的 `I2C_SLAVE` 字樣弄紅，改註解措辭。變異：init 的 `C8` 改 `C0`、window 結束欄 `7F` 改 `7E`、data control byte 改 `0x80`、FILL nr 改成 edge_test 的 `0x02`、CLEAR nr 改 `0x01`，5 種都讓 `test_edge_oled_proto` 失敗。**device 測試沒看過紅燈**（driver 載入前它們是 skip）。
 - 規模：`git diff --numstat`（不含 docs 與 .md）新增 1401 行、非空白約 1220：driver 245、`edge_oled_ctl` 89、兩個 header 74、overlay 18、`oled_probe` / `ssd1306.h` 改動 61、Makefile / CMake 16；測試 493（static 319、C++ 向量 88、device 86）、驗收腳本 224。**超過 800 行上限**，phase04 原估 250–450 行；動工前沒有重新估算，寫完才量。使用者決定保留不拆。
 
@@ -397,3 +397,12 @@
 - 原本以為 probe 時 init 一次就夠。OLED 斷電再接回後晶片回到 reset（display OFF），只送 frame 會成功 ACK 但什麼都看不到。改成任何傳輸失敗後清掉 `initialized`，下一次寫入先重送 init；四條線全拔的實測證明這條路有效。**但只有在斷電期間有人寫、得到錯誤時才會觸發**：斷電又接回、中間沒人寫的話，driver 不知道要重新 init（推論，未實測）。Step 10-c 會長時間週期刷新，所以排進 Step 10-b 的「從 Step 10-a 帶過來的」：先寫重現步驟再改。
 - 原本以為 `oled_probe.cpp` 註解裡寫 `I2C_SLAVE` 沒關係；Step 9 的原始碼契約測試是對全文找這個字串（包括註解）。改寫成「it never claims the address」。
 - 把 `draw()` 從 `oled_probe.cpp` 搬進 `ssd1306.h`（`test_picture()`）時，`ssd1306.h` 新函式加在檔尾，Step 9 章引用的行號不動；`oled_probe.cpp` 的兩段節錄（`write_msg` 位移 2 行、主迴圈改了內容）改釘在 Step 9 合併的 `98a6ac2`，章裡加一段說明。
+- code review（PR #14，medium）找出 8 項：5 項修正、3 項不改。原本都以為沒事：
+  - 原本以為「先把新 frame 複製進 `oled->frame` 再 flush」就是 header 寫的「what was sent」；flush 送到一半失敗時，`read()` 讀回的是面板沒完整收到的畫面。`edge_oled_flush()` 改成送呼叫者給的 buffer，write / CLEAR / FILL 都先在暫存區準備，全部 ACK 才複製進 shadow frame。header 改寫成「last frame sent completely」，並註明失敗時面板上可能已經是部分新畫面。驗收腳本拔線時改寫 `pattern`（失敗），再 `cmp` 讀回必須是拔線前的 EDGE。
+  - 原本以為 probe 失敗只要釋放記憶體；`misc_register()` 失敗時 flush 已經送過 Display ON。失敗路徑補送 Display OFF（只有第二片 SSD1306 撞名時才會發生，**未實測**）。
+  - `return ret ? ret : count;` 混用 `int` 與 `size_t`，改 `(ssize_t)count`。
+  - 原本以為 `copy_to_user()` 不該在持鎖時做（第一版註解與章都這樣寫），所以 `read()` 每次配 1 KiB 暫存。持有 mutex 時 page fault 睡眠是允許的，這個 driver 沒有 mmap，fault 不會回頭要這把鎖；改成鎖裡直接 `simple_read_from_buffer()`，註解與章的說法一起改。
+  - `write()` 不看也不動 offset、`read()` 照 offset 讀：只改 header 說明（讀完一次要 `lseek(0)` 或 `pread()`）。
+  - 不改：`oled_probe` 檢查與寫入之間的 TOCTOU（userspace 關不完，檢查只是防呆）；`OLED_PROBE_SYSFS` 繞過檢查時不警告（測試注入點，性質同 `--force`，原始碼註解已寫明）；斷電又接回不重送 init（已排 Step 10-b；reviewer 寫 10-c，實際排在 10-b）；行數超標（使用者已決定）。
+  - 修正前新增的 6 個測試：driver 的 5 個在改 driver 前紅；驗收腳本那個和腳本一起改，事後拿 `git show HEAD:` 的舊腳本跑，確認是紅的。`test_edge_oled_static.py` 由 35 個變 41 個；全套 299 個，`OK (skipped=65)`。
+- 修正後重跑（2026-10-13）`sudo bash scripts/verify_edge_oled.sh`（含拔線）`=== 0 failure(s)`：新的 `PASS read() after the failed write: still the last frame sent (EDGE)`；其餘同第一輪，device unittest 8 個、**96.4 ms / 張**；dmesg 2 probe / 2 remove，0x3d `-EREMOTEIO`，無 Oops。舊版 driver 在這項會讀回 `pattern`（依程式推論，舊版沒有跑過這項）。
