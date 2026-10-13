@@ -132,4 +132,36 @@ inline std::vector<std::vector<std::uint8_t>> frame_writes(const Frame &f)
     return msgs;
 }
 
+// The acceptance pictures (Step 9's oled_probe, Step 10-a's edge_oled_ctl). Each one shows
+// at a glance whether the panel is mirrored or upside down. Anything else is blank.
+//   pixel    the four corners and the centre
+//   pattern  1-pixel border and a diagonal from the top-left corner
+//   edge     "EDGE", 4x scaled, centred
+inline Frame test_picture(const char *mode)
+{
+    Frame f{};
+    if (!std::strcmp(mode, "pixel")) {
+        set_pixel(f, 0, 0);
+        set_pixel(f, kWidth - 1, 0);
+        set_pixel(f, 0, kHeight - 1);
+        set_pixel(f, kWidth - 1, kHeight - 1);
+        set_pixel(f, kWidth / 2, kHeight / 2);
+    } else if (!std::strcmp(mode, "pattern")) {
+        for (int x = 0; x < kWidth; ++x) {
+            set_pixel(f, x, 0);
+            set_pixel(f, x, kHeight - 1);
+        }
+        for (int y = 0; y < kHeight; ++y) {
+            set_pixel(f, 0, y);
+            set_pixel(f, kWidth - 1, y);
+            set_pixel(f, y, y);
+        }
+    } else if (!std::strcmp(mode, "edge")) {
+        const int scale = 4;
+        draw_text(f, (kWidth - text_width("EDGE", scale)) / 2, (kHeight - 7 * scale) / 2,
+                  "EDGE", scale);
+    }
+    return f;
+}
+
 }  // namespace ssd1306

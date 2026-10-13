@@ -112,4 +112,24 @@
 			};
 		};
 	};
+
+	/*
+	 * Step 10-a: the 128x64 SSD1306 OLED on header pins 27 (SDA) / 28 (SCL).
+	 * gen2_i2c is the base tree's label for /bus@0/i2c@c240000 = i2c-1, the
+	 * bus that also carries the on-board fusb301 (0x25) and ina3221 (0x40);
+	 * not hdr40_i2c1 above, which is pins 3/5. The client 1-003c exists from
+	 * boot and stays unbound until edge_oled.ko is loaded.
+	 */
+	fragment@5 {
+		target = <&gen2_i2c>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			oled@3c {
+				compatible = "edge,edge-ssd1306";
+				reg = <0x3c>;
+			};
+		};
+	};
 };
