@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 9　OLED：先在 userspace 點亮 EDGE — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step08). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* Step 9: GDDRAM simulator */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin-bottom: 0.7rem; font-size: 0.88rem; color: var(--muted); }
+.sim-ctl button { font-family: var(--font-mono); font-size: 0.82rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.2rem 0.7rem; cursor: pointer; }
+.sim-ctl button.on { border-color: var(--accent); color: var(--accent); }
+.sim-sep { width: 1rem; }
+.sim-ctl label { cursor: pointer; }
+.sim-body { display: grid; grid-template-columns: 640px minmax(0, 1fr); gap: 1rem; align-items: start; }
+#simPanel { width: 640px; height: 320px; background: #000; border-radius: 4px; image-rendering: pixelated; cursor: crosshair; }
+.sim-read { font-size: 0.86rem; color: var(--muted); }
+#simWhere { min-height: 5.4em; margin-bottom: 0.5rem; }
+#simWhere b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+#simBytes { font-size: 0.76rem; margin: 0; white-space: pre; }
+#simBytes .cur { color: var(--bg); background: var(--accent); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><span class="disabled">Step 10-a →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 9 · SSD1306 OLED（userspace 先證明協定）</div>
+    <h1>OLED：先在 userspace 點亮 EDGE</h1>
+    <p class="lede">Phase 3 的 INA219 是「讀 sensor」，這一步換成「控制 peripheral」：一片 128x64 的 OLED，控制器是 SSD1306。和 6-b 一樣，寫 driver 之前先用 userspace 工具證明三件事：<b>晶片在哪條 bus、哪個位址</b>，<b>送過去的 byte 該長什麼樣</b>，以及<b class="hl-key">每次執行都從頭初始化，不靠上一次留下的狀態</b>。這片螢幕不能讀回內容，所以畫面對不對最後要靠人眼確認，每張測試圖都特別設計成「一眼看得出方向對不對」。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">tools/oled_probe.cpp</span>、<span class="new">tools/ssd1306.h</span>、<span class="new">tests/test_ssd1306.cpp</span>、<span class="new">tests/test_oled_probe.py</span>、<span class="new">scripts/verify_oled_probe.sh</span>、<span class="new">docs/ssd1306-notes.md</span>、<span class="new">docs/step09.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, hardware-wiring.md, step08.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（這一步沒有）</span>
+      <span style="--c: var(--hw)">硬體（SoC、OLED 模組、SSD1306）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">9.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>寫 driver 之前，先知道該送什麼 byte</h2>
+      <p>直接寫 kernel driver 也能點亮螢幕，但出問題時不知道是哪一層錯了：是位址不對、初始化少了一個指令、像素的排列方式誤會了，還是 driver 本身的 bug？每改一次就要 rmmod、insmod。userspace 工具改完重編只要一秒，錯了也不會讓 kernel 出事。所以 phase04 先安排這一步，等協定確定了，Step 10-a 再把同一串 byte 搬進 driver。</p>
+      <p><b>互動雙方</b>：controller（master）是 Jetson 的 <code>c240000.i2c</code>（Linux 叫它 <code>i2c-1</code>，接 40-pin header 的 pin 27 SDA、pin 28 SCL），target（slave）是 OLED 模組上的 SSD1306，位址 <code>0x3C</code>。資料<b>只有一個方向</b>：Jetson 寫、OLED 收。<b>這一步不做</b>：kernel driver（Step 10-a）、完整字型與文字排版（Step 10-b，這裡只有畫 <code>EDGE</code> 需要的 D、E、G 三個字）、顯示 INA219 的數值（Step 10-c）。</p>
+      <dl class="terms">
+        <dt>SSD1306</dt><dd>OLED 控制器晶片。它內建一塊顯示記憶體，畫面就是這塊記憶體的內容；Jetson 透過 I2C 寫記憶體與設定。</dd>
+        <dt>GDDRAM</dt><dd>Graphic Display Data RAM，就是上面那塊顯示記憶體：128 × 64 個點，一個 bit 一個點，共 1024 byte。</dd>
+        <dt>page</dt><dd>GDDRAM 按水平條分成 8 個 page，每條 8 列高。一個 byte 是某個 page 裡某一欄<b>直的</b> 8 個點（9.5）。</dd>
+        <dt>control byte</dt><dd>每個 I2C 寫入的第一個 byte，告訴晶片後面是 command（設定）還是 data（像素）。</dd>
+        <dt>charge pump</dt><dd>晶片內部的升壓電路。OLED 面板要比 3.3 V 高的電壓，模組只給 3.3 V 時要靠它產生；初始化時得自己打開。</dd>
+        <dt>power-on reset</dt><dd>晶片剛上電時的狀態，所有設定回到 datasheet 規定的預設值，其中一項是 display OFF（螢幕不亮）。9.8 用它判斷晶片有沒有真的斷過電。</dd>
+        <dt>i2c-dev</dt><dd>讓 userspace 直接操作 I2C bus 的 kernel 模組，提供 <code>/dev/i2c-N</code>。6-b 的 <code>ina219_raw</code> 用的就是它。</dd>
+      </dl>
+      <h3>接線</h3>
+      <table>
+        <thead><tr><th>OLED 腳位</th><th>Jetson 40-pin header</th></tr></thead>
+        <tbody>
+          <tr><td>VCC</td><td>pin 17（3.3 V）</td></tr>
+          <tr><td>GND</td><td>pin 20</td></tr>
+          <tr><td>SDA</td><td>pin 27（<code>i2c-1</code> = <code>c240000.i2c</code>）</td></tr>
+          <tr><td>SCL</td><td>pin 28</td></tr>
+        </tbody>
+      </table>
+      <p>為什麼不用 Phase 3 的 pin 3/5（<code>i2c-7</code>）？那兩支 pin 已經插著 UPS 模組的線，要並聯得另外分接。pin 27/28 空著，而這條 bus 上本來就有兩顆板載晶片（0x25、0x40），和 OLED 的 0x3C 不衝突。這兩組 I2C pin 都直接接 SoC，不經 4-a 遇過的 TXB0108 電平轉換。</p>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">9.2</span><b>全景</b>一張畫面的旅程</div>
+    <div class="content">
+      <h2>oled_probe edge：11 個 I2C 寫入</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 470" role="img" aria-label="userspace 的 oled_probe 開 /dev/i2c-1，每個訊息呼叫一次 ioctl I2C_RDWR；i2c-dev 交給 I2C core 與 i2c-tegra（c240000.i2c，100 kHz）；SSD1306 在 0x3C 收下並 ACK。右邊列出 11 個訊息：1 個 init（control byte 0x00 加 25 個 command byte）、1 個 window 指令、8 個 page 資料（control byte 0x40 加 128 byte）、1 個 Display ON。沒有任何讀取。">
+          <defs>
+            <marker id="m9Down" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">USERSPACE</text>
+          <a href="#send"><rect class="s-box" x="110" y="20" width="300" height="62" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="260" y="45" text-anchor="middle">oled_probe edge</text>
+          <text class="s-sm" x="260" y="67" text-anchor="middle">ioctl(fd, I2C_RDWR, …) × 11</text></a>
+          <text class="s-mono" x="14" y="142">I2C-DEV</text>
+          <rect class="s-box" x="110" y="110" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="260" y="135" text-anchor="middle">/dev/i2c-1</text>
+          <text class="s-sm" x="260" y="156" text-anchor="middle">位址寫在每個 i2c_msg 裡，不用 I2C_SLAVE</text>
+          <text class="s-mono" x="14" y="232">I2C CORE</text>
+          <rect class="s-box" x="110" y="200" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="260" y="225" text-anchor="middle">i2c_transfer → i2c-tegra</text>
+          <text class="s-sm" x="260" y="246" text-anchor="middle">c240000.i2c，100 kHz</text>
+          <text class="s-mono" x="14" y="322">WIRE</text>
+          <rect class="s-box" x="110" y="290" width="300" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="260" y="315" text-anchor="middle">START · 0x3C+W · bytes · STOP</text>
+          <text class="s-sm" x="260" y="336" text-anchor="middle">header pin 27 SDA / 28 SCL</text>
+          <text class="s-mono" x="14" y="412">TARGET</text>
+          <a href="#gddram"><rect class="s-box" x="110" y="380" width="300" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="260" y="405" text-anchor="middle">SSD1306 @ 0x3C</text>
+          <text class="s-sm" x="260" y="426" text-anchor="middle">每個 byte 回 ACK；不能讀回 GDDRAM</text></a>
+          <line class="sv-down" x1="260" y1="83" x2="260" y2="106" marker-end="url(#m9Down)"/>
+          <line class="sv-down" x1="260" y1="169" x2="260" y2="196" marker-end="url(#m9Down)"/>
+          <line class="sv-down" x1="260" y1="259" x2="260" y2="286" marker-end="url(#m9Down)"/>
+          <line class="sv-down" x1="260" y1="349" x2="260" y2="376" marker-end="url(#m9Down)"/>
+          <text class="s-mono" x="440" y="40">11 MESSAGES, IN ORDER</text>
+          <a href="#init"><rect class="s-box" x="440" y="54" width="266" height="54" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="76">1 · 00 AE D5 80 A8 3F …</text>
+          <text class="s-sm" x="452" y="97">init：control 0x00 + 25 個 command</text></a>
+          <a href="#send"><rect class="s-box" x="440" y="118" width="266" height="54" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="140">2 · 00 21 00 7F 22 00 07</text>
+          <text class="s-sm" x="452" y="161">window：column 0–127、page 0–7</text></a>
+          <a href="#gddram"><rect class="s-box" x="440" y="182" width="266" height="118" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="204">3 · 40 + page 0 的 128 byte</text>
+          <text class="s-key" x="452" y="228">4 · 40 + page 1</text>
+          <text class="s-key" x="452" y="252">⋮</text>
+          <text class="s-key" x="452" y="276">10 · 40 + page 7</text>
+          <text class="s-sm" x="452" y="294">control 0x40：後面是像素</text></a>
+          <a href="#init"><rect class="s-box" x="440" y="310" width="266" height="54" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="332">11 · 00 AF</text>
+          <text class="s-sm" x="452" y="353">Display ON，畫面寫好才開</text></a>
+          <text class="s-sm" x="440" y="392">共 1067 byte；100 kHz 下一張約 0.1 秒</text>
+          <text class="s-sm" x="440" y="412">（實測連跑 20 次 2.05 秒）</text>
+        </svg>
+        <figcaption>圖 9.1 — 左邊是一個訊息往下走的路，右邊是一次 <code>oled_probe edge</code> 依序送出的 11 個訊息。沒有 driver（橘色）參與，也沒有任何讀取：Jetson 只能知道每個 byte 有沒有被 ACK。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>這和 6-b 的 <code>ina219_raw</code> 走同一條路（i2c-dev + <code>I2C_RDWR</code>），方向相反：<code>ina219_raw</code> 每次是「寫 1 byte pointer + 讀 2 byte」，<code>oled_probe</code> 只有寫。</p>
+    </div>
+  </section>
+
+  <section id="wire">
+    <div class="rail"><span class="no">9.3</span><b>格式</b>control byte</div>
+    <div class="content">
+      <h2>同一條線上，怎麼分辨「設定」和「像素」</h2>
+      <p>SSD1306 的 I2C 介面沒有 register 位址可指，每個寫入的第一個 byte 是 control byte，由它決定後面整串的解讀方式：</p>
+      <figure class="listing"><figcaption>tools/ssd1306.h:22–45 — 0x00 後面接 command，0x40 後面接 GDDRAM data；兩個小函式只是把 control byte 加在前面</figcaption>
+<pre data-start="22" data-hot="24,25,35,42">// Control byte: bit 7 Co (0 = no more control bytes, only a stream follows),
+// bit 6 D/C# (0 = commands, 1 = GDDRAM data).
+constexpr std::uint8_t kControlCommand = 0x00;
+constexpr std::uint8_t kControlData = 0x40;
+
+constexpr std::uint8_t kDisplayOff = 0xAE;
+constexpr std::uint8_t kDisplayOn = 0xAF;
+
+// GDDRAM image: byte (page, x) = frame[page * 128 + x], bit n = row 8 * page + n.
+using Frame = std::array&lt;std::uint8_t, kWidth * kPages&gt;;
+
+inline std::vector&lt;std::uint8_t&gt; command_frame(const std::vector&lt;std::uint8_t&gt; &amp;cmds)
+{
+    std::vector&lt;std::uint8_t&gt; out{kControlCommand};
+    out.insert(out.end(), cmds.begin(), cmds.end());
+    return out;
+}
+
+inline std::vector&lt;std::uint8_t&gt; data_frame(const std::uint8_t *data, std::size_t n)
+{
+    std::vector&lt;std::uint8_t&gt; out{kControlData};
+    out.insert(out.end(), data, data + n);
+    return out;
+}</pre></figure>
+      <ul>
+        <li><b>bit 7 Co</b>（continuation）= 0：後面全部是同一種東西，一路串到 STOP。Co = 1 的寫法是「一個 control byte 配一個 byte」，每個 command 前面都要再放一次 control byte，這個工具不用。</li>
+        <li><b>bit 6 D/C#</b>：0 是 command、1 是 data。所以 <code>0x00</code> = 一串 command、<code>0x40</code> = 一串像素。</li>
+      </ul>
+      <div class="callout"><p>把 ASCII <code>"EDGE"</code>（<code>45 44 47 45</code>）直接寫過去不會出現文字。放在 <code>0x00</code> 後面，晶片會把它們當成 command；放在 <code>0x40</code> 後面，就是四欄各 8 個點的亂碼。SSD1306 不認得字，<b class="hl-key">文字得先在 Jetson 這邊畫成點</b>（9.6）。</p></div>
+    </div>
+  </section>
+
+  <section id="init">
+    <div class="rail"><span class="no">9.4</span><b>初始化</b>25 個 command</div>
+    <div class="content">
+      <h2>每次都送完整的初始化</h2>
+      <figure class="listing"><figcaption>tools/ssd1306.h:47–69 — 畫面排列依賴的每一項設定都明寫，即使和 reset 值一樣</figcaption>
+<pre data-start="47" data-hot="57,58,59,60,61,65,67">// Writes every setting the frame layout depends on, so a run never relies on what the
+// previous one (or power-on reset) left. Display ON is sent separately, after the frame.
+inline std::vector&lt;std::uint8_t&gt; init_sequence()
+{
+    return {
+        kDisplayOff,
+        0xD5, 0x80,  // display clock divide ratio / oscillator frequency (reset value)
+        0xA8, 0x3F,  // multiplex ratio: 64 rows
+        0xD3, 0x00,  // display offset 0
+        0x40,        // display start line 0
+        0x8D, 0x14,  // charge pump on: the panel voltage is made from VCC
+        0x20, 0x00,  // horizontal addressing: column, then page, wraps to (0, 0)
+        0xA1,        // segment remap: column 127 -&gt; SEG0 (as the module is wired)
+        0xC8,        // COM scan direction remapped: page 0 at the top
+        0xDA, 0x12,  // COM pins: alternative configuration (128x64)
+        0x81, 0xCF,  // contrast
+        0xD9, 0xF1,  // pre-charge period (internal charge pump)
+        0xDB, 0x40,  // VCOMH deselect level
+        0x2E,        // scrolling off
+        0xA4,        // pixels follow RAM (0xA5 would light all)
+        0xA6,        // normal (0xA7 = inverse)
+    };
+}</pre></figure>
+      <p>幾個沒寫就會出事的設定（出處 SSD1306 datasheet 的 command table；表的左欄是「沒寫或寫錯會怎樣」，除了「打亂測試」那三項有實機驗過，其餘是照 datasheet 推論）：</p>
+      <table>
+        <thead><tr><th>沒寫 / 寫錯</th><th>指令與原因</th></tr></thead>
+        <tbody>
+          <tr><td>全部 ACK，螢幕全黑</td><td><code>8D 14</code>：charge pump 沒開，面板沒有高壓。或最後沒送 <code>AF</code>。</td></tr>
+          <tr><td>畫面左右鏡像</td><td><code>A1</code>：column 127 對到 SEG0。這片模組要這樣設，方向才對（實機確認）；不寫就是鏡像。</td></tr>
+          <tr><td>畫面上下顛倒</td><td><code>C8</code>：COM 反向掃描，page 0 在最上面。</td></tr>
+          <tr><td>畫面錯位、從中間開始</td><td><code>20 00</code>：上一個程式可能留在 vertical addressing（9.8 的打亂測試故意這樣做）。</td></tr>
+          <tr><td>反白、很暗</td><td><code>A6</code>、<code>81 CF</code>：同上，上一個程式可能留下反白與 contrast 0。</td></tr>
+          <tr><td>隔一行才有點</td><td><code>A8 3F</code>、<code>DA 12</code>：128x64 和 128x32 的值不同，這裡固定 128x64。</td></tr>
+        </tbody>
+      </table>
+      <p><b><code>AF</code>（Display ON）不在這串裡。</b>上電後 GDDRAM 的內容是隨機的，如果初始化完就開顯示，會先閃一下雜點，再被新畫面蓋掉。所以順序是 init → 寫整張畫面 → <code>AF</code>（9.7 的 <code>main()</code>）。靜態測試 <code>test_every_drawing_mode_inits_first</code> 確認原始碼裡這三者的順序。</p>
+    </div>
+  </section>
+
+  <section id="gddram">
+    <div class="rail"><span class="no">9.5</span><b>版面</b>page · column · bit</div>
+    <div class="content">
+      <h2>一個 byte 是直的 8 個點</h2>
+      <p>直覺會以為一個 byte 是橫的 8 個點（像 bitmap 檔案那樣），SSD1306 不是。它的 1024 byte 這樣排：</p>
+      <figure class="listing"><figcaption>tools/ssd1306.h:71–78 — (x, y) 在 page y/8、第 x 欄、bit y%8；bit 0 在上</figcaption>
+<pre data-start="71" data-hot="74,76">// false when (x, y) is off the panel; the frame is left unchanged.
+inline bool set_pixel(Frame &amp;f, int x, int y)
+{
+    if (x &lt; 0 || x &gt;= kWidth || y &lt; 0 || y &gt;= kHeight)
+        return false;
+    f[(y / 8) * kWidth + x] |= static_cast&lt;std::uint8_t&gt;(1u &lt;&lt; (y % 8));
+    return true;
+}</pre></figure>
+      <p>下面的模擬器用和 <code>ssd1306.h</code> 相同的算法畫出四種模式。把滑鼠移到點上，看它落在哪個 byte 的哪個 bit；右邊列出那個 page 前 16 個 byte，也就是 9.7 那個 <code>0x40</code> 訊息會送出的內容。</p>
+      <div class="sim">
+        <div class="sim-label">模擬（瀏覽器裡用同一套算法計算，不是實機畫面）</div>
+        <div class="sim-ctl" role="group" aria-label="模式">
+          <button data-mode="clear">clear</button><button data-mode="pixel">pixel</button><button data-mode="pattern">pattern</button><button data-mode="edge" class="on">edge</button>
+          <span class="sim-sep"></span>
+          <label><input type="checkbox" id="simMirror"> 沒寫 A1（左右鏡像）</label>
+          <label><input type="checkbox" id="simFlip"> 沒寫 C8（上下顛倒）</label>
+        </div>
+        <div class="sim-body">
+          <canvas id="simPanel" width="640" height="320" aria-label="128x64 面板模擬"></canvas>
+          <div class="sim-read">
+            <div id="simWhere">把滑鼠移到面板上</div>
+            <pre id="simBytes"></pre>
+          </div>
+        </div>
+      </div>
+      <p>試試看：在 <code>edge</code> 模式指到 E 左上角那一點，它在 page 2（y = 18 落在 16–23 列）。勾「沒寫 C8」時，page 0 跑到最下面，整個字上下顛倒。這就是 9.10 驗收要問人「從<b>左上角</b>出發的對角線」的原因：只說「有一條對角線」的話，鏡像和顛倒都會被當成通過。</p>
+    </div>
+  </section>
+
+  <section id="text">
+    <div class="rail"><span class="no">9.6</span><b>文字</b>5x7 glyph</div>
+    <div class="content">
+      <h2>EDGE 是畫出來的</h2>
+      <p>字型表用的是流傳很廣的 5x7 點陣：每個字 5 欄，一欄一個 byte，bit 0 在上。這和 GDDRAM 的 byte 方向一樣，所以 scale 1 時字型的 byte 可以原封不動放進 page 0（向量 <code>test_text_at_scale_1_lands_in_page_0</code> 就是在比對這件事）。這一步只收 <code>EDGE</code> 用得到的 D、E、G 和空白，完整字型是 Step 10-b 的事。</p>
+      <figure class="listing"><figcaption>tools/ssd1306.h:104–121 — 先確認每個字都有，再逐點放大 scale 倍；超出面板的點由 set_pixel 丟掉</figcaption>
+<pre data-start="104" data-hot="108,109,110,111,115,118">// Draws s with its top-left corner at (x, y); pixels off the panel are clipped.
+// false (and nothing drawn) if s has a character the table lacks.
+inline bool draw_text(Frame &amp;f, int x, int y, const char *s, int scale)
+{
+    for (const char *p = s; *p; ++p)
+        if (!glyph(*p))
+            return false;
+    for (const char *p = s; *p; ++p, x += 6 * scale) {
+        const std::uint8_t *g = glyph(*p);
+        for (int col = 0; col &lt; 5; ++col)
+            for (int row = 0; row &lt; 7; ++row)
+                if (g[col] &gt;&gt; row &amp; 1)
+                    for (int dx = 0; dx &lt; scale; ++dx)
+                        for (int dy = 0; dy &lt; scale; ++dy)
+                            set_pixel(f, x + col * scale + dx, y + row * scale + dy);
+    }
+    return true;
+}</pre></figure>
+      <ul>
+        <li><b>先檢查、後畫</b>：遇到不支援的字元回 <code>false</code>，而且什麼都沒畫，不會留下半個字串。</li>
+        <li><b>字距 6 × scale</b>：5 欄字加 1 欄空白。scale 4 時 <code>EDGE</code> 寬 (4 × 6 − 1) × 4 = 92 點、高 28 點，<code>draw()</code> 把它放在 (18, 18)，正好置中。</li>
+        <li><b>放大後一個字跨兩個 page</b>：28 點高，從 y = 18 到 45，橫跨 page 2 到 5。<code>set_pixel()</code> 逐點處理，所以畫的時候不用管 page 邊界。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="send">
+    <div class="rail"><span class="no">9.7</span><b>送出</b><span class="dot" style="background: var(--user)"></span>I2C_RDWR</div>
+    <div class="content">
+      <h2>window 指令 + 8 個 page</h2>
+      <figure class="listing"><figcaption>tools/ssd1306.h:123–133 — 先把寫入範圍設成整片，順便把位址指標拉回 (0, 0)</figcaption>
+<pre data-start="123" data-hot="129,131">// The messages that put a whole frame on the panel: first the window (columns 0..127,
+// pages 0..7, which also moves the address pointer to (0, 0) whatever a previous write
+// left), then one data message per page.
+inline std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; frame_writes(const Frame &amp;f)
+{
+    std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; msgs;
+    msgs.push_back(command_frame({0x21, 0x00, kWidth - 1, 0x22, 0x00, kPages - 1}));
+    for (int page = 0; page &lt; kPages; ++page)
+        msgs.push_back(data_frame(&amp;f[page * kWidth], kWidth));
+    return msgs;
+}</pre></figure>
+      <p><code>21</code> 設 column 範圍、<code>22</code> 設 page 範圍。SSD1306 內部有一個「下一個 byte 寫到哪」的位址指標，寫入時自動前進，在 horizontal addressing 下寫滿 page 的 128 欄就換下一個 page。上一個程式寫到一半結束時，指標就停在那裡；不先送 window 指令，這次的畫面會從那裡開始寫，整片錯位。變異測試把這行拿掉，向量會紅。</p>
+      <p>一個 page 一個訊息（1 + 128 = 129 byte）。i2c-dev 允許一個 <code>I2C_RDWR</code> 訊息最長 8192 byte，整張 1024 byte 一次送也可以，分成 8 個是為了錯誤訊息能指出「第幾個訊息」失敗。SMBus 的 block write 一次只能 32 byte，所以這裡不用 SMBus API。</p>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp:52–68 — 一個 i2c_msg，flags 0 = 寫；位址在訊息裡，不必先 ioctl(I2C_SLAVE)</figcaption>
+<pre data-start="52" data-hot="56,57,60,61,63,64">// One write message; the controller sends START, address+W, the bytes, STOP.
+bool write_msg(int fd, std::uint16_t addr, std::vector&lt;std::uint8_t&gt; &amp;bytes)
+{
+    i2c_msg msg{};
+    msg.addr = addr;
+    msg.flags = 0;
+    msg.len = static_cast&lt;std::uint16_t&gt;(bytes.size());
+    msg.buf = bytes.data();
+    i2c_rdwr_ioctl_data xfer{&amp;msg, 1};
+    int done = ioctl(fd, I2C_RDWR, &amp;xfer);
+    if (done != 1) {
+        if (done &gt;= 0)
+            errno = EIO;   // nothing transferred, errno not set
+        return false;
+    }
+    return true;
+}</pre></figure>
+      <p>不用 <code>I2C_SLAVE</code> 有一個副作用要記住。Step 7 踩過：位址被 kernel driver 綁定後，<code>I2C_SLAVE</code> 會回 <code>EBUSY</code>，這是 kernel 的保護；<code>I2C_RDWR</code> 不做這個檢查。所以 Step 10-a 的 driver 綁定 0x3C 之後，這個工具照樣寫得進去，會在 driver 底下重新 init 控制器、蓋掉 driver 的狀態。code review 指出了這點，已排進 Step 10-a：工具要先看 0x3C 有沒有被 driver 綁定，有的話就拒絕，除非加 <code>--force</code>。</p>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp:131–149 — init、window + 8 page、Display ON，依序送；任何一個沒 ACK 就停</figcaption>
+<pre data-start="131" data-hot="136,137,139,142,144">    const auto a = static_cast&lt;std::uint16_t&gt;(addr);
+    std::vector&lt;std::vector&lt;std::uint8_t&gt;&gt; msgs;
+    if (mode == "off") {
+        msgs.push_back(ssd1306::command_frame({ssd1306::kDisplayOff}));
+    } else {
+        msgs.push_back(ssd1306::command_frame(ssd1306::init_sequence()));
+        for (auto &amp;m : ssd1306::frame_writes(draw(mode)))
+            msgs.push_back(std::move(m));
+        msgs.push_back(ssd1306::command_frame({ssd1306::kDisplayOn}));
+    }
+    for (std::size_t n = 0; n &lt; msgs.size(); ++n) {
+        if (!write_msg(fd, a, msgs[n])) {
+            // No ACK (OLED unplugged or unpowered, wrong address) is EREMOTEIO.
+            std::fprintf(stderr, "%s addr 0x%02lx message %zu of %zu: %s\n", path, addr, n + 1,
+                         msgs.size(), std::strerror(errno));
+            close(fd);
+            return 1;
+        }
+    }</pre></figure>
+      <p>沒有 ACK 時，i2c-tegra 回 <code>EREMOTEIO</code>，<code>strerror</code> 印成 <code>Remote I/O error</code>，和 6-b 一樣。錯在第 1 個訊息就代表位址根本沒人回應。</p>
+    </div>
+  </section>
+
+  <section id="state">
+    <div class="rail"><span class="no">9.8</span><b>狀態</b>不靠上一次</div>
+    <div class="content">
+      <h2>證明它不依賴「剛好留下的狀態」</h2>
+      <p>phase04 對這一步只有一條硬性驗證：<b>斷電再上電後，程式仍能重新初始化 OLED</b>。換句話說，不能因為上一次已經設定好了，這次才剛好正常。驗收腳本用兩種方式驗。</p>
+      <h3>用另一支工具把晶片弄亂</h3>
+      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:105–130 — 先畫好 EDGE，再分兩段用 i2ctransfer（i2c-tools）直接寫 command；每段都先由人確認畫面真的變了，最後才讓 oled_probe 修復</figcaption>
+<pre data-start="105" data-hot="108,111,112,121,122,127">echo "== scrambled state, in two stages; the tool must undo all of it by itself"
+# Start from EDGE on screen: the unit tests above end with mode "off" (display OFF), and a
+# scramble of a dark panel shows nothing (rerun 2026-10-13: stage 1 looked black).
+tool edge &gt;/dev/null || fail "oled_probe edge before the scramble"
+# Stage 1, measured one command at a time (2026-10-13): 0xA7 = black on white, 0xC0 = upside
+# down, 0xA0 = mirrored at once; 0x20 0x01 (vertical addressing) shows only on the next write.
+if i2ctransfer -y "$BUS" w6@"$ADDR" 0x00 0xA7 0xA0 0xC0 0x20 0x01; then
+    if ask "Stage 1: is EDGE now black on white, upside down and mirrored?"; then
+        pass "scramble stage 1 visible: inverted, upside down, mirrored"
+    else
+        fail "scramble stage 1 not visible: the repair check below proves less"
+    fi
+else
+    fail "i2ctransfer scramble stage 1"
+fi
+# Stage 2: contrast 0 (0x81 0x00); measured 2026-10-13: the panel goes black.
+if i2ctransfer -y "$BUS" w3@"$ADDR" 0x00 0x81 0x00; then
+    if ask "Stage 2: did the panel go much dimmer, or black?"; then
+        pass "scramble stage 2 visible: contrast 0"
+    else
+        fail "scramble stage 2 not visible"
+    fi
+    show edge "After the scramble: EDGE white on black, readable, as bright as before?"
+else
+    fail "i2ctransfer scramble stage 2"
+fi</pre></figure>
+      <p><code>w6@0x3c</code> 是「對 0x3C 寫 6 byte」，第一個 <code>0x00</code> 就是 control byte。用 <code>i2ctransfer</code> 而不是 <code>oled_probe</code> 自己來弄亂，是為了讓「弄亂」和「修復」來自不同的程式：如果兩者共用同一份 byte 表，表裡漏了某項設定，兩邊會一起漏掉，測試就看不出來。</p>
+      <p>每一段都先問人<b>畫面有沒有真的變</b>，最後才跑 <code>edge</code>，要求和之前完全一樣。<code>i2ctransfer</code> 收到 ACK 只代表 byte 送到了；如果弄亂其實沒生效，「看起來和之前一樣」就什麼也證明不了。這一點是 code review 提出的，和「只拔 VCC」是同一類錯誤：只驗了「修好了」，沒先確認「真的壞過」。</p>
+      <p>這段腳本改了三版才定案，每一版都是人看到的和腳本預期的不一樣：</p>
+      <ol>
+        <li><b>一次打亂全部、問「有沒有變」</b>：使用者看到全黑。看不出是哪一項造成的。</li>
+        <li><b>分兩段，第一段不含 contrast 0</b>：第一段還是全黑，照 datasheet 應該是白底黑字。於是在 EDGE 上<b>一次只送一個指令</b>，請人逐一回報：<code>A7</code> 白底黑字、<code>C0</code> 上下顛倒、<code>A0</code> 左右鏡像（立刻生效；我原本以為只影響之後寫入的資料）、<code>20 01</code> 畫面不變、<code>81 00</code> 全黑。每一項單獨都正常，那第一段為什麼會黑？</li>
+        <li><b>答案在打亂之前</b>：腳本先跑了硬體單元測試，其中 <code>test_every_mode_succeeds</code> 依序跑 <code>clear, pixel, pattern, edge, off</code>，<b class="hl-bad">最後一個 <code>off</code> 把螢幕關掉了</b>。第一段沒有送 <code>AF</code>，打亂的是一片關著的螢幕。現在打亂前先跑一次 <code>oled_probe edge</code>，第一段的題目也照實測寫成「白底黑字、上下顛倒、左右鏡像」。</li>
+      </ol>
+      <p>這是 review 第 5 項真正抓到的東西：打亂之前的畫面狀態沒有固定，人看不到打亂的效果。打亂的設定本身應該還是寫進了晶片（螢幕關著不影響這些設定值；這是依 datasheet 推論，沒有單獨驗），所以第一版的「恢復正常」大概仍然有效，缺的是一個看得見的證據。</p>
+      <h3>斷電：四條線全拔</h3>
+      <figure class="listing"><figcaption>scripts/verify_oled_probe.sh:139–165 — 拔下時必須 Remote I/O error；接回後、送任何指令之前，螢幕必須全黑</figcaption>
+<pre data-start="139" data-hot="140,141,143,148,157">if [[ $CYCLE -eq 1 ]]; then
+    # Unplugging VCC alone is not a power cycle: measured 2026-10-13, the SSD1306 still
+    # ACKed with VCC out (most likely fed through the SDA/SCL pull-ups). Take all four off.
+    echo
+    echo "&gt;&gt;&gt; DISCONNECT the OLED: all four wires (VCC, GND, SDA, SCL), then answer."
+    UNPLUGGED=1
+    ask "OLED disconnected (all four wires)?" || die "power cycle not done"
+    err="$(tool edge 2&gt;&amp;1 &gt;/dev/null)"; rc=$?
+    echo "  $err"
+    if [[ $rc -eq 1 &amp;&amp; $err == *"Remote I/O error"* ]]; then pass "disconnected OLED: exit 1, no ACK"
+    else fail "disconnected OLED: exit $rc, '$err' (still connected?)"; fi
+    sleep 2
+    echo "&gt;&gt;&gt; RECONNECT the OLED (VCC pin 17, GND pin 20, SDA pin 27, SCL pin 28)."
+    ask "OLED reconnected?" || die "OLED not reconnected"
+    UNPLUGGED=0
+    sleep 1
+    # Power-on reset leaves the display OFF (0xAE); nothing has been sent since, so a lit
+    # panel here means the chip never lost power and the check below would prove nothing.
+    if ask "Before any command: is the screen completely dark (EDGE gone)?"; then
+        pass "power-on reset seen: panel dark after reconnecting"
+    else
+        fail "panel not dark after reconnecting: the chip kept power, not a real power cycle"
+    fi
+    if present; then pass "OLED answers again after power-up"
+    else fail "nothing at $ADDR after power-up"; fi
+    show edge "After the power cycle: EDGE is back, same as before?"
+fi</pre></figure>
+      <p>第一版腳本只叫人拔 VCC，並期望工具回 <code>Remote I/O error</code>。實測<b class="hl-bad">工具結束碼 0，每個 byte 都有 ACK</b>，使用者看到螢幕<b>變暗但 EDGE 還在</b>。最可能的原因是 SDA、SCL 上的 pull-up 電流經晶片腳位的 ESD 保護二極體流進 VDD，晶片的邏輯部分靠這點電繼續運作（推論，沒有量電壓）。所以「拔 VCC」根本不算斷電，之後 EDGE 又出現，也證明不了重新初始化。</p>
+      <p>修正後的腳本有兩個改變：</p>
+      <ol>
+        <li><b>四條線全拔</b>，這時工具一定要 <code>Remote I/O error</code>。</li>
+        <li><b class="hl-key">接回後先不送任何指令</b>，問人「螢幕是不是全黑」。power-on reset 的狀態是 display OFF，晶片如果真的斷過電，接回後一定是黑的；還看得到 EDGE，就代表它沒斷過電。這個判準不靠「我拔了線所以一定斷電」的假設，而是讓晶片自己證明。</li>
+      </ol>
+      <p>接回時先接 GND：先接訊號線或 VCC 的話，電流可能找不到正常的地回路，從別的腳位繞（一般的熱插拔習慣，這次沒有試反過來的順序）。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">9.9</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：byte 從 datasheet 來，畫面從人眼來</h2>
+      <p>協定的 byte 全部放在沒有任何 I/O 的 <code>tools/ssd1306.h</code>，所以不需要 OLED 也能完整測試。期望值來自 datasheet 的 command table 與 GDDRAM 圖，以及通用的 5x7 字型表，不是從 header 抄的。</p>
+      <ul>
+        <li><b><code>tests/test_ssd1306.cpp</code></b>：9 組向量。control byte、init 的全部 25 byte、(0,0) / (3,9) / (127,63) 落在哪個 byte 哪個 bit、越界的點不畫、D/E/G 的欄位值、scale 1 的 <code>EDGE</code> 逐 byte 比對、scale 2 跨兩個 page、不支援的字元、window + 8 個 page 的訊息內容。六種改法（<code>C8</code> 改 <code>C0</code>、data 的 control byte 改 <code>0x80</code>、page 用 <code>y % 8</code>、bit 順序反過來、拿掉 window 指令、字距 6 改 5）每一種都會讓它失敗。</li>
+        <li><b><code>tests/test_oled_probe.py</code></b>：共 <span data-tests="tests/test_oled_probe.py">29</span> 個。編譯並跑向量 1 個；原始碼契約 4 個（用 <code>I2C_RDWR</code>、沒有 <code>I2C_SLAVE</code> 與 SMBus、沒有讀取、command byte 只出現在 header、init → frame → Display ON 的順序）；CLI 3 個（錯的參數結束碼 2、不存在的 bus 結束碼 1、沒人的位址 <code>Remote I/O error</code>）；硬體 3 個（設 <code>EDGE_OLED_HW=1</code> 才跑：位址有回應、每個模式成功、<code>edge</code> 連跑 50 次）；驗收腳本 7 個；code review（PR #13）找到的問題 7 個（i2cdetect 的列標籤 <code>30:</code> 不能當成位址 0x30、沒有 <code>i2cdetect</code> 時不對未確認的位址寫入、腳本的 <code>present()</code> 同一個列標籤問題、沒有終端機時結束碼 2、打亂後先確認畫面變了、<code>write_msg</code> 不複製訊息、整個測試只 build 一次）；修正後重跑驗收又加 4 個（打亂分兩段且各有一題、回答等候 ≥ 300 秒、打亂前先畫 EDGE、第一段題目照實測寫）。</li>
+      </ul>
+      <p>實作前先跑：12 個裡 9 個 fail、2 個 error（硬體 3 個 skip），向量檔編不過。斷電那兩條（「四條線全拔」、「問全黑要在 <code>show edge</code> 之前」）是第一輪驗收失敗後才加的，加上去時先紅，改完腳本才綠；code review 那 7 個與重跑後加的 4 個也一樣，都先紅過。<b class="hl-bad">硬體測試沒有看過紅燈</b>：OLED 接上之前，它們一直是 skip。</p>
+      <p>在 repo 根目錄跑（不需要 OLED，約 1 秒）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_ssd1306 &gt;/dev/null &amp;&amp; build/test_ssd1306</pre>
+<pre class="out">OK (0 failure(s))</pre>
+<pre class="cmd">python3 -m unittest discover -s tests -p test_oled_probe.py</pre>
+<pre class="out">....sss......................
+----------------------------------------------------------------------
+Ran 29 tests in 0.367s
+
+OK (skipped=3)</pre>
+      <p>3 個 skip 是硬體測試。如果你的板子 <code>/dev/i2c-7</code> 不能開（沒在 <code>i2c</code> 群組）、沒裝 <code>i2cdetect</code>，或 <code>i2c-7</code> 的 0x3D 剛好有東西，「沒人的位址」相關的測試也會 skip，skip 數會變多。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">9.10</span><b>驗收</b>人眼 + ACK</div>
+    <div class="content">
+      <h2>實測：在板子旁邊回答 y/n</h2>
+      <p>接好線後，先確認 OLED 在 bus 上。在任何目錄都能跑，使用者在 <code>i2c</code> 群組即可，不需要 root；<code>-r</code> 的原因 6-a 講過（Tegra 不支援 Quick Write）：</p>
+<pre class="cmd">i2cdetect -y -r 1</pre>
+<pre class="out" data-marks>     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- --
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+20: -- -- -- -- -- UU -- -- -- -- -- -- -- -- -- -- «1»
+30: -- -- -- -- -- -- -- -- -- -- -- -- 3c -- -- -- «2»
+40: UU -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+70: -- -- -- -- -- -- -- --                         </pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>UU</code> 是已經被 kernel driver 綁定的位址：0x25 是板載的 fusb301（USB-C 控制器）、0x40 是 8.3 看過的 ina3221。不要對它們寫東西。</span></li>
+        <li><span class="mk">2</span><span>OLED 在 <code>0x3C</code>。有些模組是 <code>0x3D</code>（背面有焊點可以改），那就之後的指令都加 <code>--addr 0x3d</code>。</span></li>
+      </ol>
+      <p>然後在 repo 根目錄點亮它。結束碼 0 只代表每個 byte 都有 ACK，畫面要自己看：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target oled_probe &gt;/dev/null &amp;&amp; build/oled_probe edge</pre>
+<pre class="out">edge: 11 messages to 0x3c on /dev/i2c-1</pre>
+      <p>換成 <code>clear</code>、<code>pixel</code>、<code>pattern</code>、<code>off</code> 看其他畫面。故意指到沒人的位址：</p>
+<pre class="cmd">build/oled_probe --addr 0x3d</pre>
+<pre class="out">/dev/i2c-1 addr 0x3d message 1 of 11: Remote I/O error</pre>
+      <p>完整驗收要有人在板子旁看螢幕、拔插線。在 repo 根目錄、終端機裡跑（腳本會讀鍵盤，不能用管線或背景執行）：</p>
+<pre class="cmd">bash scripts/verify_oled_probe.sh</pre>
+      <p>下面是 2026-10-13 code review 修正後的最後一輪完整輸出（四條線全拔、打亂分兩段）：</p>
+<pre class="out" data-marks>== which bus is c240000.i2c (i2cdetect -l)
+PASS c240000.i2c is i2c-1 (header pins 27/28) «1»
+== bus scan (i2cdetect -y -r 1)
+     （同上，省略）
+PASS OLED answers at 0x3c on i2c-1
+== the tool, mode by mode (look at the panel)
+  clear: 11 messages to 0x3c on /dev/i2c-1 «2»
+&gt;&gt;&gt; Is the whole screen dark? [y/n] y
+PASS clear: Is the whole screen dark?
+  pixel: 11 messages to 0x3c on /dev/i2c-1
+&gt;&gt;&gt; Five single dots: four corners and the centre? [y/n] y
+PASS pixel: Five single dots: four corners and the centre?
+  pattern: 11 messages to 0x3c on /dev/i2c-1
+&gt;&gt;&gt; A border around the edge and a diagonal from the TOP-LEFT corner going down-right? [y/n] y «3»
+PASS pattern: A border around the edge and a diagonal from the TOP-LEFT corner going down-right?
+  edge: 11 messages to 0x3c on /dev/i2c-1
+&gt;&gt;&gt; EDGE, white on black, readable (not mirrored, not upside down), centred? [y/n] y
+PASS edge: EDGE, white on black, readable (not mirrored, not upside down), centred?
+== unit tests against the real OLED
+PASS test_oled_probe.py (OK) «4»
+== scrambled state, in two stages; the tool must undo all of it by itself
+&gt;&gt;&gt; Stage 1: is EDGE now black on white, upside down and mirrored? [y/n] y «5»
+PASS scramble stage 1 visible: inverted, upside down, mirrored
+&gt;&gt;&gt; Stage 2: did the panel go much dimmer, or black? [y/n] y
+PASS scramble stage 2 visible: contrast 0
+  edge: 11 messages to 0x3c on /dev/i2c-1
+&gt;&gt;&gt; After the scramble: EDGE white on black, readable, as bright as before? [y/n] y «6»
+PASS edge: After the scramble: EDGE white on black, readable, as bright as before?
+== absent address (what an unplugged OLED looks like)
+  /dev/i2c-1 addr 0x3d message 1 of 11: Remote I/O error
+PASS 0x3d: exit 1, Remote I/O error
+
+&gt;&gt;&gt; DISCONNECT the OLED: all four wires (VCC, GND, SDA, SCL), then answer.
+&gt;&gt;&gt; OLED disconnected (all four wires)? [y/n] y
+  /dev/i2c-1 addr 0x3c message 1 of 11: Remote I/O error «7»
+PASS disconnected OLED: exit 1, no ACK
+&gt;&gt;&gt; RECONNECT the OLED (VCC pin 17, GND pin 20, SDA pin 27, SCL pin 28).
+&gt;&gt;&gt; OLED reconnected? [y/n] y
+&gt;&gt;&gt; Before any command: is the screen completely dark (EDGE gone)? [y/n] y «8»
+PASS power-on reset seen: panel dark after reconnecting
+PASS OLED answers again after power-up
+  edge: 11 messages to 0x3c on /dev/i2c-1
+&gt;&gt;&gt; After the power cycle: EDGE is back, same as before? [y/n] y «9»
+PASS edge: After the power cycle: EDGE is back, same as before?
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>腳本用 controller 的名字 <code>c240000.i2c</code> 找 bus 號碼，不寫死 <code>1</code>：bus 號碼依 kernel 註冊順序，6-b 也這樣做。</span></li>
+        <li><span class="mk">2</span><span>每個模式都是 11 個訊息（9.2）。<code>clear</code> 送的是全 0 的 1024 byte，不是一個「清除」指令：SSD1306 沒有這種指令。</span></li>
+        <li><span class="mk">3</span><span>問題故意問方向：從<b>左上角</b>往右下。鏡像時對角線會從右上角出發，顛倒時從左下角出發（9.5 的模擬器可以看）。</span></li>
+        <li><span class="mk">4</span><span>硬體測試 3 個在這裡跑：每個模式結束碼 0、<code>edge</code> 連跑 50 次都成功。它們最後跑的是 <code>off</code>，所以接下來打亂前要先重畫 EDGE（9.8）。</span></li>
+        <li><span class="mk">5</span><span><b class="hl-ok">打亂看得見</b>：白底黑字、上下顛倒、左右鏡像同時出現；第二段 contrast 0 讓整片變黑。</span></li>
+        <li><span class="mk">6</span><span><b class="hl-ok">打亂後畫面完全恢復</b>：init 寫回了反白、兩個方向、addressing mode、contrast，沒有漏掉任何一項。</span></li>
+        <li><span class="mk">7</span><span>真的拔掉後是第 1 個訊息就沒有 ACK，和 0x3D 的錯誤一樣。第一輪只拔 VCC 時這裡是結束碼 0（9.8）。</span></li>
+        <li><span class="mk">8</span><span><b class="hl-ok">接回後螢幕全黑</b>：這是 power-on reset 的 display OFF，證明晶片確實斷過電。</span></li>
+        <li><span class="mk">9</span><span>從 reset 狀態重新初始化成功，<b class="hl-ok">phase04 的驗收條件「穩定顯示 EDGE，斷電後仍可重新初始化」成立</b>。</span></li>
+      </ol>
+      <p>你的輸出會在 y/n 的答案上不同（那是你看到的東西），其餘應該一樣。如果 OLED 接在別的 bus，加 <code>--bus N</code>；是 0x3D 的模組，加 <code>--addr 0x3d</code>，「absent address」那項會改測 0x3C。不方便拔線時加 <code>--no-power-cycle</code>，最後一段會整個跳過，這時「斷電後重新初始化」就沒有驗到。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：熱插拔 OLED 時，同一條 bus 上的 ina3221、fusb301 有沒有記到 I2C 錯誤（要 root 看 <code>dmesg</code>，這次沒看）；128x32 的面板（手上沒有）；長時間顯示的穩定性（只連跑了 50 次）。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">9.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為拔 VCC 就是斷電</h4><dl><dt>症狀</dt><dd>拔掉 VCC 後，工具結束碼 0、全部 ACK，螢幕變暗但 EDGE 還在。</dd><dt>後果</dt><dd>晶片經 SDA/SCL 仍然有電（推論），插回後 EDGE「又出現」什麼也證明不了。</dd><dt>正解</dt><dd class="fix">四條線全拔；接回後送任何指令前，先確認螢幕全黑（power-on reset）。</dd></dl></div>
+        <div class="pit"><h4>以為結束碼 0 就代表畫面對</h4><dl><dt>症狀</dt><dd>工具全部成功，螢幕卻可能是鏡像、顛倒或全黑。</dd><dt>後果</dt><dd>SSD1306 在 I2C 下不能讀回 GDDRAM，程式只知道 ACK。</dd><dt>正解</dt><dd class="fix">畫有方向的圖（左上角起的對角線、四角的點），由人回答方向對不對。</dd></dl></div>
+        <div class="pit"><h4>以為 pin 3/5 最順手</h4><dl><dt>症狀</dt><dd>INA219 已經在 <code>i2c-7</code>，想把 OLED 也接上去。</dd><dt>後果</dt><dd>pin 3/5 插著 UPS 的線，要並聯得分接；而且 Step 10-a 的 DT 節點會以為能沿用 <code>&amp;hdr40_i2c1</code>。</dd><dt>正解</dt><dd class="fix">接 pin 27/28（<code>c240000.i2c</code>），10-a 的節點要掛在 <code>i2c@c240000</code>。</dd></dl></div>
+        <div class="pit"><h4>用 grep 在 i2cdetect 輸出裡找位址</h4><dl><dt>症狀</dt><dd><code>grep -w 30</code> 找 0x30，bus 上明明沒東西也判定有回應。</dd><dt>後果</dt><dd>比對到的是列標籤 <code>30:</code>；位址是 0x10 的倍數時，斷電檢查永遠過（code review 找到，已重現）。</dd><dt>正解</dt><dd class="fix">跳過標題列和每列第一欄，只比對格子裡的值。</dd></dl></div>
+        <div class="pit"><h4>打亂一片關著的螢幕</h4><dl><dt>症狀</dt><dd>打亂後人看到全黑，照 datasheet 應該是白底黑字。</dd><dt>後果</dt><dd>前面的硬體測試最後跑 <code>off</code>，螢幕是關的；人看不到打亂的效果，題目也問錯了。</dd><dt>正解</dt><dd class="fix">打亂前先 <code>oled_probe edge</code>；一次送一個指令看實際現象，再照實測寫題目。</dd></dl></div>
+        <div class="pit"><h4>拿同一份 byte 表去打亂再修復</h4><dl><dt>症狀</dt><dd>用 <code>oled_probe</code> 自己的設定來製造「壞狀態」。</dd><dt>後果</dt><dd>表裡漏的設定，兩邊都會漏，測試看不出來。</dd><dt>正解</dt><dd class="fix">用獨立的 <code>i2ctransfer</code> 寫入反白、鏡像、vertical addressing、contrast 0。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">9.12</span><b>收尾</b>9 → 10-a</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">OLED 接上 <code>i2c-1</code>（pin 17/20/27/28），<code>0x3C</code> 回應；<code>build/oled_probe</code> 以 i2c-dev 的 <code>I2C_RDWR</code> 只寫不讀，每次送完整 init → window → 8 page → Display ON。</li>
+        <li class="y">人眼確認 <code>clear</code>、<code>pixel</code>、<code>pattern</code>、<code>edge</code> 四種畫面方向正確；<code>edge</code> 連跑 50 次都成功。</li>
+        <li class="y"><b class="hl-ok">不依賴前一次狀態</b>：<code>i2ctransfer</code> 分兩段打亂（人確認看得見）後恢復；四條線全拔再接上，先看到 power-on reset 的全黑，再重新顯示 EDGE。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">測試：協定向量 9 組（6 種改法都會紅）、<span data-tests="tests/test_oled_probe.py">29</span> 個 Python 測試（3 個要接 OLED）。</li>
+        <li class="n">沒有實測：熱插拔時同 bus 其他晶片的錯誤、128x32 面板、長時間顯示；硬體測試沒看過紅燈。</li>
+      </ul>
+      <p>Step 10-a 把同一串 byte 搬進 kernel：一個 I2C client driver 在 probe 時初始化、持有一份 1024 byte 的 framebuffer，提供最小的 userspace 介面（clear、fill、寫整張 raw framebuffer）。<code>ssd1306.h</code> 是 C++，driver 要用 C 重寫；這一章的向量和畫面就是它的對照組，同一張 <code>pattern</code> 由 driver 畫出來必須長得一樣。</p>
+      <details class="quiz"><summary>1. 想在 (10, 20) 點亮一個點，要改 GDDRAM 的哪個 byte、哪個 bit？</summary><p>page = 20 / 8 = 2，byte 索引 2 × 128 + 10 = 266，bit 20 % 8 = 4。也就是 <code>frame[266] |= 0x10</code>。</p></details>
+      <details class="quiz"><summary>2. 為什麼 <code>0xAF</code>（Display ON）不放在 <code>init_sequence()</code> 裡？</summary><p>上電後 GDDRAM 是隨機內容。init 完就開顯示，會先閃一下雜點；先寫好整張畫面再送 <code>AF</code>，第一眼看到的就是正確畫面。</p></details>
+      <details class="quiz"><summary>3. 斷電測試裡，為什麼「接回後螢幕全黑」比「接回後 EDGE 能再出現」更重要？</summary><p>EDGE 再出現只說明工具能畫；如果晶片根本沒斷電（只拔 VCC 時就是這樣），它本來就設定好了，畫得出來不代表能從 reset 狀態初始化。全黑是 power-on reset 的 display OFF，證明晶片真的回到了初始狀態，接下來的成功才有意義。</p></details>
+      <details class="quiz"><summary>4. 每個訊息第一個 byte 是 <code>0x00</code> 或 <code>0x40</code>，它們各代表什麼？為什麼 <code>"EDGE"</code> 的 ASCII 不能直接送？</summary><p><code>0x00</code>：後面是一串 command；<code>0x40</code>：後面是一串 GDDRAM 像素。SSD1306 沒有字型，ASCII 送過去不是被當成 command 就是被當成 8 個點一欄的像素，文字必須先在 Jetson 端畫成點。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step08.html">← Step 8</a><span class="disabled">Step 10-a →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // Same algorithm as tools/ssd1306.h; a simulation, not the real panel.
+  var W = 128, H = 64, Z = 5;
+  var GLYPH = { 'D': [0x7F, 0x41, 0x41, 0x22, 0x1C], 'E': [0x7F, 0x49, 0x49, 0x49, 0x41], 'G': [0x3E, 0x41, 0x49, 0x49, 0x7A] };
+  var frame = new Uint8Array(1024), mode = 'edge';
+  var cv = document.getElementById('simPanel'), ctx = cv.getContext('2d');
+  var mirror = document.getElementById('simMirror'), flip = document.getElementById('simFlip');
+  var where = document.getElementById('simWhere'), bytes = document.getElementById('simBytes');
+  function setPixel(x, y) { if (x < 0 || x >= W || y < 0 || y >= H) return; frame[(y >> 3) * W + x] |= 1 << (y & 7); }
+  function lit(x, y) { return (frame[(y >> 3) * W + x] >> (y & 7)) & 1; }
+  function draw() {
+    frame.fill(0);
+    if (mode === 'pixel') { setPixel(0, 0); setPixel(W - 1, 0); setPixel(0, H - 1); setPixel(W - 1, H - 1); setPixel(W / 2, H / 2); }
+    else if (mode === 'pattern') {
+      for (var x = 0; x < W; x++) { setPixel(x, 0); setPixel(x, H - 1); }
+      for (var y = 0; y < H; y++) { setPixel(0, y); setPixel(W - 1, y); setPixel(y, y); }
+    } else if (mode === 'edge') {
+      var s = 4, x0 = (W - (4 * 6 - 1) * s) / 2, y0 = (H - 7 * s) / 2;
+      'EDGE'.split('').forEach(function (c, i) {
+        GLYPH[c].forEach(function (col, cx) {
+          for (var row = 0; row < 7; row++) if ((col >> row) & 1)
+            for (var dx = 0; dx < s; dx++) for (var dy = 0; dy < s; dy++)
+              setPixel(x0 + i * 6 * s + cx * s + dx, y0 + row * s + dy);
+        });
+      });
+    }
+    paint();
+  }
+  // screen point -> RAM point (what the controller is told to do with the wiring)
+  function ram(sx, sy) { return [mirror.checked ? W - 1 - sx : sx, flip.checked ? H - 1 - sy : sy]; }
+  function paint(hx, hy) {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+    for (var sy = 0; sy < H; sy++) for (var sx = 0; sx < W; sx++) {
+      var p = ram(sx, sy);
+      if (lit(p[0], p[1])) { ctx.fillStyle = '#cfe9ff'; ctx.fillRect(sx * Z, sy * Z, Z - 1, Z - 1); }
+    }
+    ctx.strokeStyle = 'rgba(60, 194, 166, 0.35)';
+    for (var pg = 1; pg < 8; pg++) { ctx.beginPath(); ctx.moveTo(0, pg * 8 * Z - 0.5); ctx.lineTo(cv.width, pg * 8 * Z - 0.5); ctx.stroke(); }
+    if (hx !== undefined) { ctx.strokeStyle = '#e0ab3c'; ctx.strokeRect(hx * Z - 0.5, hy * Z - 0.5, Z, Z); }
+  }
+  function hex(v) { return ('0' + v.toString(16).toUpperCase()).slice(-2); }
+  cv.addEventListener('mousemove', function (e) {
+    var r = cv.getBoundingClientRect();
+    var sx = Math.floor((e.clientX - r.left) / Z), sy = Math.floor((e.clientY - r.top) / Z);
+    if (sx < 0 || sx >= W || sy < 0 || sy >= H) return;
+    var p = ram(sx, sy), x = p[0], y = p[1], page = y >> 3, idx = page * W + x;
+    where.innerHTML = '螢幕上的點 (' + sx + ', ' + sy + ')' + (sx !== x || sy !== y ? '，RAM 裡是 (' + x + ', ' + y + ')' : '') +
+      '<br>page <b>' + page + '</b>　column <b>' + x + '</b>　bit <b>' + (y & 7) + '</b>' +
+      '<br>frame[<b>' + idx + '</b>] = 0x<b>' + hex(frame[idx]) + '</b>　這點' + (lit(x, y) ? '亮' : '暗');
+    var start = x - (x % 16), out = 'page ' + page + '，column ' + start + '–' + (start + 15) + ' 送出的 byte：\n';
+    for (var i = 0; i < 16; i++) {
+      var b = hex(frame[page * W + start + i]);
+      out += (start + i === x ? '<span class="cur">' + b + '</span>' : b) + (i % 8 === 7 ? '\n' : ' ');
+    }
+    bytes.innerHTML = out;
+    paint(sx, sy);
+  });
+  document.querySelectorAll('.sim-ctl button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.sim-ctl button').forEach(function (o) { o.classList.toggle('on', o === b); });
+      mode = b.dataset.mode; draw();
+    });
+  });
+  mirror.addEventListener('change', function () { paint(); });
+  flip.addEventListener('change', function () { paint(); });
+  draw();
+})();
+</script>
+</body>
+</html>

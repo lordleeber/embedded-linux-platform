@@ -333,3 +333,40 @@
   - 第一輪電池在放電：`in1_input 11532`、`curr1_input -633`、`power1_input 7299258`；`ina219_raw`：11.532 V、−632.968 mA、7299.258 mW。
   - 第二輪使用者插回 adapter、電池在充電：`in0_input 14`（`ina219_raw` 13.730 mV，四捨五入為 14）、`in1_input 11832`、`curr1_input 1373`、`power1_input 16251064`；`ina219_raw`：11.836 V（差 1 LSB）、1372.955 mA、16251.064 mW。**hwmon 這條路上放電（負）與充電（正）兩個方向都實測過了。**
   - 全套 `python3 -m unittest discover -s tests`：221 個，`OK (skipped=54)`。
+
+## Step 9：SSD1306 OLED userspace protocol proof（`tools/oled_probe.cpp`，不寫 driver）
+
+- 驗收主機與接線：128x64 I2C SSD1306 模組接 header pin 17（3.3 V）/ 20（GND）/ 27（SDA）/ 28（SCL）= `c240000.i2c` = `i2c-1`，位址 0x3C（2026-10-13 關機接線後開機）。UPS 與 overlay 不變。
+- 對照方法：`bash scripts/verify_oled_probe.sh`（不需 root；人在板子旁回答 y/n）。這是第一個 OLED Step，沒有上一版可比；本次結果就是 Step 10-a driver 的基線：同一張畫面（`clear` / `pixel` / `pattern` / `edge`）要由 driver 畫出一樣的東西。
+- 實測（2026-10-13，第二輪）`=== 0 failure(s)`：
+  - `i2cdetect -y -r 1`：0x3C 出現；同 bus 的 0x25（fusb301）、0x40（ina3221）是 `UU`。
+  - 每個模式都是 `11 messages`（init 1 + window 1 + 8 page + Display ON 1），人眼確認：`clear` 全黑；`pixel` 四角與中心五個點；`pattern` 外框與從**左上角**往右下的對角線（方向對：沒有鏡像、沒有上下顛倒）；`edge` 白字黑底、置中、可讀。
+  - `test_oled_probe.py` 硬體版（`EDGE_OLED_HW=1`）通過：每個模式結束碼 0、連跑 50 次 `edge` 都是 0。
+  - `i2ctransfer` 把晶片打亂（`A7` 反白、`A0`/`C0` 鏡像、`20 01` vertical addressing、`81 00` contrast 0、`AF`）後再跑 `edge`：畫面和打亂前相同。
+  - 0x3D：`message 1 of 11: Remote I/O error`，結束碼 1。
+  - 整片 OLED 四條線拔下：`oled_probe` 結束碼 1、`Remote I/O error`；接回後**送任何指令前螢幕全黑**（上電 reset 的 display off），0x3C 回應，再跑 `edge` 畫面恢復。
+- 容差：沒有數值容差；畫面是 y/n，I2C 是全部 ACK（結束碼 0）或不是。
+- **未實測**：熱插拔 OLED 時同一條 bus 上的 ina3221 / fusb301 有沒有記錄 I2C 錯誤（`dmesg` 要 root，這次沒看）；128x32 面板（`A8` / `DA` 的值不同，手上沒有）；長時間顯示的穩定性（只連跑 50 次）。
+- 自動測試：`tests/test_ssd1306.cpp` 9 組向量（control byte、init 全部 byte、GDDRAM 位址與 bit、越界、5x7 glyph、scale 1 / 2、不支援字元、frame 的 window + 8 page）；`tests/test_oled_probe.py` 18 個（向量 1、原始碼契約 4、CLI 3、硬體 3（沒設 `EDGE_OLED_HW=1` 時 skip）、驗收腳本 7）。全套 `python3 -m unittest discover -s tests`：239 個，`OK (skipped=57)`。
+- 紅燈紀錄：實作前 `test_oled_probe.py` 12 個裡 9 failures、2 errors、3 skipped（硬體）；`test_reads_answers_with_a_timeout` 實作後仍紅一次（測試要數字，腳本用變數 `$ANSWER_TIMEOUT`），改測試的 regex。斷電那兩條（見踩坑）先紅再改腳本。變異：`C8` 改 `C0`、data control byte 改 `0x80`、page 用 `y % 8`、bit 順序反過來、拿掉 window 指令、字距 6 改 5，6 種都讓向量測試失敗。**硬體測試沒看過紅燈**（OLED 接上前它們是 skip）。
+- 規模：`git diff --numstat`（不含 docs 與 .md）新增 845 行（含空行與註解）：header 135、工具 153、C++ 向量 215、Python 測試 192、驗收腳本 146、CMake 4；非空白行約 750，在上限內。測試佔一半。
+
+### 踩坑
+
+- 原本以為拔掉 OLED 的 VCC 就是斷電，驗收第一輪照這樣寫：拔 VCC 後 `oled_probe` 應該 `Remote I/O error`。實測結束碼 0、全部 ACK，使用者看到**螢幕變暗但 EDGE 還在**；最可能是 SDA/SCL 的 pull-up 經 ESD 二極體餵進晶片（推論，沒量電壓）。接回 VCC 後 EDGE「又出現」也就證明不了重新初始化。改成四條線全拔，並加一個獨立判準：接回後、送任何指令前螢幕必須全黑（上電 reset 是 display off）。先寫兩條測試（要求「all four wires」、「dark?」要問在 `show edge` 之前）看到紅燈，再改腳本；第二輪全過。
+- 原本以為 header pin 3/5（`i2c-7`，已有 INA219）最順；那兩支 pin 已插著 UPS 的線，要並聯得用分接線。改用 pin 27/28（`i2c-1`），同 bus 上有板載 fusb301 / ina3221，位址不衝突。Step 10-a 的 DT 節點要掛在 `i2c@c240000`，不是 overlay 現有的 `&hdr40_i2c1`（那是 `c250000`）。
+- SSD1306 在 I2C 模式下不能讀回 display RAM：程式只能證明 ACK，畫面對不對只能靠人眼。所以每個模式都設計成有方向性的圖（左上角起的對角線、四角的點），一眼就看得出鏡像或上下顛倒。
+- code review（PR #13，medium）找出 10 項：7 項修正、1 項排到 Step 10-a、2 項不改。原本都以為沒事：
+  - 原本以為 `grep -w` 在 `i2cdetect` 的輸出裡找位址夠精確；`30:` 這種列標籤也是一個「word」，`--addr 0x30` 時 bus 上沒東西也判定有回應（實測重現），位址是 0x10 的倍數時斷電檢查永遠過。腳本的 `present()` 與測試的 `answers()` 都改成跳過標題列與每列第一欄。
+  - 原本以為「先用 i2cdetect 查 0x3d 沒人」就夠安全；沒裝 `i2cdetect` 時根本不查，直接對 `i2c-7` 的 0x3d 寫 SSD1306 init（那裡沒裝置時第一個 byte 就 NACK，實際寫不進去）。改成沒有 `i2cdetect` 就 skip。
+  - 原本以為 `[[ -r /dev/tty ]]` 能判斷有沒有終端機；`/dev/tty` 永遠是 666，沒有 controlling terminal 時檢查照過、每個 `ask` 都當成 n，結束碼 1 而不是 2（實測重現）。改成真的開一次 `/dev/tty`。
+  - 原本以為「打亂後畫面和之前一樣」就證明 init 修好了；如果打亂沒生效，這項也會過。和「只拔 VCC」同一類錯：只驗修好、沒先確認壞過。打亂後先問人畫面有沒有變。
+  - `write_msg` 改傳參考；三個 TestCase 共用一次 build。
+  - 排到 Step 10-a（寫進 phase04）：`oled_probe` 不用 `I2C_SLAVE`，driver 綁定 0x3C 後仍會在 driver 底下重新 init；10-a 要讓工具先看綁定、有就拒絕，除非 `--force`。章裡原本寫「仍能拿來對照」，改成這個說明。
+  - 不改：行數（845 行含空行與註解，非空白約 750，和 Step 7 同一算法）；`usage()` / `parse()` / `I2C_RDWR` 包裝與 `ina219_raw.cpp` 重複（要動 6-b 的工具與章，排進 phase09 的順帶整理）。
+  - 修正前 7 個新測試全紅；`test_oled_probe.py` 由 18 個變 25 個。
+- 修正後重跑驗收（2026-10-13）又踩了兩次，腳本改了兩版：
+  - 原本以為「打亂一次、問有沒有變」就夠；使用者看到全黑，等待 120 秒逾時被記 FAIL（人湊近看、來問怎麼回答）。改成分兩段各問一題、等候 300 秒。
+  - 原本以為第一段（`A7 A0 C0 20 01`，不含 contrast 0）會是白底黑字、上下顛倒；實測還是全黑。在 EDGE 上一次送一個指令請人回報：`A7` 白底黑字、`C0` 上下顛倒、`A0` **立刻**左右鏡像（原本以為依 datasheet 只影響之後寫入的資料，這是錯的）、`20 01` 不變、`81 00` 全黑（不只是變暗）。單獨都正常，原因在打亂之前：硬體單元測試最後跑 `off`（`MODES` 的最後一個），螢幕是關著的，第一段沒送 `AF`。打亂前先 `oled_probe edge`，第一段題目照實測寫成「白底黑字、上下顛倒、左右鏡像」。第一版（含 `AF` 與 contrast 0）的修復檢查應該仍然有效：設定值照樣寫進晶片，只是人看不見（推論）。
+  - 新增 4 個測試，改腳本前都紅（其中 `test_scramble_in_two_visible_stages` 第一次是被腳本註解裡的 `0x81` 誤判而紅，改成只看 `i2ctransfer` 那一行）。`test_oled_probe.py` 由 25 個變 29 個。
+  - 最後一輪 `bash scripts/verify_oled_probe.sh` `=== 0 failure(s)`：第一段人確認白底黑字、上下顛倒、左右鏡像；第二段全黑；`edge` 恢復成白字黑底、亮度正常；四條線全拔與接回後全黑、重新顯示 EDGE 照舊通過。全套 250 個，`OK (skipped=57)`。

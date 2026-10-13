@@ -31,3 +31,7 @@ add_executable(test_ina219_decode tests/test_ina219_decode.cpp)
 
 # Step 7: the kernel driver's arithmetic (include/edge_ina219_conv.h) against Step 6-b's decoder.
 add_executable(test_edge_ina219_conv tests/test_edge_ina219_conv.cpp)
+
+# Step 9: SSD1306 OLED from userspace (i2c-dev, I2C_RDWR); protocol bytes in tools/ssd1306.h.
+add_executable(oled_probe tools/oled_probe.cpp)
+add_executable(test_ssd1306 tests/test_ssd1306.cpp)
