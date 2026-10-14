@@ -92,7 +92,7 @@ int main(int argc, char **argv)
         ret = ioctl(fd, EDGE_OLED_IOC_FILL, &v);
     } else {
         what = "write";
-        ssd1306::Frame f = ssd1306::test_picture(cmd);
+        ssd1306::Frame f{};
         if (!std::strcmp(cmd, "font")) {
             f = oled_text::font_picture();
         } else if (!std::strcmp(cmd, "text")) {
@@ -102,6 +102,8 @@ int main(int argc, char **argv)
             if (r.unsupported)
                 std::fprintf(stderr, "%d character(s) not in the font, drawn as a box\n",
                              r.unsupported);
+        } else {
+            f = ssd1306::test_picture(cmd);
         }
         ssize_t n = write(fd, f.data(), f.size());
         ret = n == static_cast<ssize_t>(f.size()) ? 0 : -1;

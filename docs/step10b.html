@@ -369,8 +369,8 @@ inline bool draw_char(ssd1306::Frame &amp;f, int x, int y, char c)
         <figcaption>圖 10.2 — 字格決定了排版的一切：一行 21 個字，一行一個 page。超出右邊的字照點裁切，所以第 22 個字會留下一條「殘影」（10b.8 驗收時人看到的那一條線）。</figcaption>
       </figure>
       <p>字串和行列定位：</p>
-      <figure class="listing"><figcaption>apps/oled_text.h:157–182 — 換行回到起始的 x；不完整顯示的字算 clipped；draw_text_at 只是把行、欄換成像素</figcaption>
-<pre data-start="157" data-hot="163,164,165,168,169,170,181">// '\n' starts the next line at the starting x, kCellHeight lower. A line longer than the
+      <figure class="listing"><figcaption>apps/oled_text.h:157–185 — 換行回到起始的 x；不完整顯示的字算 clipped；整個在面板外的字不算方框；draw_text_at 只是把行、欄換成像素</figcaption>
+<pre data-start="157" data-hot="163,164,165,168,169,170,172,173,174,184">// '\n' starts the next line at the starting x, kCellHeight lower. A line longer than the
 // panel is cut at the right edge.
 inline Result draw_string(ssd1306::Frame &amp;f, int x, int y, const char *s)
 {
@@ -384,7 +384,10 @@ inline Result draw_string(ssd1306::Frame &amp;f, int x, int y, const char *s)
         if (cx &lt; 0 || cx + kGlyphWidth &gt; ssd1306::kWidth || y &lt; 0 ||
             y + kGlyphHeight &gt; ssd1306::kHeight)
             ++r.clipped;
-        if (!draw_char(f, cx, y, *s))
+        // A character wholly off the panel draws nothing, so it is not counted as a box.
+        bool shown = cx + kGlyphWidth &gt; 0 &amp;&amp; cx &lt; ssd1306::kWidth &amp;&amp; y + kGlyphHeight &gt; 0 &amp;&amp;
+                     y &lt; ssd1306::kHeight;
+        if (!draw_char(f, cx, y, *s) &amp;&amp; shown)
             ++r.unsupported;
         cx += kCellWidth;
     }
@@ -410,14 +413,14 @@ inline Result draw_text_at(ssd1306::Frame &amp;f, int line, int column, const ch
         <tbody>
           <tr><td>一行太長（超過 21 字）</td><td><b>截斷，不換行</b>。Step 10-c 的畫面是固定版面（電壓一行、電流一行），數字變長時如果換行，下面每一行都會往下擠。截斷時這一行壞了，其他行還在原位。</td></tr>
           <tr><td>x / y 在面板外（含負數）</td><td>照點裁切，部分在面板上的字照樣畫出看得到的部分。</td></tr>
-          <tr><td>表裡沒有的字元</td><td>畫空心方框（<code>kBox</code>），<b>字格照樣往右移</b>。跳過不畫的話後面的字會左移一格，看起來像拼錯字；畫方框一眼就看得出「這裡有一個字顯示不了」。</td></tr>
+          <tr><td>表裡沒有的字元</td><td>畫空心方框（<code>kBox</code>），<b>字格照樣往右移</b>。跳過不畫的話後面的字會左移一格，看起來像拼錯字；畫方框一眼就看得出「這裡有一個字顯示不了」。整個字都在面板外時什麼都沒畫，只算 clipped、不算方框（code review 找到：第一版兩個都算，stderr 說畫了方框，螢幕上卻沒有）。</td></tr>
           <tr><td><code>\n</code></td><td>下一行，回到起始 x。</td></tr>
           <tr><td>超過 8 行</td><td>第 9 行起整行在面板外，算 clipped。</td></tr>
         </tbody>
       </table>
       <p>前兩種都不是錯誤，函式照樣畫完，但把數量放在 <code>Result</code> 裡回傳，由呼叫者決定要不要說。<code>edge_oled_ctl</code> 的做法是畫完照樣寫出去、結束碼 0，在 stderr 報數量：</p>
-      <figure class="listing"><figcaption>apps/edge_oled_ctl.cpp:95–105 — text 從左上角開始；clipped / unsupported 印到 stderr，不影響結束碼</figcaption>
-<pre data-start="95" data-hot="99,100,101,102,103">        ssd1306::Frame f = ssd1306::test_picture(cmd);
+      <figure class="listing"><figcaption>apps/edge_oled_ctl.cpp:95–107 — 空白 frame 起頭；text 從左上角開始，clipped / unsupported 印到 stderr，不影響結束碼；其他名稱才是 test_picture</figcaption>
+<pre data-start="95" data-hot="95,99,100,101,102,103,104,106">        ssd1306::Frame f{};
         if (!std::strcmp(cmd, "font")) {
             f = oled_text::font_picture();
         } else if (!std::strcmp(cmd, "text")) {
@@ -427,6 +430,8 @@ inline Result draw_text_at(ssd1306::Frame &amp;f, int line, int column, const ch
             if (r.unsupported)
                 std::fprintf(stderr, "%d character(s) not in the font, drawn as a box\n",
                              r.unsupported);
+        } else {
+            f = ssd1306::test_picture(cmd);
         }</pre></figure>
       <p>試一行 26 字、一行含 tab 的字串，再印出右上角與第二行：</p>
 <pre class="cmd">: &gt; build/frame.bin &amp;&amp; build/edge_oled_ctl --dev build/frame.bin text "0123456789ABCDEFGHIJKLMNOP" "TAB&lt;$(printf '\t')&gt;"; echo "exit $?"
@@ -461,8 +466,8 @@ exit 0
         <li><span class="mk">3</span><span>第二行左邊 40 個點：<code>T A B &lt;</code>，接著是空心方框（tab），然後 <code>&gt;</code>。方框佔了一個字格，<code>&gt;</code> 在它該在的第 5 欄。</span></li>
       </ol>
       <p>字型表（<code>edge_oled_ctl font</code>）也受同一個限制：phase04 的測試字串 <code>ABCDEFGHIJKLMNOPQRSTUVWXYZ</code> 有 26 字，一行放不下，所以拆成兩行：</p>
-      <figure class="listing"><figcaption>apps/oled_text.h:184–197 — 7 行涵蓋每一個可印字元；test_font_sheet_shows_every_glyph 檢查一個都沒漏、每行不超過 21 字</figcaption>
-<pre data-start="184" data-hot="185,186,187">// Every printable character once (the space is between "0123456789" and "EDGE").
+      <figure class="listing"><figcaption>apps/oled_text.h:187–200 — 7 行涵蓋每一個可印字元；test_font_sheet_shows_every_glyph 檢查一個都沒漏、每行不超過 21 字</figcaption>
+<pre data-start="187" data-hot="188,189,190">// Every printable character once (the space is between "0123456789" and "EDGE").
 constexpr const char *kFontSheet[] = {
     "ABCDEFGHIJKLM", "NOPQRSTUVWXYZ", "abcdefghijklm", "nopqrstuvwxyz",
     "0123456789 EDGE", "!\"#$%&amp;'()*+,-./", ":;&lt;=&gt;?@[\\]^_`{|}~",
@@ -566,17 +571,17 @@ static int edge_oled_flush(struct edge_oled *oled, const u8 *src)
     <div class="content">
       <h2>測試：字型對古典表，方向對 GDDRAM</h2>
       <ul>
-        <li><b><code>tests/test_oled_text.cpp</code></b>：15 組向量，期望值來自古典 5x7 表與 Step 9 在面板上驗證過的 GDDRAM 版面，不是從實作抄來的。只涵蓋 0x20–0x7E；每個字都不用第 8 列、彼此不重複；10 個字和古典表相同；D / E / G 和 Step 9 相同；<code>L</code> 的直條在左、底在下（沒鏡像、沒顛倒）；跨 page；四邊裁切；剛好貼邊的計數；方框；換行；長行截斷不換行；行列定位；phase04 的三行；clear；字型表涵蓋每個字元。</li>
-        <li><b><code>tests/test_edge_oled_text.py</code></b>：<span data-tests="tests/test_edge_oled_text.py">20</span> 個，不需要硬體：跑上面的向量、renderer 沒有 I/O 也沒有 INA219；<code>edge_oled_ctl text / font</code> 寫進普通檔案的 byte（6 個）；driver 每次 flush 都送設定與 Display ON、Display OFF 只在第一次、driver 裡仍然沒有字型（4 個）；驗收腳本（8 個，包括「拔線到問『全黑嗎』之間不能有任何寫入」）。</li>
+        <li><b><code>tests/test_oled_text.cpp</code></b>：16 組向量，期望值來自古典 5x7 表與 Step 9 在面板上驗證過的 GDDRAM 版面，不是從實作抄來的。只涵蓋 0x20–0x7E；每個字都不用第 8 列、彼此不重複；10 個字和古典表相同；D / E / G 和 Step 9 相同；<code>L</code> 的直條在左、底在下（沒鏡像、沒顛倒）；跨 page；四邊裁切；剛好貼邊的計數；方框；面板外的不支援字元只算 clipped；換行；長行截斷不換行；行列定位；phase04 的三行；clear；字型表涵蓋每個字元。</li>
+        <li><b><code>tests/test_edge_oled_text.py</code></b>：<span data-tests="tests/test_edge_oled_text.py">22</span> 個，不需要硬體：跑上面的向量、renderer 沒有 I/O 也沒有 INA219；<code>edge_oled_ctl text / font</code> 寫進普通檔案的 byte 與 stderr（8 個，code review 後加了 2 個）；driver 每次 flush 都送設定與 Display ON、Display OFF 只在第一次、driver 裡仍然沒有字型（4 個）；驗收腳本（8 個，包括「拔線到問『全黑嗎』之間不能有任何寫入」）。</li>
       </ul>
       <p>實作前先跑：10 個 fail、2 個 error（<code>edge_oled_ctl</code> 建置失敗，蓋住 6 個 CLI 案例）；「driver 裡沒有字型」是守門測試，先就會過。renderer 寫完後向量還紅了一次，是<b>測試寫錯</b>：我以為第 21 欄整格在面板外，其實 21 × 6 = 126，那格的前兩列還在（就是 10b.5 的那條線）。Step 10-a 的一個 static 測試被新寫法弄紅：它檢查 <code>if (!oled-&gt;initialized)</code> 這個字面，守的性質是「失敗後下一次送完整 init」，新寫法仍然成立，所以只改 regex。</p>
       <p>變異測試：把 <code>apps/oled_text.h</code> 改壞八種（column 左右顛倒、row 上下顛倒、字格寬 5、換行只下移 7 個點、換行回到 x = 0、接受 DEL、方框改成空白、<code>A</code> 的 byte 改錯），向量都會紅。右緣與底緣的截斷計數差一（<code>&gt; 128</code> 寫成 <code>&gt; 129</code>）<b class="hl-bad">第一次沒抓到</b>，補了「剛好貼邊」的向量才紅。自己跑向量：</p>
 <pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_oled_text &gt;/dev/null &amp;&amp; build/test_oled_text
 python3 -m unittest discover -s tests -p test_edge_oled_text.py</pre>
 <pre class="out">OK (0 failure(s))
-....................
+......................
 ----------------------------------------------------------------------
-Ran 20 tests in 0.344s
+Ran 22 tests in 0.363s
 
 OK</pre>
       <p>秒數會不同。第二行不需要 OLED 也不需要 root；驗收腳本那幾個測試只讀腳本的文字。</p>
@@ -679,7 +684,7 @@ PASS dmesg free of Oops/BUG/WARNING
         <li class="y"><code>edge_oled_ctl text LINE...</code> 與 <code>font</code>。</li>
         <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：多行文字 <code>EDGE</code> / <code>LINE 2</code> / <code>123456</code>，字型表沒有鏡像、顛倒、跨 page 錯位。</li>
         <li class="y">10-a 的帶過來項目：先在舊 driver 上重現（ACK 但全黑），改成每次 flush 都送設定，再跑通過；刷新不閃黑；10-a 的驗收不回歸（96.4 → 99.2 ms）。驗收 <b class="hl-ok">0 failure</b>。</li>
-        <li class="y">測試：15 組字型向量（八種改法會紅）、<span data-tests="tests/test_edge_oled_text.py">20</span> 個 Python 測試。</li>
+        <li class="y">測試：16 組字型向量（八種改法會紅）、<span data-tests="tests/test_edge_oled_text.py">22</span> 個 Python 測試。</li>
         <li class="n">沒有實測：綁定中拔線（這次 <code>--no-unplug</code>）、長時間刷新、蓋回被改過的狀態；規模略超 800 行。</li>
       </ul>
       <p>Step 10-c 把 Step 8 的 hwmon 讀數接上來：一個 userspace 程式每秒讀 <code>in1_input</code>、<code>curr1_input</code>、<code>power1_input</code>，用 <code>draw_text_at</code> 排成固定的幾行，整張寫進 <code>/dev/edge_oled</code>。這一步選的「截斷不換行」和「每次重送設定」都是為它準備的：數字變長時版面不亂，OLED 鬆脫再接回時下一秒就恢復。</p>

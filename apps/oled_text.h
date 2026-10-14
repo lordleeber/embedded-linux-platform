@@ -151,7 +151,7 @@ inline bool draw_char(ssd1306::Frame &f, int x, int y, char c)
 
 struct Result {
     int clipped = 0;       // characters not completely on the panel
-    int unsupported = 0;   // characters drawn as a box
+    int unsupported = 0;   // characters drawn as a box (at least partly on the panel)
 };
 
 // '\n' starts the next line at the starting x, kCellHeight lower. A line longer than the
@@ -168,7 +168,10 @@ inline Result draw_string(ssd1306::Frame &f, int x, int y, const char *s)
         if (cx < 0 || cx + kGlyphWidth > ssd1306::kWidth || y < 0 ||
             y + kGlyphHeight > ssd1306::kHeight)
             ++r.clipped;
-        if (!draw_char(f, cx, y, *s))
+        // A character wholly off the panel draws nothing, so it is not counted as a box.
+        bool shown = cx + kGlyphWidth > 0 && cx < ssd1306::kWidth && y + kGlyphHeight > 0 &&
+                     y < ssd1306::kHeight;
+        if (!draw_char(f, cx, y, *s) && shown)
             ++r.unsupported;
         cx += kCellWidth;
     }

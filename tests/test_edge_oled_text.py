@@ -106,6 +106,20 @@ class CtlTextTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertRegex(r.stderr, rb"1 character\(s\) clipped")
 
+    def test_unsupported_below_the_last_line_is_not_reported_as_a_box(self):
+        # PR #15 review: the 9th line is off the panel; no box is drawn, so none is reported.
+        r, _ = self.run_ctl("text", *[str(n) for n in range(1, 9)], "\t")
+        self.assertEqual(r.returncode, 0)
+        self.assertRegex(r.stderr, rb"1 character\(s\) clipped")
+        self.assertNotIn(b"not in the font", r.stderr)
+
+    def test_text_and_font_start_from_a_blank_frame(self):
+        # PR #15 review: text / font drew on test_picture(cmd), blank only because the name
+        # is unknown there. Each branch builds its own frame; test_picture is for the pictures.
+        src = (REPO / "apps" / "edge_oled_ctl.cpp").read_text()
+        self.assertNotIn("Frame f = ssd1306::test_picture(cmd)", src)
+        self.assertRegex(src, r"\} else \{\s*f = ssd1306::test_picture\(cmd\);")
+
     def test_usage(self):
         for args in (["text"], ["font", "x"]):
             with self.subTest(args=args):

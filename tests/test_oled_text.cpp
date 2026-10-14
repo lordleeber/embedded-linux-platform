@@ -179,6 +179,20 @@ void test_unsupported_character_draws_a_box_and_is_counted()
     CHECK_EQ(f[12], oled_text::glyph('B')[0]);              // B stays in column 2
 }
 
+void test_unsupported_off_the_panel_is_only_clipped()
+{
+    // PR #15 review: nothing of it is drawn, so no box is drawn either.
+    ssd1306::Frame f{};
+    auto r = oled_text::draw_string(f, 0, 64, "\t");
+    CHECK_EQ(r.clipped, 1);
+    CHECK_EQ(r.unsupported, 0);
+    r = oled_text::draw_string(f, 126, 0, "\t");     // partly on the panel: a box sliver shows
+    CHECK_EQ(r.clipped, 1);
+    CHECK_EQ(r.unsupported, 1);
+    r = oled_text::draw_text_at(f, 0, 22, "\t");     // column 22 starts at x = 132
+    CHECK_EQ(r.unsupported, 0);
+}
+
 void test_newline_returns_to_the_starting_x()
 {
     ssd1306::Frame f{};
@@ -292,6 +306,7 @@ int main()
     test_clipping_at_every_edge();
     test_clip_count_at_the_exact_edges();
     test_unsupported_character_draws_a_box_and_is_counted();
+    test_unsupported_off_the_panel_is_only_clipped();
     test_newline_returns_to_the_starting_x();
     test_long_line_is_clipped_not_wrapped();
     test_line_and_column_positioning();

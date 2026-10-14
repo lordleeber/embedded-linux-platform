@@ -418,7 +418,7 @@
 - **不回歸**：`verify_edge_oled.sh --no-unplug` `=== 0 failure(s)`：probe 從反白 EDGE 變全黑、五張圖、device unittest 8 個、`oled_probe` 被拒、開著檔案 unbind 得 `ENODEV`、bind 回來、0x3d `-EREMOTEIO`、dmesg 2 probe / 2 remove。唯一的數字變化：**96.4 → 99.2 ms / 張**（+2.8 ms），歸因於每張 frame 多送兩個訊息：24 byte 設定（init 去掉開頭的 Display OFF）與 Display ON，連同位址與 control byte 共 29 byte × 9 bit / 100 kHz ≈ 2.6 ms，其餘是多出的 START / STOP。
 - 容差：沒有數值容差；畫面是 y/n。速度記錄不判定（Step 10-c 1 s 刷新沒問題）。
 - **未實測**：綁定中拔線讓寫入失敗、讀回不變那段（10-a 腳本的 unplug，這次加 `--no-unplug`；失敗處理沒改）；長時間連續刷新（只刷 5 次）；重送設定時晶片處在其他狀態（例如被 `oled_probe --force` 改成反白）——每次 flush 都送 `A6`，應會被蓋回（推論）。
-- 自動測試：`tests/test_oled_text.cpp` 15 組向量（只涵蓋可印 ASCII、7 列內且彼此不同、古典表的 10 個字、D / E / G 和 Step 9 相同、`L` 的方向、跨 page、四邊裁切、剛好貼邊的截斷計數、方框與計數、換行回起始 x、長行截斷不換行、行 / 欄定位、三行驗收字串、clear、字型表涵蓋全部字元）；`tests/test_edge_oled_text.py` 20 個（向量 1、renderer 無 I/O 1、`edge_oled_ctl` CLI 6、driver 4、驗收腳本 8）。全套 `python3 -m unittest discover -s tests`：319 個，`OK (skipped=65)`。
+- 自動測試（code review 後見下）：`tests/test_oled_text.cpp` 15 組向量（只涵蓋可印 ASCII、7 列內且彼此不同、古典表的 10 個字、D / E / G 和 Step 9 相同、`L` 的方向、跨 page、四邊裁切、剛好貼邊的截斷計數、方框與計數、換行回起始 x、長行截斷不換行、行 / 欄定位、三行驗收字串、clear、字型表涵蓋全部字元）；`tests/test_edge_oled_text.py` 20 個（向量 1、renderer 無 I/O 1、`edge_oled_ctl` CLI 6、driver 4、驗收腳本 8）。全套 `python3 -m unittest discover -s tests`：319 個，`OK (skipped=65)`。
 - 紅燈紀錄：實作前 `test_edge_oled_text.py` 10 failures、2 errors（`CtlTextTest` 的 `setUpClass` build 失敗，蓋住 6 個）；`test_still_no_font_in_the_driver` 是守門測試，先就會過。renderer 寫完後 `test_oled_text` 還紅一次，是測試寫錯（見踩坑）。driver 的 3 個在改 driver 前紅；Step 10-a 的 `test_failed_transfer_forces_a_full_init_next_time` 被新寫法弄紅，它守的性質（失敗後下一次送完整 init、含 Display OFF）仍成立，改 regex 接受 `if (oled->initialized)`。變異：欄位左右顛倒、列上下顛倒、字格寬 5、換行只下移 7 px、換行回到 x = 0、接受 DEL、不支援字元畫成空白、`A` 的 bytes 改錯，8 種都讓向量失敗；右緣 / 底緣截斷計數差一這兩種**第一次沒被抓到**，補了 `test_clip_count_at_the_exact_edges` 後紅。
 - 規模：`git diff --numstat`（不含 docs 與 .md）新增 913 行、非空白約 813：`oled_text.h` 183、`edge_oled_ctl` 29、driver 29、CMake 2；測試 436（C++ 向量 275、Python 159、10-a 測試 2）；驗收腳本 134。動工前估 650（含測試與腳本），**略超 800 行上限**，多出來的主要是 C++ 向量（估 170，寫了 275）。
 
@@ -430,3 +430,10 @@
 - 原本以為每次 flush 照抄完整的 init sequence 就好；它的第一個 byte 是 Display OFF，刷新時會讓面板關掉約 100 ms（一張 frame 的時間）再亮，等於每次刷新閃一下。已經亮著時跳過那個 byte，Display ON 改成每張 frame 之後都送。實測 5 次刷新沒閃。
 - 原本以為字型表可以照 phase04 寫成一行 `ABCDEFGHIJKLMNOPQRSTUVWXYZ`；26 字 × 6 px = 156 px，一行只放得下 21 字，拆成 `A..M` / `N..Z`。
 - Step 10-a 那章引用的 `edge_oled.c` 五段節錄因 flush 改寫而漂移，改釘在 `4479e44`，章裡加說明。
+- code review（PR #15，medium）找出 6 項：3 項修正、1 項排到 Step 10-c、2 項不改。原本都以為沒事：
+  - 原本以為「表裡沒有的字就算 unsupported」夠清楚；整個字在面板外（第 9 行、第 22 欄以後）時什麼都沒畫，卻同時報 clipped 和「drawn as a box」（`text 1 2 3 4 5 6 7 8 $'\t'` 實測重現）。改成至少有一部分在面板上才算 unsupported；只露出一截的方框仍算。
+  - 原本以為把 Step 10-a 的 `test_failed_transfer_forces_a_full_init_next_time` 改成 `if \(!?oled->initialized\)` 就保住了它的性質；`!?` 讓新舊寫法都過，這條測試單獨看什麼都沒守（整套仍會被 `test_settings_go_out_on_every_flush` 抓到）。收緊成 10-b 的寫法（`if (oled->initialized) { seq++; len--; }`），拿 `4479e44` 的舊 driver 跑確認是紅的。
+  - `edge_oled_ctl` 的 text / font 原本畫在 `test_picture(cmd)` 回傳的 frame 上，空白只因為它不認得這兩個名稱。改成先建空白 frame，其他名稱才呼叫 `test_picture()`；`pixel` / `pattern` / `edge` 寫出的 frame 和修改前逐 byte 相同。
+  - 排到 Step 10-c（寫進 phase04）：面板亮著時每次重送 `D5` / `A8` / `8D` 等設定，datasheet 沒保證不閃，只看了 5 次刷新。reviewer 建議「平常只送 charge pump + Display ON、失敗後才送完整 init」**不採用**：這次要修的就是沒有失敗的斷電，晶片回到 reset 值（page addressing、`A0` / `C0`、contrast 等，依 datasheet 的 reset 欄位，憑記憶、未重查），只送那兩個會變成畫面鏡像、顛倒、排錯。10-c 長時間刷新時人眼觀察，看到問題再只送和 reset 值不同的設定。
+  - 不改：`oled_text.h` 與 `ssd1306.h` 各有一份 D / E / G（刻意，`test_edge_letters_are_step9s` 靠它互相比對；合併要讓 Step 9 的 header 反過來依賴 10-b 並動 Step 9 章的節錄）；`clear()` / `draw_pixel()` 只是轉呼叫（phase04 明文要求這兩個 API 名稱）。
+  - 修正前新增的 4 個測試都紅過：C++ 向量 1 組（2 個 CHECK 失敗）、`test_edge_oled_text.py` 2 個、收緊的 10-a 測試（對舊 driver）。driver 沒改，不需要重跑硬體。`test_oled_text.cpp` 15 → 16 組、`test_edge_oled_text.py` 20 → 22 個；全套 321 個，`OK (skipped=65)`。

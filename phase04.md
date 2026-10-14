@@ -402,6 +402,10 @@ app 要處理：
 - OLED write failure
 - SIGINT/SIGTERM clean shutdown
 
+### 從 Step 10-b 帶過來的
+
+- `edge_oled` 每次 flush 都在面板亮著時重送整份設定（含 `D5` 時脈、`A8` multiplex、`8D 14` charge pump），10-b 只人眼看了 5 次刷新沒閃（PR #15 code review）。這一步會長時間每秒刷新：驗收加一項「連續刷新幾分鐘，看有沒有閃爍或亮度掉」。真的看到時，再考慮刷新只送和 reset 值不同的設定（`20 00`、`A1`、`C8`、`81`、`D9`、`DB`、`8D`），要先查 datasheet 的 reset 值。不能只送 charge pump + Display ON：斷電又接回時晶片會回到 page addressing、`A0` / `C0`，畫面會鏡像、顛倒、排錯
+
 ### 這一步不做
 
 - 不做 low-battery policy
