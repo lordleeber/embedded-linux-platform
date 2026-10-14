@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 10-b　OLED：把字畫成 pixel — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step10a). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* Step 10-b: no ligatures in code (JetBrains Mono drew <=> as one arrow in the font sheet) */
+pre, code { font-variant-ligatures: none; }
+
+/* Step 10-b: glyph-to-GDDRAM simulator */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; margin-bottom: 0.8rem; font-size: 0.9rem; color: var(--muted); }
+.sim-ctl input[type=text] { width: 3rem; font-family: var(--font-mono); font-size: 1rem; text-align: center; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.15rem 0.3rem; }
+.sim-ctl input[type=range] { width: 10rem; accent-color: var(--accent); }
+.sim-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.4rem; align-items: start; }
+.gg { display: grid; grid-template-columns: 2.6rem repeat(6, 1.3rem); gap: 2px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
+.gg .px { width: 1.3rem; height: 1.3rem; border-radius: 2px; background: var(--surface-2); }
+.gg .px.on { background: var(--accent); }
+.gg .px.gap { background: transparent; border: 1px dashed var(--line); }
+.gg .rl { text-align: right; padding-right: 0.4rem; line-height: 1.3rem; }
+.gg .rl.p { color: var(--drv); }
+.gg .sep { grid-column: 1 / -1; height: 0; border-top: 2px solid var(--drv); margin: 1px 0; }
+.sim-bytes { font-family: var(--font-mono); font-size: 0.85rem; }
+.sim-bytes div { margin-bottom: 0.3rem; }
+.sim-bytes b { color: var(--ink); font-weight: 600; }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10a.html">← Step 10-a</a><span class="disabled">Step 10-c →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 10-b · SSD1306 OLED（文字）</div>
+    <h1>OLED：把字畫成 pixel</h1>
+    <p class="lede">SSD1306 不認得字。Step 10-a 的 driver 只收整張 1024 byte 的畫面，所以「顯示 EDGE」其實是先在 userspace 把每個字查表、變成一排排的點，畫進那 1024 byte，再整張寫下去。這一步做了一套 5x7 的 ASCII 字型和畫字的函式，並處理<b class="hl-key">邊界</b>：一行太長、字跨過 page、表裡沒有的字元。另外結掉 10-a 留下的一筆帳：OLED 在兩次寫入之間斷電又接回時，螢幕會一直黑著。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/oled_text.h</span>、<span class="new">tests/test_oled_text.cpp</span>、<span class="new">tests/test_edge_oled_text.py</span>、<span class="new">scripts/verify_edge_oled_text.sh</span>、<span class="new">docs/step10b.html</span>；修改 apps/edge_oled_ctl.cpp、kernel/edge_oled/edge_oled.c、tests/test_edge_oled_static.py、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, step10a.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（VFS、misc、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（edge_oled）</span>
+      <span style="--c: var(--hw)">硬體（SoC、OLED 模組、SSD1306）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">10b.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>螢幕只有點，沒有字</h2>
+      <p>Step 9 的筆記說過：把 ASCII 的 <code>'E'</code>（0x45）寫進 SSD1306，只會在畫面上點亮一個 column 裡的 3 個點（0x45 = bit 0、2、6）。晶片沒有字型 ROM，<b>字形要由送畫面的人自己決定</b>。Step 9 只為 <code>EDGE</code> 準備了 D、E、G 三個字，Step 10-c 要顯示電壓、電流、功率，需要數字、字母、小數點和單位。</p>
+      <p>這一步要決定兩件事：字型和排版放在哪一層、邊界怎麼處理。phase04 的說法是「把 rendering 和 I2C transport 分開，避免 driver 變成一個巨大混合物」。所以 <b class="hl-key">字全部在 userspace 畫</b>，driver 一行都沒有為文字改。它仍然只收整張畫面，多一個 text ioctl 只會把字型和排版規則鎖進 kernel 的 ABI。</p>
+      <p><b>互動雙方</b>：和 Step 10-a 相同。controller 是 <code>c240000.i2c</code>（<code>i2c-1</code>，100 kHz），target 是 SSD1306（0x3C）；userspace 的 <code>edge_oled_ctl text</code> 經 <code>/dev/edge_oled</code> 交給 <code>edge_oled.ko</code>。新的是 userspace 裡的 <code>apps/oled_text.h</code>，它沒有任何 I/O，只把字串變成 frame。<b>這一步不做</b>：讀 INA219、週期刷新（都是 Step 10-c）。</p>
+      <dl class="terms">
+        <dt>5x7 字型</dt><dd>每個字 5 個點寬、7 個點高。存法是「每個 column 一個 byte、bit 0 在上」，和 GDDRAM 的 byte 方向一樣，所以一個 column byte 可以直接搬進畫面，不用轉置。</dd>
+        <dt>字格（cell）</dt><dd>一個字佔的格子：6x8 = 5x7 的字加右邊 1 個點、下面 1 個點的空隙。128x64 的面板剛好放 21 欄 x 8 行（21 x 6 = 126，右邊剩 2 個點）。</dd>
+        <dt>clipping（裁切）</dt><dd>畫到面板外的點直接丟掉。和「換行」（wrap）不同：裁切後這一行的其他字位置不變。</dd>
+        <dt>glyph</dt><dd>字型裡一個字的點陣資料，這裡就是那 5 個 byte。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">10b.2</span><b>全景</b>一行指令</div>
+    <div class="content">
+      <h2>edge_oled_ctl text EDGE "LINE 2" 123456</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 500" role="img" aria-label="userspace 的 edge_oled_ctl 把三個參數接成一個帶換行的字串，交給 oled_text.h 的 draw_text_at；它逐字查 5x7 字型表，把每個 column byte 畫進 1024 byte 的 frame；然後 write 一次把整張 frame 交給 /dev/edge_oled。driver 的 flush 送 11 個 I2C 訊息：設定、window、8 個 page、Display ON，經 i2c-tegra 到 SSD1306。右邊比較 Step 10-a 與 10-b 每次寫入送的訊息：10-a 平常只送 9 個，10-b 每次都送 11 個，多出設定與 Display ON，每張畫面從 96.4 ms 變 99.2 ms。">
+          <defs>
+            <marker id="m10bDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="46">USERSPACE</text>
+          <rect class="s-box" x="110" y="16" width="300" height="56" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="260" y="40" text-anchor="middle">edge_oled_ctl text</text>
+          <text class="s-sm" x="260" y="60" text-anchor="middle">參數接成 "EDGE\nLINE 2\n123456"</text>
+          <a href="#draw"><rect class="s-box" x="110" y="96" width="300" height="72" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="260" y="120" text-anchor="middle">oled_text::draw_text_at()</text>
+          <text class="s-sm" x="260" y="141" text-anchor="middle">逐字 glyph() 查表 → 5 個 column byte</text>
+          <text class="s-sm" x="260" y="159" text-anchor="middle">畫進 frame[page × 128 + x]</text></a>
+          <rect class="s-box" x="110" y="192" width="300" height="50" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="260" y="216" text-anchor="middle">write(fd, frame, 1024)</text>
+          <text class="s-sm" x="260" y="234" text-anchor="middle">和 10-a 的 pixel / edge 同一條路</text>
+          <text class="s-mono" x="14" y="296">DRIVER</text>
+          <a href="#flush"><rect class="s-box" x="110" y="266" width="300" height="64" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="260" y="291" text-anchor="middle">edge_oled_flush()</text>
+          <text class="s-sm" x="260" y="313" text-anchor="middle">每次：設定 → window → 8 page → ON</text></a>
+          <text class="s-mono" x="14" y="384">I2C CORE</text>
+          <rect class="s-box" x="110" y="354" width="300" height="52" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="260" y="378" text-anchor="middle">i2c_master_send() × 11</text>
+          <text class="s-sm" x="260" y="397" text-anchor="middle">i2c-tegra，c240000.i2c，100 kHz</text>
+          <text class="s-mono" x="14" y="460">TARGET</text>
+          <rect class="s-box" x="110" y="430" width="300" height="52" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="260" y="454" text-anchor="middle">SSD1306 @ 0x3C</text>
+          <text class="s-sm" x="260" y="473" text-anchor="middle">不知道「字」，只收點</text>
+          <line class="sv-down" x1="260" y1="73" x2="260" y2="92" marker-end="url(#m10bDown)"/>
+          <line class="sv-down" x1="260" y1="169" x2="260" y2="188" marker-end="url(#m10bDown)"/>
+          <line class="sv-down" x1="260" y1="243" x2="260" y2="262" marker-end="url(#m10bDown)"/>
+          <line class="sv-down" x1="260" y1="331" x2="260" y2="350" marker-end="url(#m10bDown)"/>
+          <line class="sv-down" x1="260" y1="407" x2="260" y2="426" marker-end="url(#m10bDown)"/>
+          <text class="s-mono" x="440" y="40">STEP 10-A · EVERY WRITE</text>
+          <rect class="s-box" x="440" y="54" width="266" height="100" rx="7" style="stroke: var(--line)"/>
+          <text class="s-key" x="452" y="78">1 · 00 + window</text>
+          <text class="s-key" x="452" y="102">2–9 · 40 + page 0–7</text>
+          <text class="s-sm" x="452" y="126">init 只在失敗之後才送</text>
+          <text class="s-sm" x="452" y="141">96.4 ms / 張</text>
+          <text class="s-mono" x="440" y="186">STEP 10-B · EVERY WRITE</text>
+          <a href="#flush"><rect class="s-box" x="440" y="200" width="266" height="140" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="452" y="224">1 · 00 + 設定 (24 byte)</text>
+          <text class="s-key" x="452" y="248">2 · 00 + window</text>
+          <text class="s-key" x="452" y="272">3–10 · 40 + page 0–7</text>
+          <text class="s-key" x="452" y="296">11 · 00 AF</text>
+          <text class="s-sm" x="452" y="318">第一次與失敗後：設定前多 AE</text>
+          <text class="s-sm" x="452" y="334">99.2 ms / 張（+2.8 ms）</text></a>
+        </svg>
+        <figcaption>圖 10.1 — 字在藍色的 userspace 裡就已經變成點了；橘色的 driver 收到的和 Step 10-a 的 <code>pixel</code>、<code>edge</code> 一樣是一張 1024 byte 的畫面。driver 這一步唯一的改動在右邊：每次寫入都重送設定和 Display ON（10b.6）。點方框跳到對應小節。</figcaption>
+      </figure>
+      <p>不接 OLED 也能看到這條路的前半段：把一個空的普通檔案當成裝置，<code>write()</code> 照樣寫進去，再用 Python 把 GDDRAM 版面（<code>frame[page × 128 + x]</code>，bit 0 在上）印成字元圖。在 repo 根目錄執行（第一行會建置，要有 cmake 與 g++）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target edge_oled_ctl &gt;/dev/null
+: &gt; build/frame.bin &amp;&amp; build/edge_oled_ctl --dev build/frame.bin text EDGE "LINE 2" 123456
+python3 -c "
+import sys; f = open(sys.argv[1], 'rb').read()
+for y in range(24): print(''.join('#' if f[y // 8 * 128 + x] &gt;&gt; y % 8 &amp; 1 else '.' for x in range(40)))
+" build/frame.bin</pre>
+<pre class="out">text: write on build/frame.bin
+#####.###....###..#####.................
+#.....#..#..#...#.#.....................
+#.....#...#.#.....#.....................
+####..#...#.#.###.####..................
+#.....#...#.#...#.#.....................
+#.....#..#..#...#.#.....................
+#####.###....####.#####.................
+........................................
+#......###..#...#.#####........###......
+#.......#...#...#.#...........#...#.....
+#.......#...##..#.#...............#.....
+#.......#...#.#.#.####...........#......
+#.......#...#..##.#.............#.......
+#.......#...#...#.#............#........
+#####..###..#...#.#####.......#####.....
+........................................
+..#....###..#####....#..#####...##......
+.##...#...#....#....##..#......#........
+..#.......#...#....#.#..####..#.........
+..#......#.....#..#..#......#.####......
+..#.....#.......#.#####.....#.#...#.....
+..#....#....#...#....#..#...#.#...#.....
+.###..#####..###.....#...###...###......
+........................................</pre>
+      <p>只印左上角 40x24 個點：三行字，每行 7 個點高、第 8 列空著，所以每行剛好落在一個 page（page 0、1、2）。這就是 phase04 的驗收字串，和面板上看到的一樣（10b.8）。</p>
+    </div>
+  </section>
+
+  <section id="font">
+    <div class="rail"><span class="no">10b.3</span><b>字型</b>5 個 byte 一個字</div>
+    <div class="content">
+      <h2>字型表：column byte，和 GDDRAM 同方向</h2>
+      <p>幾何常數先寫死。字格寬 6、高 8，所以 21 欄、8 行：</p>
+      <figure class="listing"><figcaption>apps/oled_text.h:17–22 — 字 5x7、格 6x8；128 / 6 = 21 欄（剩 2 個點），64 / 8 = 8 行</figcaption>
+<pre data-start="17" data-hot="19,20,21,22">constexpr int kGlyphWidth = 5;
+constexpr int kGlyphHeight = 7;
+constexpr int kCellWidth = 6;
+constexpr int kCellHeight = 8;
+constexpr int kColumns = ssd1306::kWidth / kCellWidth;   // 21
+constexpr int kLines = ssd1306::kHeight / kCellHeight;   // 8</pre></figure>
+      <p>字型本身是 95 列的表，從空白（0x20）到 <code>~</code>（0x7E），每列 5 個 byte，由左到右。這是很多 HD44780 風格與 SSD1306 函式庫都帶著的古典 5x7 表；D、E、G 三個字和 Step 9 的 <code>ssd1306::glyph()</code> 逐 byte 相同，<code>EDGE</code> 看起來和前兩步一樣：</p>
+      <figure class="listing"><figcaption>apps/oled_text.h:24–30 — 一個 byte 一個 column，bit 0 在上；第一列是空白，第二列 '!' 只有中間一條 0x5F</figcaption>
+<pre data-start="24" data-hot="25">// The classic 5x7 font, ' ' (0x20) .. '~' (0x7E): one byte per column, left to right,
+// bit 0 = top row (the same orientation as a GDDRAM byte). D, E and G are Step 9's.
+constexpr std::uint8_t kFont[][kGlyphWidth] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00},  // ' '
+    {0x00, 0x00, 0x5F, 0x00, 0x00},  // !
+    {0x00, 0x07, 0x00, 0x07, 0x00},  // "
+    {0x14, 0x7F, 0x14, 0x7F, 0x14},  // #</pre></figure>
+      <p>查表只看範圍，範圍外的一律回 <code>nullptr</code>：控制字元（<code>\t</code>、<code>\n</code>）、DEL（0x7F）、以及 UTF-8 中文字拆開後的每一個 byte（都 ≥ 0x80）。先轉成 <code>unsigned char</code>：在 ARM64 上 <code>char</code> 預設是 unsigned，x86 上是 signed，不轉的話同一個 0xE9 在兩邊比較的結果不同。</p>
+      <figure class="listing"><figcaption>apps/oled_text.h:125–133 — 表裡沒有的字元回 nullptr；kBox 是之後畫來代替它的空心方框</figcaption>
+<pre data-start="125" data-hot="126,131,132">// Drawn for a character the font lacks, so the gap is visible and the rest stays in place.
+constexpr std::uint8_t kBox[kGlyphWidth] = {0x7F, 0x41, 0x41, 0x41, 0x7F};
+
+// nullptr outside ' '..'~' (control characters, DEL, bytes of UTF-8 sequences).
+inline const std::uint8_t *glyph(char c)
+{
+    unsigned char u = static_cast&lt;unsigned char&gt;(c);
+    return u &gt;= ' ' &amp;&amp; u &lt;= '~' ? kFont[u - ' '] : nullptr;
+}</pre></figure>
+      <p>下面這個小工具用的是同一張字型表，可以看一個字的 5 個 byte 怎麼變成點，以及把字往下移幾個點時，它怎麼跨過 page 邊界、變成兩個 page 裡的兩組 byte：</p>
+      <div class="sim" id="glyphSim">
+        <div class="sim-label">模擬：用和 apps/oled_text.h 相同的字型表在瀏覽器裡計算，不是實機輸出</div>
+        <div class="sim-ctl">
+          <label>字元 <input type="text" id="gsChar" value="L" maxlength="1" aria-label="字元"></label>
+          <label>y 起點 <input type="range" id="gsY" min="0" max="7" value="0" aria-label="y 起點"> <b id="gsYv">0</b></label>
+        </div>
+        <div class="sim-body">
+          <div class="gg" id="gsGrid" aria-label="點陣"></div>
+          <div class="sim-bytes" id="gsBytes"></div>
+        </div>
+      </div>
+      <p>試試 <code>L</code>、y = 4：左邊那一直條在 page 0 是 <code>F0</code>、在 page 1 是 <code>07</code>。<code>test_glyph_across_a_page_boundary</code> 檢查的就是這兩個值。</p>
+    </div>
+  </section>
+
+  <section id="draw">
+    <div class="rail"><span class="no">10b.4</span><b>排版</b>畫進 frame</div>
+    <div class="content">
+      <h2>draw_char：一次一個點，邊界交給 set_pixel</h2>
+      <figure class="listing"><figcaption>apps/oled_text.h:140–150 — 每個 column byte 的每個 bit 一個點；表裡沒有的字畫 kBox；畫到面板外的點由 draw_pixel 丟掉</figcaption>
+<pre data-start="140" data-hot="147,148">// Top-left corner of the glyph at (x, y); pixels off the panel are dropped. false (and a box
+// drawn) when c is not in the font.
+inline bool draw_char(ssd1306::Frame &amp;f, int x, int y, char c)
+{
+    const std::uint8_t *g = glyph(c);
+    for (int col = 0; col &lt; kGlyphWidth; ++col)
+        for (int row = 0; row &lt; kGlyphHeight; ++row)
+            if ((g ? g : kBox)[col] &gt;&gt; row &amp; 1)
+                draw_pixel(f, x + col, y + row);
+    return g != nullptr;
+}</pre></figure>
+      <p>最直接的寫法是把 column byte 整個 OR 進畫面（<code>frame[page * 128 + x] |= g[col]</code>），只在 y 是 8 的倍數時才成立。這裡一個點一個點畫，y 是任何值都對，跨 page（10b.3 的 y = 4）不用特別處理；裁切也不用另外寫，<code>set_pixel()</code>（Step 9）本來就拒絕面板外的座標。代價是每個字跑 35 次迴圈，一張畫面最多 168 個字，和 99 ms 的 I2C 傳輸比起來可以忽略。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 300" role="img" aria-label="左邊：一個 6x8 的字格，裡面是 5x7 的 L，右邊一列與下面一列是空隙。右邊：128x64 面板分成 21 欄 8 行，每一行對應一個 page；第 21 欄只剩 x 126、127 兩個點，畫在那裡的字只露出前兩列。下方：一行 23 個 A，第 22 個字只露出兩列，第 23 個完全在面板外，兩個都算 clipped，不會換到下一行。">
+          <text class="s-mono" x="20" y="24">ONE CELL (6 × 8)</text>
+          <g transform="translate(20,36)">
+            <rect x="0" y="0" width="120" height="160" fill="none" stroke="var(--line)" stroke-width="1"/>
+            <rect x="0" y="0" width="20" height="140" fill="var(--accent)"/>
+            <rect x="20" y="120" width="80" height="20" fill="var(--accent)"/>
+            <rect x="100" y="0" width="20" height="160" fill="var(--surface-2)" stroke="var(--line)" stroke-dasharray="3 3"/>
+            <rect x="0" y="140" width="100" height="20" fill="var(--surface-2)" stroke="var(--line)" stroke-dasharray="3 3"/>
+          </g>
+          <text class="s-sm" x="20" y="218">字 5 × 7（綠）</text>
+          <text class="s-sm" x="20" y="236">右邊 1 欄、下面 1 列空隙</text>
+          <text class="s-sm" x="20" y="254">y = 8 × 行：一行落在一個 page</text>
+          <text class="s-mono" x="200" y="24">PANEL 128 × 64 = 21 COLUMNS × 8 LINES</text>
+          <g transform="translate(200,36)">
+            <rect x="0" y="0" width="512" height="160" fill="var(--surface-2)" stroke="var(--line)"/>
+            <line x1="0" y1="20" x2="512" y2="20" stroke="var(--line)"/>
+            <line x1="0" y1="40" x2="512" y2="40" stroke="var(--line)"/>
+            <line x1="0" y1="60" x2="512" y2="60" stroke="var(--line)"/>
+            <line x1="0" y1="80" x2="512" y2="80" stroke="var(--line)"/>
+            <line x1="0" y1="100" x2="512" y2="100" stroke="var(--line)"/>
+            <line x1="0" y1="120" x2="512" y2="120" stroke="var(--line)"/>
+            <line x1="0" y1="140" x2="512" y2="140" stroke="var(--line)"/>
+            <rect x="504" y="0" width="8" height="160" fill="var(--bad)" opacity="0.35"/>
+            <rect x="0" y="0" width="24" height="20" fill="var(--accent)" opacity="0.5"/>
+            <rect x="480" y="0" width="24" height="20" fill="var(--accent)" opacity="0.5"/>
+          </g>
+          <text class="s-sm" x="200" y="218">每格 24 × 20 = 一個字格；第 0 欄與第 20 欄標綠色</text>
+          <text class="s-sm" x="200" y="236">紅色窄條：x = 126、127，第 21 欄只剩這 2 個點</text>
+          <text class="s-mono" x="200" y="272">"AAAA…A" × 23 → 21 個完整 + 1 個剩 2 列 + 1 個看不到</text>
+          <text class="s-sm" x="200" y="290">clipped = 2，不換行：下一行仍是空的</text>
+        </svg>
+        <figcaption>圖 10.2 — 字格決定了排版的一切：一行 21 個字，一行一個 page。超出右邊的字照點裁切，所以第 22 個字會留下一條「殘影」（10b.8 驗收時人看到的那一條線）。</figcaption>
+      </figure>
+      <p>字串和行列定位：</p>
+      <figure class="listing"><figcaption>apps/oled_text.h:157–182 — 換行回到起始的 x；不完整顯示的字算 clipped；draw_text_at 只是把行、欄換成像素</figcaption>
+<pre data-start="157" data-hot="163,164,165,168,169,170,181">// '\n' starts the next line at the starting x, kCellHeight lower. A line longer than the
+// panel is cut at the right edge.
+inline Result draw_string(ssd1306::Frame &amp;f, int x, int y, const char *s)
+{
+    Result r;
+    for (int cx = x; *s; ++s) {
+        if (*s == '\n') {
+            cx = x;
+            y += kCellHeight;
+            continue;
+        }
+        if (cx &lt; 0 || cx + kGlyphWidth &gt; ssd1306::kWidth || y &lt; 0 ||
+            y + kGlyphHeight &gt; ssd1306::kHeight)
+            ++r.clipped;
+        if (!draw_char(f, cx, y, *s))
+            ++r.unsupported;
+        cx += kCellWidth;
+    }
+    return r;
+}
+
+// The same at a text position: line 0..7 from the top, column 0..20 from the left.
+inline Result draw_text_at(ssd1306::Frame &amp;f, int line, int column, const char *s)
+{
+    return draw_string(f, column * kCellWidth, line * kCellHeight, s);
+}</pre></figure>
+      <p><code>draw_text_at(line, column)</code> 讓呼叫者用文字座標思考（「第 2 行第 0 欄」），Step 10-c 排電壓、電流、功率三行就用它。換行回到<b>起始的 x</b> 而不是 0：在第 4 欄開始寫 <code>"A\nB"</code>，B 會在下一行的第 4 欄，對齊上一行。</p>
+    </div>
+  </section>
+
+  <section id="edges">
+    <div class="rail"><span class="no">10b.5</span><b>邊界</b>截斷、方框</div>
+    <div class="content">
+      <h2>畫不下、不認得，都畫，但要說</h2>
+      <p>phase04 列了要處理的情況，每一種都要選一個行為：</p>
+      <table>
+        <thead><tr><th>情況</th><th>選擇與理由</th></tr></thead>
+        <tbody>
+          <tr><td>一行太長（超過 21 字）</td><td><b>截斷，不換行</b>。Step 10-c 的畫面是固定版面（電壓一行、電流一行），數字變長時如果換行，下面每一行都會往下擠。截斷時這一行壞了，其他行還在原位。</td></tr>
+          <tr><td>x / y 在面板外（含負數）</td><td>照點裁切，部分在面板上的字照樣畫出看得到的部分。</td></tr>
+          <tr><td>表裡沒有的字元</td><td>畫空心方框（<code>kBox</code>），<b>字格照樣往右移</b>。跳過不畫的話後面的字會左移一格，看起來像拼錯字；畫方框一眼就看得出「這裡有一個字顯示不了」。</td></tr>
+          <tr><td><code>\n</code></td><td>下一行，回到起始 x。</td></tr>
+          <tr><td>超過 8 行</td><td>第 9 行起整行在面板外，算 clipped。</td></tr>
+        </tbody>
+      </table>
+      <p>前兩種都不是錯誤，函式照樣畫完，但把數量放在 <code>Result</code> 裡回傳，由呼叫者決定要不要說。<code>edge_oled_ctl</code> 的做法是畫完照樣寫出去、結束碼 0，在 stderr 報數量：</p>
+      <figure class="listing"><figcaption>apps/edge_oled_ctl.cpp:95–105 — text 從左上角開始；clipped / unsupported 印到 stderr，不影響結束碼</figcaption>
+<pre data-start="95" data-hot="99,100,101,102,103">        ssd1306::Frame f = ssd1306::test_picture(cmd);
+        if (!std::strcmp(cmd, "font")) {
+            f = oled_text::font_picture();
+        } else if (!std::strcmp(cmd, "text")) {
+            oled_text::Result r = oled_text::draw_text_at(f, 0, 0, text.c_str());
+            if (r.clipped)
+                std::fprintf(stderr, "%d character(s) clipped at the panel edge\n", r.clipped);
+            if (r.unsupported)
+                std::fprintf(stderr, "%d character(s) not in the font, drawn as a box\n",
+                             r.unsupported);
+        }</pre></figure>
+      <p>試一行 26 字、一行含 tab 的字串，再印出右上角與第二行：</p>
+<pre class="cmd">: &gt; build/frame.bin &amp;&amp; build/edge_oled_ctl --dev build/frame.bin text "0123456789ABCDEFGHIJKLMNOP" "TAB&lt;$(printf '\t')&gt;"; echo "exit $?"
+python3 -c "
+import sys; f = open(sys.argv[1], 'rb').read()
+for y in range(8): print(''.join('#' if f[y // 8 * 128 + x] &gt;&gt; y % 8 &amp; 1 else '.' for x in range(96, 128)))
+for y in range(8, 16): print(''.join('#' if f[y // 8 * 128 + x] &gt;&gt; y % 8 &amp; 1 else '.' for x in range(40)))
+" build/frame.bin</pre>
+<pre class="out" data-marks>5 character(s) clipped at the panel edge «1»
+1 character(s) not in the font, drawn as a box
+text: write on build/frame.bin
+exit 0
+.###..#...#..###....###.#...#.#. «2»
+#...#.#...#...#......#..#..#..#.
+#.....#...#...#......#..#.#...#.
+#.###.#####...#......#..##....#.
+#...#.#...#...#......#..#.#...#.
+#...#.#...#...#...#..#..#..#..#.
+.####.#...#..###...##...#...#.##
+................................
+#####..###..####.....#..#####..#........ «3»
+..#...#...#.#...#...#...#...#...#.......
+..#...#...#.#...#..#....#...#....#......
+..#...#...#.####..#.....#...#....#......
+..#...#####.#...#..#....#...#....#......
+..#...#...#.#...#...#...#...#...#.......
+..#...#...#.####.....#..#####..#........
+........................................</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>26 字，放得下 21 個，<code>L</code> 到 <code>P</code> 五個算 clipped；tab 一個算 unsupported。仍然寫出去了，結束碼 0。</span></li>
+        <li><span class="mk">2</span><span>x = 96–127：<code>G H I J K</code>，最右邊兩列是 <code>L</code> 的左直線與底下一個點（<code>L</code> 的 column 0 = <code>7F</code>、column 1 = <code>40</code>）。沒有換到下一行。</span></li>
+        <li><span class="mk">3</span><span>第二行左邊 40 個點：<code>T A B &lt;</code>，接著是空心方框（tab），然後 <code>&gt;</code>。方框佔了一個字格，<code>&gt;</code> 在它該在的第 5 欄。</span></li>
+      </ol>
+      <p>字型表（<code>edge_oled_ctl font</code>）也受同一個限制：phase04 的測試字串 <code>ABCDEFGHIJKLMNOPQRSTUVWXYZ</code> 有 26 字，一行放不下，所以拆成兩行：</p>
+      <figure class="listing"><figcaption>apps/oled_text.h:184–197 — 7 行涵蓋每一個可印字元；test_font_sheet_shows_every_glyph 檢查一個都沒漏、每行不超過 21 字</figcaption>
+<pre data-start="184" data-hot="185,186,187">// Every printable character once (the space is between "0123456789" and "EDGE").
+constexpr const char *kFontSheet[] = {
+    "ABCDEFGHIJKLM", "NOPQRSTUVWXYZ", "abcdefghijklm", "nopqrstuvwxyz",
+    "0123456789 EDGE", "!\"#$%&amp;'()*+,-./", ":;&lt;=&gt;?@[\\]^_`{|}~",
+};
+
+inline ssd1306::Frame font_picture()
+{
+    ssd1306::Frame f{};
+    int line = 0;
+    for (const char *s : kFontSheet)
+        draw_text_at(f, line++, 0, s);
+    return f;
+}</pre></figure>
+    </div>
+  </section>
+
+  <section id="flush">
+    <div class="rail"><span class="no">10b.6</span><b>driver</b>斷電之後</div>
+    <div class="content">
+      <h2>從 10-a 帶過來的：ACK 了，螢幕卻是黑的</h2>
+      <p>Step 10-a 的 driver 只在「傳輸失敗」之後重送 init。10-a 那章已經指出盲點：OLED 在兩次寫入<b>之間</b>斷電又接回，中間沒有人寫，driver 就不會知道。接回的晶片回到 power-on reset（display OFF、charge pump 關），下一次寫入的每個訊息都 ACK，可是只送了畫面。這在 10-a 是推論，phase04 要求<b>先寫重現步驟，再改</b>。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 276" role="img" aria-label="兩條時間線。上面是 Step 10-a 的 driver：寫入成功、面板亮；四條線拔掉、接回，晶片回到 reset，display OFF；下一次寫入只送 window 與 8 個 page，全部 ACK，write 回 1024，但面板仍然全黑，實測重現。下面是 Step 10-b：同樣的拔線與接回，下一次寫入先送設定，再送 window、8 個 page 與 Display ON，面板顯示 AFTER REPLUG。">
+          <defs>
+            <marker id="m10bR" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="28">STEP 10-A DRIVER</text>
+          <line class="sv-down" x1="20" y1="70" x2="700" y2="70" marker-end="url(#m10bR)"/>
+          <rect class="s-box" x="20" y="44" width="140" height="52" rx="7" style="stroke: var(--user)"/>
+          <text class="s-lbl" x="90" y="66" text-anchor="middle">write → 亮</text>
+          <text class="s-sm" x="90" y="86" text-anchor="middle">BEFORE UNPLUG</text>
+          <rect class="s-box" x="190" y="44" width="150" height="52" rx="7" style="stroke: var(--hw)"/>
+          <text class="s-lbl" x="265" y="66" text-anchor="middle">四條線拔、接</text>
+          <text class="s-sm" x="265" y="86" text-anchor="middle">reset：display OFF</text>
+          <rect class="s-box" x="370" y="44" width="320" height="52" rx="7" style="stroke: var(--bad)"/>
+          <text class="s-lbl" x="530" y="66" text-anchor="middle">write：window + 8 page，全部 ACK</text>
+          <text class="s-sm" x="530" y="86" text-anchor="middle">回 1024，面板仍全黑（實測）</text>
+          <text class="s-mono" x="14" y="148">STEP 10-B DRIVER</text>
+          <line class="sv-down" x1="20" y1="190" x2="700" y2="190" marker-end="url(#m10bR)"/>
+          <rect class="s-box" x="20" y="164" width="140" height="52" rx="7" style="stroke: var(--user)"/>
+          <text class="s-lbl" x="90" y="186" text-anchor="middle">write → 亮</text>
+          <text class="s-sm" x="90" y="206" text-anchor="middle">BEFORE UNPLUG</text>
+          <rect class="s-box" x="190" y="164" width="150" height="52" rx="7" style="stroke: var(--hw)"/>
+          <text class="s-lbl" x="265" y="186" text-anchor="middle">四條線拔、接</text>
+          <text class="s-sm" x="265" y="206" text-anchor="middle">reset：display OFF</text>
+          <rect class="s-box" x="370" y="164" width="320" height="52" rx="7" style="stroke: var(--ok)"/>
+          <text class="s-lbl" x="530" y="186" text-anchor="middle">write：設定 + window + 8 page + AF</text>
+          <text class="s-sm" x="530" y="206" text-anchor="middle">面板顯示 AFTER REPLUG（實測）</text>
+          <text class="s-sm" x="20" y="244">兩次的 I2C 都全部 ACK；差別只在「有沒有把晶片重新設定一次」。</text>
+          <text class="s-sm" x="20" y="262">SSD1306 在 I2C 下讀不回 display RAM，driver 無從得知它被 reset 過。</text>
+        </svg>
+        <figcaption>圖 10.3 — 同一個拔線動作，兩版 driver。上面那一條是這一步先在舊 driver 上跑出來的紅燈；ACK 只證明「有晶片在」，不證明「晶片是我設定過的那個狀態」。</figcaption>
+      </figure>
+      <p>能不能偵測？SSD1306 在 I2C 模式下讀不回 display RAM（Step 9 的筆記），這個 driver 也沒有任何讀取路徑可以問「你是不是剛被 reset」。剩下的做法是每次都重送設定。成本是 init 序列 24 byte（去掉開頭的 Display OFF）和 1 byte 的 Display ON，兩個訊息連同位址與 control byte 共 29 byte，100 kHz 下約 2.6 ms：</p>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:73–106 — 設定每次都送；已經亮著時跳過開頭的 Display OFF；Display ON 每張畫面之後都送</figcaption>
+<pre data-start="73" data-hot="90,91,92,94,102,103">/*
+ * Put the frame src on the panel. The settings go out before every frame, not only after a
+ * failure (Step 10-b): an OLED that lost power between two writes is back at its reset state
+ * (display off) but ACKs as before, and the SSD1306 cannot be read over I2C to tell. That
+ * costs two more messages, 29 bytes on the wire with address and control bytes, about
+ * 2.6 ms at 100 kHz on top of a 1050-byte frame.
+ */
+static int edge_oled_flush(struct edge_oled *oled, const u8 *src)
+{
+	static const u8 on = EDGE_OLED_CMD_DISPLAY_ON;
+	const u8 *seq = edge_oled_init_seq;
+	size_t len = sizeof(edge_oled_init_seq);
+	int page, ret;
+
+	/*
+	 * Display OFF (the first byte) only before the first frame, so the old RAM content
+	 * never flashes up; a refresh of a lit panel must not blink it.
+	 */
+	if (oled-&gt;initialized) {
+		seq++;
+		len--;
+	}
+	ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, seq, len);
+	if (!ret)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_window,
+				     sizeof(edge_oled_window));
+	for (page = 0; !ret &amp;&amp; page &lt; EDGE_OLED_PAGES; page++)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_DATA,
+				     src + page * EDGE_OLED_WIDTH, EDGE_OLED_WIDTH);
+	/* After the frame, every time: a panel that was reset is still off until here. */
+	if (!ret)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &amp;on, 1);
+	oled-&gt;initialized = ret == 0;
+	return ret;</pre></figure>
+      <p>兩個細節：</p>
+      <ul>
+        <li><b>為什麼要跳過 Display OFF</b>。init 序列的第一個 byte 是 <code>AE</code>（Display OFF），照抄的話每次刷新都先關掉面板、送完 99 ms 的畫面再打開，等於每次刷新閃一下黑。<code>initialized</code> 的意思因此改成「上一次 flush 讓面板亮著」：亮著就從第二個 byte 送起；第一次（probe）和任何失敗之後才送完整的序列，舊的 RAM 內容不會閃出來。驗收時連續刷新 5 次，人確認沒有閃黑。</li>
+        <li><b>對亮著的面板重送設定安全嗎</b>。送的值和現在的值相同（同一份序列），charge pump、contrast、addressing 都不會改變；被別人改過的（例如 <code>oled_probe --force</code> 送了反白）反而會被蓋回來。後者是推論，這一步沒測。</li>
+      </ul>
+      <p>改完之後的不回歸：Step 10-a 的驗收腳本（<code>--no-unplug</code>）全過，唯一變的數字是每張畫面 <b>96.4 → 99.2 ms</b>，多的 2.8 ms 對得上多送的 29 byte 與兩次 START / STOP。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">10b.7</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：字型對古典表，方向對 GDDRAM</h2>
+      <ul>
+        <li><b><code>tests/test_oled_text.cpp</code></b>：15 組向量，期望值來自古典 5x7 表與 Step 9 在面板上驗證過的 GDDRAM 版面，不是從實作抄來的。只涵蓋 0x20–0x7E；每個字都不用第 8 列、彼此不重複；10 個字和古典表相同；D / E / G 和 Step 9 相同；<code>L</code> 的直條在左、底在下（沒鏡像、沒顛倒）；跨 page；四邊裁切；剛好貼邊的計數；方框；換行；長行截斷不換行；行列定位；phase04 的三行；clear；字型表涵蓋每個字元。</li>
+        <li><b><code>tests/test_edge_oled_text.py</code></b>：<span data-tests="tests/test_edge_oled_text.py">20</span> 個，不需要硬體：跑上面的向量、renderer 沒有 I/O 也沒有 INA219；<code>edge_oled_ctl text / font</code> 寫進普通檔案的 byte（6 個）；driver 每次 flush 都送設定與 Display ON、Display OFF 只在第一次、driver 裡仍然沒有字型（4 個）；驗收腳本（8 個，包括「拔線到問『全黑嗎』之間不能有任何寫入」）。</li>
+      </ul>
+      <p>實作前先跑：10 個 fail、2 個 error（<code>edge_oled_ctl</code> 建置失敗，蓋住 6 個 CLI 案例）；「driver 裡沒有字型」是守門測試，先就會過。renderer 寫完後向量還紅了一次，是<b>測試寫錯</b>：我以為第 21 欄整格在面板外，其實 21 × 6 = 126，那格的前兩列還在（就是 10b.5 的那條線）。Step 10-a 的一個 static 測試被新寫法弄紅：它檢查 <code>if (!oled-&gt;initialized)</code> 這個字面，守的性質是「失敗後下一次送完整 init」，新寫法仍然成立，所以只改 regex。</p>
+      <p>變異測試：把 <code>apps/oled_text.h</code> 改壞八種（column 左右顛倒、row 上下顛倒、字格寬 5、換行只下移 7 個點、換行回到 x = 0、接受 DEL、方框改成空白、<code>A</code> 的 byte 改錯），向量都會紅。右緣與底緣的截斷計數差一（<code>&gt; 128</code> 寫成 <code>&gt; 129</code>）<b class="hl-bad">第一次沒抓到</b>，補了「剛好貼邊」的向量才紅。自己跑向量：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_oled_text &gt;/dev/null &amp;&amp; build/test_oled_text
+python3 -m unittest discover -s tests -p test_edge_oled_text.py</pre>
+<pre class="out">OK (0 failure(s))
+....................
+----------------------------------------------------------------------
+Ran 20 tests in 0.344s
+
+OK</pre>
+      <p>秒數會不同。第二行不需要 OLED 也不需要 root；驗收腳本那幾個測試只讀腳本的文字。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">10b.8</span><b>驗收</b>人眼</div>
+    <div class="content">
+      <h2>實測：先紅，再綠</h2>
+      <p>前提和 Step 10-a 相同：overlay 已裝、重開機，OLED 接在 pin 17/20/27/28，<code>edge_oled</code> 沒有載入。在 repo 根目錄、在終端機裡跑（要 root；腳本會讀鍵盤，不能用管線或背景執行）：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_oled_text.sh</pre>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>make</code> module、<code>cmake --build</code></td><td>腳本以你的身分建置 <code>edge_oled.ko</code>、<code>edge_oled_ctl</code>、<code>test_oled_text</code>，並先跑向量。</td></tr>
+          <tr><td>insmod / rmmod</td><td>腳本 insmod 自己建的那一份，EXIT trap 會 rmmod。已經載入的話它直接結束（結束碼 2），不動你載入的那一份。</td></tr>
+          <tr><td>拔線前後自己下指令</td><td>腳本會停下來等 Enter；拔線到問「全黑嗎」之間它<b>不寫任何東西</b>，這正是要重現的情境。</td></tr>
+        </tbody>
+      </table>
+      <p>第一輪在改 driver <b>之前</b>跑（2026-10-14），重點是最後一段：</p>
+<pre class="out" data-marks>== OLED off and on again with no write in between (--no-unplug skips this)
+&gt;&gt;&gt; Disconnect all four wires of the OLED (VCC, GND, SDA, SCL), then press Enter
+&gt;&gt;&gt; Reconnect all four wires, then press Enter
+&gt;&gt;&gt; Reconnected: is the panel dark (power-on reset)? [y/n] y
+PASS power-on reset seen
+    text: write on /dev/edge_oled «1»
+&gt;&gt;&gt; AFTER REPLUG shown (the first write after power came back)? [y/n] n
+FAIL ctl text AFTER REPLUG: person answered no to 'AFTER REPLUG shown (the first write after power came back)?'</pre>
+      <p><span class="mk">1</span> 這行證明寫入<b>成功了</b>（結束碼 0、所有訊息 ACK），人看到的卻是<b class="hl-bad">全黑</b>：10-a 的推論成立。這一輪還有另一個 FAIL（刷新那一題），是腳本的問題，見 10b.9 的第一格。</p>
+      <p>改 driver 後的第二輪，完整輸出：</p>
+<pre class="out" data-marks>PASS build edge_oled.ko
+PASS build edge_oled_ctl, test_oled_text (CMake)
+PASS font vectors
+PASS 1-003c bound to edge_oled
+== text from userspace
+    font: write on /dev/edge_oled «1»
+&gt;&gt;&gt; Font sheet: 7 lines from the top-left, first 'ABCDEFGHIJKLM', then N..Z, a..m, n..z, '0123456789 EDGE' and two lines of punctuation; nothing mirrored, upside down or shifted between lines? [y/n] y
+PASS ctl font: Font sheet: 7 lines from the top-left, first 'ABCDEFGHIJKLM', then N..Z, a..m, n..z, '0123456789 EDGE' and two lines of punctuation; nothing mirrored, upside down or shifted between lines?
+    text: write on /dev/edge_oled
+&gt;&gt;&gt; Three lines at the top-left: EDGE / LINE 2 / 123456? [y/n] y «2»
+PASS ctl text EDGE LINE 2 123456: Three lines at the top-left: EDGE / LINE 2 / 123456?
+    5 character(s) clipped at the panel edge
+    1 character(s) not in the font, drawn as a box
+    text: write on /dev/edge_oled
+PASS edge_oled_ctl reports 5 clipped and 1 unsupported character
+&gt;&gt;&gt; Line 1 ends with K, then (the first two columns of L) a vertical line at the right edge, not wrapped to line 2; line 2 reads TAB&lt; then a hollow box then &gt;? [y/n] y
+PASS long line clipped, unsupported character drawn as a box «3»
+== five refreshes, one per second: the panel must not blink black between them
+&gt;&gt;&gt; Look at the OLED (it shows REFRESH 0/5), keep watching, then press Enter
+&gt;&gt;&gt; Did EDGE stay lit the whole time, with no blink to black at any refresh? [y/n] y «4»
+PASS refresh does not blank the panel
+== OLED off and on again with no write in between (--no-unplug skips this)
+&gt;&gt;&gt; Disconnect all four wires of the OLED (VCC, GND, SDA, SCL), then press Enter
+&gt;&gt;&gt; Reconnect all four wires, then press Enter
+&gt;&gt;&gt; Reconnected: is the panel dark (power-on reset)? [y/n] y «5»
+PASS power-on reset seen
+    text: write on /dev/edge_oled
+&gt;&gt;&gt; AFTER REPLUG shown (the first write after power came back)? [y/n] y «6»
+PASS ctl text AFTER REPLUG: AFTER REPLUG shown (the first write after power came back)?
+PASS dmesg free of Oops/BUG/WARNING
+    [ 6441.948616] edge_oled text verify 11350 1791952830
+    [ 6442.053000] edge_oled 1-003c: probed: 128x64, /dev/edge_oled
+    [ 6512.505008] edge_oled 1-003c: removed
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>每個可印字元都上過面板一次，<b class="hl-ok">沒有鏡像、沒有顛倒、行與行之間沒有錯位</b>：字型表的方向和 GDDRAM 的 page 版面都對。</span></li>
+        <li><span class="mk">2</span><span><b class="hl-ok">phase04 的驗收條件</b>：多行文字 <code>EDGE</code> / <code>LINE 2</code> / <code>123456</code>。</span></li>
+        <li><span class="mk">3</span><span>和 10b.5 在檔案裡看到的相同：截斷、那條 <code>L</code> 的殘影、方框。</span></li>
+        <li><span class="mk">4</span><span>每秒刷新一次，每次都重送設定，<b class="hl-ok">沒有閃黑</b>：跳過 Display OFF 是必要的。</span></li>
+        <li><span class="mk">5</span><span>接回後全黑：真的經過 power-on reset（Step 9 學到只拔 VCC 不算）。從拔線到這裡，腳本沒寫任何東西。</span></li>
+        <li><span class="mk">6</span><span>同一個情境，第一輪是黑的，這一輪 <b class="hl-ok">字出來了</b>。差別只在 driver 每次重送設定。</span></li>
+      </ol>
+      <p>你的時間戳記會不同。開機後第一次 insmod 時 dmesg 還會多一行 <code>module verification failed</code>（out-of-tree module 沒簽章，不是錯誤）。不方便拔線就加 <code>--no-unplug</code>，⑤⑥會變成 <code>SKIP</code>。之後又改了 driver 的一段註解（29 byte 的算法），程式碼沒變，沒有重跑。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：Step 10-a 腳本的「綁定中拔線讓寫入失敗」那段（這次加 <code>--no-unplug</code>；失敗處理沒改）；長時間連續刷新（只刷了 5 次，Step 10-c 會長時間跑）；重送設定能蓋回被 <code>oled_probe --force</code> 改過的狀態。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">10b.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>一題問兩件事</h4><dl><dt>症狀</dt><dd>第一輪刷新題問「有沒有從 1 數到 5、沒有閃黑」，按完 Enter 就開始刷；人抬頭時 <code>1/5</code> 已經過了，答 n。</dd><dt>後果</dt><dd>畫面沒閃，卻記了一個 FAIL；人看漏任何一件事就答 n。</dd><dt>正解</dt><dd class="fix">按 Enter 前先把 <code>REFRESH 0/5</code> 畫上去，每秒一次，題目只問閃黑。先寫測試看紅燈才改腳本。</dd></dl></div>
+        <div class="pit"><h4>照抄 init 序列重送</h4><dl><dt>症狀</dt><dd>（設計時發現）init 的第一個 byte 是 Display OFF。</dd><dt>後果</dt><dd>每次刷新先關面板、送 99 ms 畫面、再開：每秒閃一次黑。</dd><dt>正解</dt><dd class="fix">面板亮著時從第二個 byte 送起；Display ON 每張畫面後都送。</dd></dl></div>
+        <div class="pit"><h4>以為整格在面板外</h4><dl><dt>症狀</dt><dd>測試假設第 21 欄畫不出任何點，向量紅。</dd><dt>後果</dt><dd>21 × 6 = 126，那一格的前兩列還在面板上；是測試錯，不是實作錯。</dd><dt>正解</dt><dd class="fix">改用第 22 欄並寫註解；同一件事在驗收時變成「K 右邊那條線」，題目也照實寫。</dd></dl></div>
+        <div class="pit"><h4>人看不懂的題目</h4><dl><dt>症狀</dt><dd>題目寫「a thin sliver at the right edge」，人回答時反問「K 的右邊還有一條線，是嗎？」。</dd><dt>後果</dt><dd>答案靠猜，y 不代表看到了對的東西。</dd><dt>正解</dt><dd class="fix">題目直接說那是 <code>L</code> 的前兩列、一條直線。</dd></dl></div>
+        <div class="pit"><h4>變異沒殺掉就以為測試夠</h4><dl><dt>症狀</dt><dd>截斷計數差一（<code>&gt; 129</code>）時向量全綠。</dd><dt>後果</dt><dd>剛好貼在最後一欄或最後一列的字會被少算或多算 clipped，沒有人會發現。</dd><dt>正解</dt><dd class="fix">補「x = 123、y = 57 剛好貼邊 vs. 多一個點」的向量，在變異下紅、正常下綠。</dd></dl></div>
+        <div class="pit"><h4>照 phase 文件的估算動工</h4><dl><dt>症狀</dt><dd>這一次有把測試與腳本一起估：650 行。</dd><dt>後果</dt><dd>寫完非空白約 813 行，略超 800；多的主要是 C++ 向量（估 170、寫了 275）。</dd><dt>正解</dt><dd class="fix">向量檔也照「每條性質一個函式」估；接近上限時先問要不要拆。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">10b.10</span><b>收尾</b>10-b → 10-c</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y"><code>apps/oled_text.h</code>：5x7 ASCII 字型（95 字）、<code>clear</code> / <code>draw_pixel</code> / <code>draw_char</code> / <code>draw_string</code> / <code>draw_text_at</code>；換行、截斷、方框，數量回報給呼叫者。沒有 I/O，driver 沒有任何字型。</li>
+        <li class="y"><code>edge_oled_ctl text LINE...</code> 與 <code>font</code>。</li>
+        <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：多行文字 <code>EDGE</code> / <code>LINE 2</code> / <code>123456</code>，字型表沒有鏡像、顛倒、跨 page 錯位。</li>
+        <li class="y">10-a 的帶過來項目：先在舊 driver 上重現（ACK 但全黑），改成每次 flush 都送設定，再跑通過；刷新不閃黑；10-a 的驗收不回歸（96.4 → 99.2 ms）。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">測試：15 組字型向量（八種改法會紅）、<span data-tests="tests/test_edge_oled_text.py">20</span> 個 Python 測試。</li>
+        <li class="n">沒有實測：綁定中拔線（這次 <code>--no-unplug</code>）、長時間刷新、蓋回被改過的狀態；規模略超 800 行。</li>
+      </ul>
+      <p>Step 10-c 把 Step 8 的 hwmon 讀數接上來：一個 userspace 程式每秒讀 <code>in1_input</code>、<code>curr1_input</code>、<code>power1_input</code>，用 <code>draw_text_at</code> 排成固定的幾行，整張寫進 <code>/dev/edge_oled</code>。這一步選的「截斷不換行」和「每次重送設定」都是為它準備的：數字變長時版面不亂，OLED 鬆脫再接回時下一秒就恢復。</p>
+      <details class="quiz"><summary>1. 為什麼在第 4 欄寫 <code>"A\nB"</code> 時，B 落在下一行的第 4 欄，而不是第 0 欄？</summary><p><code>draw_string</code> 遇到 <code>\n</code> 時把 x 設回呼叫時給的起始 x（<code>cx = x</code>），y 加 8。這樣從某一欄開始的多行文字會左邊對齊。</p></details>
+      <details class="quiz"><summary>2. 字串裡有一個中文字「電」（UTF-8 三個 byte），<code>edge_oled_ctl</code> 會報幾個 unsupported？畫面上有幾個方框？</summary><p>3 個、3 個方框。<code>glyph()</code> 一次看一個 byte，三個 byte 都 ≥ 0x80，各自畫成一個方框、各佔一個字格。</p></details>
+      <details class="quiz"><summary>3. driver 每次 flush 都送設定，為什麼第一次（probe）還要多送一個 Display OFF？</summary><p>probe 時面板上可能還留著別人畫的東西（10-a 驗收時是反白的 EDGE）。先關顯示、送完新的畫面再開，舊的 RAM 內容就不會在設定生效的那一瞬間閃出來。之後面板上一定是自己送過的畫面，就不需要了。</p></details>
+      <details class="quiz"><summary>4. 只看 I2C 有沒有 ACK，能不能判斷 OLED 是否被 reset 過？</summary><p>不能。reset 後的晶片照樣 ACK 每一個 byte，只是 display OFF、設定回到預設值。SSD1306 在 I2C 下又讀不回 display RAM，driver 沒有東西可以查，所以選擇每次都把設定送一遍。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10a.html">← Step 10-a</a><span class="disabled">Step 10-c →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A simulation with apps/oled_text.h's font table (generated from it), not the panel.
+  var FONT = [[0,0,0,0,0],[0,0,95,0,0],[0,7,0,7,0],[20,127,20,127,20],[36,42,127,42,18],[35,19,8,100,98],[54,73,85,34,80],[0,5,3,0,0],[0,28,34,65,0],[0,65,34,28,0],[8,42,28,42,8],[8,8,62,8,8],[0,80,48,0,0],[8,8,8,8,8],[0,96,96,0,0],[32,16,8,4,2],[62,81,73,69,62],[0,66,127,64,0],[66,97,81,73,70],[33,65,69,75,49],[24,20,18,127,16],[39,69,69,69,57],[60,74,73,73,48],[1,113,9,5,3],[54,73,73,73,54],[6,73,73,41,30],[0,54,54,0,0],[0,86,54,0,0],[8,20,34,65,0],[20,20,20,20,20],[0,65,34,20,8],[2,1,81,9,6],[50,73,121,65,62],[126,17,17,17,126],[127,73,73,73,54],[62,65,65,65,34],[127,65,65,34,28],[127,73,73,73,65],[127,9,9,9,1],[62,65,73,73,122],[127,8,8,8,127],[0,65,127,65,0],[32,64,65,63,1],[127,8,20,34,65],[127,64,64,64,64],[127,2,12,2,127],[127,4,8,16,127],[62,65,65,65,62],[127,9,9,9,6],[62,65,81,33,94],[127,9,25,41,70],[70,73,73,73,49],[1,1,127,1,1],[63,64,64,64,63],[31,32,64,32,31],[63,64,56,64,63],[99,20,8,20,99],[7,8,112,8,7],[97,81,73,69,67],[0,127,65,65,0],[2,4,8,16,32],[0,65,65,127,0],[4,2,1,2,4],[64,64,64,64,64],[0,1,2,4,0],[32,84,84,84,120],[127,72,68,68,56],[56,68,68,68,32],[56,68,68,72,127],[56,84,84,84,24],[8,126,9,1,2],[12,82,82,82,62],[127,8,4,4,120],[0,68,125,64,0],[32,64,68,61,0],[127,16,40,68,0],[0,65,127,64,0],[124,4,24,4,120],[124,8,4,4,120],[56,68,68,68,56],[124,20,20,20,8],[8,20,20,24,124],[124,8,4,4,8],[72,84,84,84,32],[4,63,68,64,32],[60,64,64,32,124],[28,32,64,32,28],[60,64,48,64,60],[68,40,16,40,68],[12,80,80,80,60],[68,100,84,76,68],[0,8,54,65,0],[0,0,127,0,0],[0,65,54,8,0],[16,8,8,16,8]];
+  var BOX = [0x7F, 0x41, 0x41, 0x41, 0x7F];
+  var chEl = document.getElementById('gsChar'), yEl = document.getElementById('gsY');
+  var yv = document.getElementById('gsYv'), grid = document.getElementById('gsGrid'), out = document.getElementById('gsBytes');
+  function hex(b) { return ('0' + b.toString(16).toUpperCase()).slice(-2); }
+  function render() {
+    var c = chEl.value || ' ', code = c.charCodeAt(0), y0 = parseInt(yEl.value, 10);
+    var g = code >= 0x20 && code <= 0x7E ? FONT[code - 0x20] : BOX;
+    yv.textContent = y0;
+    var html = '';
+    for (var y = 0; y < 16; y++) {
+      if (y === 8) html += '<div class="sep"></div>';
+      html += '<div class="rl' + (y % 8 === 0 ? ' p' : '') + '">' + (y % 8 === 0 ? 'p' + (y / 8) + ' ' : '') + 'y' + y + '</div>';
+      for (var x = 0; x < 6; x++) {
+        var row = y - y0, on = x < 5 && row >= 0 && row < 7 && (g[x] >> row & 1);
+        html += '<div class="px' + (on ? ' on' : '') + (x === 5 ? ' gap' : '') + '"></div>';
+      }
+    }
+    grid.innerHTML = html;
+    var p0 = [], p1 = [];
+    for (var x = 0; x < 5; x++) { var w = g[x] << y0; p0.push(hex(w & 0xFF)); p1.push(hex(w >> 8 & 0xFF)); }
+    out.innerHTML = '<div>glyph（column 0–4）：<b>' + g.map(hex).join(' ') + '</b>' + (g === BOX ? '（表裡沒有，畫方框）' : '') + '</div>' +
+      '<div>page 0，x 0–4：<b>' + p0.join(' ') + '</b></div>' +
+      '<div>page 1，x 0–4：<b>' + p1.join(' ') + '</b></div>' +
+      '<div>每個 byte = glyph byte &lt;&lt; y（低 8 bit 進 page 0、高位進 page 1）</div>';
+  }
+  chEl.addEventListener('input', render);
+  yEl.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

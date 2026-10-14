@@ -307,6 +307,26 @@ EDGE
 ### 從 Step 10-a 帶過來的
 
 - `edge_oled` 只在傳輸**失敗**後重送 init。OLED 在兩次寫入之間斷電又接回（中間沒人寫）時，下一次寫入會 ACK、只送 frame，螢幕仍是黑的（依 reset 狀態推論，未實測）。Step 10-c 會週期刷新，等於長時間顯示，這裡要決定：每次 flush 都送 init（約 27 byte，100 kHz 下約 2.5 ms），或其他偵測方式；先寫重現步驟（寫入之間四條線全拔再接回）再改
+- **結案（Step 10-b）**：先寫重現步驟進 `scripts/verify_edge_oled_text.sh`，舊 driver 實測重現（接回後寫入成功、螢幕全黑）；改成每次 flush 都送設定，再跑一次通過。
+
+### 實作決策（Step 10-b 落地時裁決）
+
+- 誰和誰互動：`edge_oled_ctl text` / `font`（userspace，`apps/oled_text.h` 把字畫進 frame）→ `write()` 1024 byte → `/dev/edge_oled` → `edge_oled.ko` → `i2c_master_send()` → i2c-tegra（`i2c-1`，controller）→ SSD1306（target，0x3C）。**字型與排版全在 userspace**，driver 仍然只收整張 frame（不加 text ioctl），`test_still_no_font_in_the_driver` 守著
+- 字型：古典 5x7（每字 5 個 column byte，bit 0 在上，和 GDDRAM byte 同方向），涵蓋 `' '`..`'~'`（0x20–0x7E，95 字）；D / E / G 和 Step 9 的 `ssd1306::glyph()` 逐 byte 相同。字格 6x8，128x64 = 21 欄 x 8 行，`y = 8 * line` 時一行剛好落在一個 page
+- API（`oled_text::`）：`clear()`、`draw_pixel()`、`draw_char()`、`draw_string()`（`'\n'` 回到起始 x、往下 8 px）、`draw_text_at(line, column)`；回傳 `Result{clipped, unsupported}`
+- 一行太長：**截斷不換行**（之後 Step 10-c 的版面不會因為數字變長而整個往下移）；部分在面板上的字照像素裁切，計入 `clipped`。不支援的字元（控制字元、DEL、UTF-8 的 byte）畫成空心方框，保留字格位置，計入 `unsupported`。`edge_oled_ctl` 把兩個計數印到 stderr、結束碼仍是 0
+- phase04 的 `ABCDEFGHIJKLMNOPQRSTUVWXYZ` 是 26 字、一行只放得下 21 字，字型表（`kFontSheet`）拆成 `A..M` / `N..Z` 兩行，另外加小寫與標點兩行，每個可印字元都出現一次
+- Step 10-a 的帶過來項目：每次 flush 都送 init sequence（已經亮著時跳過開頭的 Display OFF，刷新才不會閃黑），frame 之後每次都送 Display ON。SSD1306 在 I2C 模式下讀不回狀態，沒有別的偵測方式。代價：每張 frame 多 2 個訊息、線上 29 byte（約 2.6 ms），實測 96.4 → 99.2 ms
+- 規模：非空白新增約 813 行（產品碼 243：`oled_text.h` 183、`edge_oled_ctl` 29、driver 29、CMake 2；測試 436；驗收腳本 134），動工前估 650，略超 800 行上限
+
+### 預期檔案（Step 10-b）
+
+```text
+apps/oled_text.h（5x7 font、draw_*）、apps/edge_oled_ctl.cpp（text / font）
+kernel/edge_oled/edge_oled.c（每次 flush 都送設定）
+tests/test_oled_text.cpp、tests/test_edge_oled_text.py
+scripts/verify_edge_oled_text.sh
+```
 
 ### 這一步不做
 
