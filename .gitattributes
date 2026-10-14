@@ -1,0 +1,5 @@
+# Step 11: vendor files copied byte for byte (SHA-256 in firmware/stm32f103/vendor.sha256).
+firmware/stm32f103/Start/** -text
+firmware/stm32f103/Library/** -text
+firmware/stm32f103/startup/** -text
+firmware/stm32f103/ldscript/** -text

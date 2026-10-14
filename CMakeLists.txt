@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(embedded_linux_platform CXX)
+project(embedded_linux_platform C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,3 +49,7 @@ add_executable(test_oled_text tests/test_oled_text.cpp)
 add_executable(telemetry_display apps/telemetry_display.cpp)
 target_include_directories(telemetry_display PRIVATE include)
 add_executable(test_telemetry tests/test_telemetry.cpp)
+
+# Step 11: the STM32F103 firmware's I2C register protocol (pure C, no SPL) on the host.
+add_executable(test_i2c_target tests/test_i2c_target.cpp firmware/stm32f103/Core/Src/i2c_target.c)
+target_include_directories(test_i2c_target PRIVATE firmware/stm32f103/Core/Inc)
