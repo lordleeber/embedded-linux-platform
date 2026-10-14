@@ -44,3 +44,8 @@ target_include_directories(test_edge_oled_proto PRIVATE include)
 
 # Step 10-b: text into the frame (apps/oled_text.h, 5x7 font), drawn by edge_oled_ctl text / font.
 add_executable(test_oled_text tests/test_oled_text.cpp)
+
+# Step 10-c: INA219 hwmon values on the OLED (userspace only; policy in apps/telemetry.h).
+add_executable(telemetry_display apps/telemetry_display.cpp)
+target_include_directories(telemetry_display PRIVATE include)
+add_executable(test_telemetry tests/test_telemetry.cpp)

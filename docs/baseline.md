@@ -437,3 +437,28 @@
   - 排到 Step 10-c（寫進 phase04）：面板亮著時每次重送 `D5` / `A8` / `8D` 等設定，datasheet 沒保證不閃，只看了 5 次刷新。reviewer 建議「平常只送 charge pump + Display ON、失敗後才送完整 init」**不採用**：這次要修的就是沒有失敗的斷電，晶片回到 reset 值（page addressing、`A0` / `C0`、contrast 等，依 datasheet 的 reset 欄位，憑記憶、未重查），只送那兩個會變成畫面鏡像、顛倒、排錯。10-c 長時間刷新時人眼觀察，看到問題再只送和 reset 值不同的設定。
   - 不改：`oled_text.h` 與 `ssd1306.h` 各有一份 D / E / G（刻意，`test_edge_letters_are_step9s` 靠它互相比對；合併要讓 Step 9 的 header 反過來依賴 10-b 並動 Step 9 章的節錄）；`clear()` / `draw_pixel()` 只是轉呼叫（phase04 明文要求這兩個 API 名稱）。
   - 修正前新增的 4 個測試都紅過：C++ 向量 1 組（2 個 CHECK 失敗）、`test_edge_oled_text.py` 2 個、收緊的 10-a 測試（對舊 driver）。driver 沒改，不需要重跑硬體。`test_oled_text.cpp` 15 → 16 組、`test_edge_oled_text.py` 20 → 22 個；全套 321 個，`OK (skipped=65)`。
+
+## Step 10-c：電池數值上 OLED（`apps/telemetry_display.cpp`，userspace，driver 不改）
+
+- 驗收主機與接線：UPS Power Module (C) 的 INA219 在 `i2c-7` 0x41（Step 6-a 起），SSD1306 在 `i2c-1` 0x3C（Step 9 起），overlay 同 Step 10-a。兩個 driver 都沒改。
+- 對照方法：新增 `sudo bash scripts/verify_telemetry_display.sh`（人在板子旁回答 y/n）。對照組是 Step 8 的 hwmon：app 的數值要和同一時間直接讀 hwmon 的值一致，容差沿用 Step 7（bus 40 mV、電流 50 mA）；百分比對照廠商 `ina219.py` 的公式。
+- 第一輪（2026-10-14，還沒有百分比，含拔線）`=== 1 failure(s)`：
+  - app `#3 V=12524 I=1275 P=15964460`，同時 hwmon `12524 mV / 1273 mA / 15937019 uW`；人確認畫面。
+  - unbind `7-0041`：app 印 `V=- I=- P=-`，畫面 `--.--` 與 `NO SENSOR`，計數器照走；bind 回來（仍是 `hwmon4`）不重啟 app 數值就回來。
+  - OLED 四條線全拔再接回：app 一直在跑，stderr 只有一行 `telemetry_display: /dev/edge_oled: Remote I/O error`，接回後畫面自己回來（Step 10-b 的每次重送設定）。
+  - 180 次刷新 / 3 分鐘，每次 `oled=ok`；人眼沒看到閃爍或亮度掉，但這題被記成 FAIL：見踩坑第一條（腳本的漏洞，人是事後口頭回報）。
+  - SIGTERM 給 process group：2 秒內結束、結束碼 0、`pgrep` 無殘留、畫面全黑。
+- 第二輪（同日，加了百分比與腳本修正，`--no-unplug`）`=== 0 failure(s)`：app `#3 V=12528 I=963 P=12064814`，hwmon `12528 mV / 962 mA / 12049569 uW`，廠商公式 `BAT 98.00 %`，人確認畫面相同；unbind / bind、30 秒 30 次刷新無閃爍、SIGTERM 收尾同第一輪。dmesg 無 Oops。
+- 容差：數值同 Step 7；百分比和廠商公式逐字相同（整數算法，k/9 的小數不會落在 .5 上，所以和 Python 的浮點 `{:6.2f}` 沒有捨入分歧）；刷新次數 ±2 次。
+- **未實測**：hwmon 在實機上換號（這台 unbind / bind 後仍是 `hwmon4`；換號只用假的 hwmon 目錄改名測過）；長時間（數小時）執行；第二輪的拔線（第一輪已過，之後 app 只改了顯示文字）；Calibration 0 造成的 `ENODATA`（Step 8 驗過 hwmon 端，app 端只用「檔案不見」模擬讀取失敗）。
+- 自動測試：`tests/test_telemetry.cpp` 8 組向量（sysfs 整數解析、0.01 四捨五入與無負零、新鮮的畫面、讀取失敗保留舊值到過時、過時的 channel、沒有 sensor、計數器與 21 欄、百分比對廠商公式 12 個值）；`tests/test_telemetry_display.py` 17 個（向量 1、app 7（選 hwmon 靠 name、沒 sensor、channel 過時、hwmon 換號、OLED 寫入失敗、SIGTERM / SIGINT 清空畫面且 0.5 秒內結束、用法）、範圍 1、驗收腳本 8）。app 的期望畫面由 Step 10-b 的 `edge_oled_ctl text` 畫，不是由 app 自己的程式碼產生。全套 338 個，`OK (skipped=65)`。
+- 紅燈紀錄：實作前 `test_telemetry_display.py` 7 failures、3 errors（`AppTest` 的 `setUpClass` 建置失敗，蓋住 7 個）；`test_telemetry` 編不過。實作後 app 的 7 個第一次就綠；驗收腳本有 1 個是測試太死板（要找字面 `edge_ina219/unbind`，腳本寫 `$INA_DRV/unbind`），改測試。之後三次改動都先紅：發問前清掉 tty 輸入、`--watch-seconds`、百分比（向量編不過、3 個 app 測試因畫面第一行不同而紅）。變異：stale 用 `>=`、截斷代替四捨五入、負零、失敗時丟掉舊值、每次失敗都報、不重找 hwmon、收到訊號不清空畫面、先 sleep 再看訊號、OLED 錯誤每次都報、百分比截斷、9000 改 9100，都至少讓一條測試紅；百分比上限 3600 改 3700 **第一次沒抓到**（12.6 V 兩種寫法都是 100.00），補 12.65 V（廠商公式 101.39 → 夾成 100.00）後紅。
+- 規模：`git diff --numstat`（不含 docs 與 .md）非空白新增 798 行：`telemetry.h` 95、`telemetry_display.cpp` 179、CMake 4；測試 346（C++ 135、Python 211）；驗收腳本 174。動工前估 720，貼著 800 行上限。
+
+### 踩坑
+
+- 原本以為 `read -p` 只會讀到發問之後按的鍵；3 分鐘觀察期間使用者多按了一次 Enter，留在 tty 的輸入緩衝裡，問題一印出來就被當成空的回答（n）讀走，記成 FAIL。輸出上的線索：`[y/n]` 後面直接接 `FAIL`、沒有換行（逾時才會先印換行）。每次發問與等 Enter 前先 `drain_tty`（`read -t 0.05` 讀到沒有為止）；用 `script` 開一個 pty、先送一行再發問，確認先送的那行被丟掉、之後的 `y` 才被讀到。
+- 原本以為「看 3 分鐘」是合理的驗收；使用者看完第一輪就說太久。改成 `--watch-seconds`，預設 30。3 分鐘那一輪的人眼結果照實記成口頭回報。
+- 原本以為 `pgrep -x telemetry_display` 找得到程式；kernel 的 `comm` 只留 15 個字元，要用 `telemetry_displ`（寫進腳本的 `COMM`）。
+- 原本以為百分比算 low-battery policy，範圍測試一開始禁止 `percent` 這個字；使用者要求像廠商範例一樣顯示。phase04 排除的是「依電量採取動作」，只顯示不算，範圍測試改成禁止門檻、警報、通知。
+- 原本以為 `setsid app &` 會再 fork 一層、`$!` 不是 app；非互動 bash 的背景子程序不是 process group leader，`setsid` 直接 exec，`$!` 就是 app 也是新 group 的 id（用 `ps -o pid,pgid` 確認）。

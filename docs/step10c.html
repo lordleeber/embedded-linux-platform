@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 10-c　OLED：電池數值上螢幕 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step10b). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* No ligatures in code (Step 10-b: JetBrains Mono drew <=> as one arrow) */
+pre, code { font-variant-ligatures: none; }
+
+/* Step 10-c: battery-percentage calculator */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; margin-bottom: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+.sim-ctl input[type=range] { width: 22rem; accent-color: var(--accent); }
+.sim-out { font-family: var(--font-mono); font-size: 0.95rem; }
+.sim-out b { color: var(--ink); font-weight: 600; }
+.sim-bar { height: 0.7rem; border-radius: 4px; background: var(--surface-2); margin-top: 0.5rem; overflow: hidden; }
+.sim-bar div { height: 100%; background: var(--accent); }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10b.html">← Step 10-b</a><span class="disabled">Step 11 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 10-c · INA219 → hwmon → OLED</div>
+    <h1>OLED：電池數值上螢幕</h1>
+    <p class="lede">Phase 3 做出了 INA219 的 hwmon driver，Phase 4 做出了 OLED driver 和字型。這一步把兩頭接起來：一支 userspace 程式每秒讀 hwmon 的電壓、電流、功率，排成 <code>BAT / V / I / P</code> 四行，整張畫面寫進 <code>/dev/edge_oled</code>。兩個 driver <b class="hl-key">一行都沒改</b>。這一章的重點是「長時間跑」的程式該處理的事：讀不到、資料過時、螢幕拔掉、被要求結束。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/telemetry.h</span>、<span class="new">apps/telemetry_display.cpp</span>、<span class="new">tests/test_telemetry.cpp</span>、<span class="new">tests/test_telemetry_display.py</span>、<span class="new">scripts/verify_telemetry_display.sh</span>、<span class="new">docs/step10c.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, step10b.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（VFS、hwmon、misc、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（edge_ina219、edge_oled）</span>
+      <span style="--c: var(--hw)">硬體（SoC、INA219、SSD1306）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">10c.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>顯示策略放在 userspace</h2>
+      <p>「每秒顯示一次電壓」聽起來簡單，但它包含一連串決定：幾秒刷新一次、數字取到小數第幾位、讀不到時顯示什麼、舊的數字多久算不可信。這些都是<b>策略</b>，phase04 刻意把它放在 userspace：driver 只負責「把 INA219 的暫存器變成標準單位」（Step 8 的 hwmon）和「把 1024 byte 送上面板」（Step 10-a/b）。策略寫在 driver 裡，改一個顯示格式就要重編 kernel module；寫在 app 裡，換一支程式就好。</p>
+      <p><b>互動雙方</b>：兩條 I2C，controller 都是 Tegra。一條是 <code>i2c-7</code> 上的 INA219（0x41），由 <code>edge_ina219</code> 讀；另一條是 <code>i2c-1</code> 上的 SSD1306（0x3C），由 <code>edge_oled</code> 寫。新的 <code>telemetry_display</code> 夾在中間，只碰 sysfs 檔案和 <code>/dev/edge_oled</code>，<b>不直接碰任何 I2C</b>。<b>這一步不做</b>：低電量時採取任何動作（low-battery policy）、網路通知。</p>
+      <dl class="terms">
+        <dt>hwmon sysfs ABI</dt><dd>kernel 規定的感測器檔案格式（<code>Documentation/hwmon/sysfs-interface.rst</code>）：每個值一個檔案、內容是十進位整數加換行；<code>in*_input</code> 單位 mV、<code>curr*_input</code> mA、<code>power*_input</code> µW。Step 8 的 <code>edge_ina219</code> 照這個格式提供 <code>in1</code>（bus 電壓）、<code>curr1</code>、<code>power1</code>。</dd>
+        <dt>stale（過時）</dt><dd>最後一次成功讀到的值已經太舊、不該再當成現況顯示。這裡的規則：超過 3 秒沒讀到新值就顯示 <code>--.--</code>。</dd>
+        <dt>process group</dt><dd>一組行程共用的 id。<code>kill -TERM -- -PGID</code> 一次送給整組；<code>setsid</code> 讓程式開一個新的 group，驗收腳本用它確保收得乾淨。</dd>
+        <dt>sigtimedwait()</dt><dd>「等一段時間，或等到指定的訊號先到」。訊號必須先用 <code>sigprocmask()</code> 擋住（block），它才會留著等這個函式來拿，而不是觸發預設動作（10c.6）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">10c.2</span><b>全景</b>一次刷新</div>
+    <div class="content">
+      <h2>一秒一次：讀三個檔案，寫一張畫面</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 470" role="img" aria-label="左邊一條路：INA219 經 i2c-7 被 edge_ina219 讀取，hwmon 核心把它變成 /sys/class/hwmon/hwmon4 底下的 in1_input、curr1_input、power1_input。中間的 telemetry_display 每秒讀這三個檔，telemetry.h 決定畫面文字，oled_text.h 畫成 1024 byte 的 frame。右邊一條路：write 到 /dev/edge_oled，edge_oled 經 i2c-1 送到 SSD1306。兩個 driver 都沒改。">
+          <defs>
+            <marker id="m10cA" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="20" y="24">SENSOR SIDE (STEP 6-8)</text>
+          <text class="s-mono" x="480" y="24">DISPLAY SIDE (STEP 9-10B)</text>
+          <rect class="s-box" x="20" y="390" width="200" height="56" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="120" y="414" text-anchor="middle">INA219 @ 0x41</text>
+          <text class="s-sm" x="120" y="434" text-anchor="middle">i2c-7（UPS 模組上）</text>
+          <rect class="s-box" x="20" y="280" width="200" height="60" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="120" y="305" text-anchor="middle">edge_ina219</text>
+          <text class="s-sm" x="120" y="326" text-anchor="middle">讀暫存器、換算單位</text>
+          <rect class="s-box" x="20" y="150" width="200" height="80" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="120" y="174" text-anchor="middle">hwmon（sysfs）</text>
+          <text class="s-sm" x="120" y="196" text-anchor="middle">in1_input   12528（mV）</text>
+          <text class="s-sm" x="120" y="214" text-anchor="middle">curr1 963（mA）· power1（µW）</text>
+          <a href="#layers"><rect class="s-box" x="250" y="40" width="220" height="200" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="360" y="66" text-anchor="middle">telemetry_display</text>
+          <text class="s-sm" x="360" y="92" text-anchor="middle">① 用 name 找 hwmonN</text>
+          <text class="s-sm" x="360" y="114" text-anchor="middle">② 讀三個檔、解析整數</text>
+          <text class="s-sm" x="360" y="136" text-anchor="middle">③ telemetry.h：8 行文字</text>
+          <text class="s-sm" x="360" y="158" text-anchor="middle">④ oled_text.h：畫進 frame</text>
+          <text class="s-sm" x="360" y="180" text-anchor="middle">⑤ write 1024 byte</text>
+          <text class="s-sm" x="360" y="202" text-anchor="middle">⑥ sigtimedwait 到下一秒</text>
+          <text class="s-sm" x="360" y="224" text-anchor="middle">（或收到訊號就結束）</text></a>
+          <rect class="s-box" x="500" y="150" width="200" height="80" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="600" y="178" text-anchor="middle">/dev/edge_oled</text>
+          <text class="s-sm" x="600" y="200" text-anchor="middle">misc device</text>
+          <rect class="s-box" x="500" y="280" width="200" height="60" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="600" y="305" text-anchor="middle">edge_oled</text>
+          <text class="s-sm" x="600" y="326" text-anchor="middle">每次都重送設定（10-b）</text>
+          <rect class="s-box" x="500" y="390" width="200" height="56" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="600" y="414" text-anchor="middle">SSD1306 @ 0x3C</text>
+          <text class="s-sm" x="600" y="434" text-anchor="middle">i2c-1（header 27/28）</text>
+          <line class="sv-down" x1="120" y1="388" x2="120" y2="344" marker-end="url(#m10cA)"/>
+          <line class="sv-down" x1="120" y1="278" x2="120" y2="234" marker-end="url(#m10cA)"/>
+          <line class="sv-down" x1="222" y1="190" x2="246" y2="190" marker-end="url(#m10cA)"/>
+          <line class="sv-down" x1="472" y1="190" x2="496" y2="190" marker-end="url(#m10cA)"/>
+          <line class="sv-down" x1="600" y1="232" x2="600" y2="276" marker-end="url(#m10cA)"/>
+          <line class="sv-down" x1="600" y1="342" x2="600" y2="386" marker-end="url(#m10cA)"/>
+          <text class="s-sm" x="250" y="300">app 只碰檔案：</text>
+          <text class="s-sm" x="250" y="320">sysfs 讀、/dev 寫，</text>
+          <text class="s-sm" x="250" y="340">兩條 I2C 都在 kernel 裡</text>
+        </svg>
+        <figcaption>圖 10.1 — 左邊往上是 Phase 3 的路，右邊往下是 Phase 4 的路，中間藍色的 app 是這一步唯一的新東西。點中間的方框跳到 10c.3。</figcaption>
+      </figure>
+      <p>不接任何硬體也能跑整個程式：用一個假的 hwmon 目錄代替 <code>/sys/class/hwmon</code>（三個檔案的格式就是 hwmon 的格式），用一個空的普通檔案代替 <code>/dev/edge_oled</code>，再把最後一張畫面印成字元圖。在 repo 根目錄執行（第一行會建置，要有 cmake 與 g++）：</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target telemetry_display &gt;/dev/null
+mkdir -p build/fake/hwmon4 &amp;&amp; cd build/fake/hwmon4 &amp;&amp; echo edge_ina219 &gt; name &amp;&amp;
+  echo 12528 &gt; in1_input &amp;&amp; echo 963 &gt; curr1_input &amp;&amp; echo 12064814 &gt; power1_input &amp;&amp; cd - &gt;/dev/null
+: &gt; build/oled.bin &amp;&amp; build/telemetry_display --hwmon-root build/fake --dev build/oled.bin --interval-ms 200 --count 3
+python3 -c "
+import sys; f = open(sys.argv[1], 'rb').read()[-1024:]
+for y in list(range(32)) + list(range(56, 64)):
+    print(''.join('#' if f[y // 8 * 128 + x] &gt;&gt; y % 8 &amp; 1 else '.' for x in range(78)))
+" build/oled.bin</pre>
+<pre class="out">#1 V=12528 I=963 P=12064814 oled=ok
+#2 V=12528 I=963 P=12064814 oled=ok
+#3 V=12528 I=963 P=12064814 oled=ok
+####...###..#####..............###...###.........###...###........##..........
+#...#.#...#...#....##.........#...#.#...#.......#...#.#...#.......##..#.......
+#...#.#...#...#....##.........#...#.#...#.......#..##.#..##..........#........
+####..#...#...#................####..###........#.#.#.#.#.#.........#.........
+#...#.#####...#....##.............#.#...#.......##..#.##..#........#..........
+#...#.#...#...#....##............#..#...#..##...#...#.#...#.......#..##.......
+####..#...#...#................##....###...##....###...###...........##.......
+..............................................................................
+#...#...............#....###........#####.#####.......#...#...................
+#...#..##..........##...#...#.......#........#........#...#...................
+#...#..##...........#.......#.......####....#.........#...#...................
+#...#...............#......#............#....#........#...#...................
+#...#..##...........#.....#.............#.....#.......#...#...................
+.#.#...##...........#....#.....##...#...#.#...#........#.#....................
+..#................###..#####..##....###...###..........#.....................
+..............................................................................
+.###.....................###.........###....##.........###....................
+..#....##...............#...#.......#...#..#..........#...#...................
+..#....##...............#..##.......#...#.#...........#...#...................
+..#.....................#.#.#........####.####........#...#...................
+..#....##...............##..#...........#.#...#.......#####...................
+..#....##...............#...#..##......#..#...#.......#...#...................
+.###.....................###...##....##....###........#...#...................
+..............................................................................
+####................#....###.........###....##........#...#...................
+#...#..##..........##...#...#.......#...#..#..........#...#...................
+#...#..##...........#.......#.......#..##.#...........#...#...................
+####................#......#........#.#.#.####........#.#.#...................
+#......##...........#.....#.........##..#.#...#.......#.#.#...................
+#......##...........#....#.....##...#...#.#...#.......#.#.#...................
+#..................###..#####..##....###...###.........#.#....................
+..............................................................................
+.###..#...#........#.#..#####.................................................
+#...#.#..#.........#.#.....#..................................................
+#...#.#.#.........#####...#...................................................
+#...#.##...........#.#.....#..................................................
+#...#.#.#.........#####.....#.................................................
+#...#.#..#.........#.#..#...#.................................................
+.###..#...#........#.#...###..................................................
+..............................................................................</pre>
+      <p>前三行是 app 的 stdout（每次刷新一行）。下面是畫面的第 0–3 行和第 7 行：<code>BAT: 98.00 %</code>、<code>V: 12.53 V</code>、<code>I:  0.96 A</code>、<code>P: 12.06 W</code>，最後是狀態 <code>OK #3</code>。數值是 2026-10-14 實機驗收時 hwmon 的讀數，你照著輸入就會得到一模一樣的畫面。</p>
+    </div>
+  </section>
+
+  <section id="layers">
+    <div class="rail"><span class="no">10c.3</span><b>分層</b>顯示什麼</div>
+    <div class="content">
+      <h2>telemetry.h 決定文字，沒有 I/O、沒有時鐘</h2>
+      <p>程式分成兩半。<code>apps/telemetry.h</code> 只回答「現在這些數值該顯示成什麼」：解析 sysfs 的整數、四捨五入到 0.01、判斷是否過時、排出 8 行文字。它不讀檔、不看時鐘，時間是參數傳進來的。所以 <code>tests/test_telemetry.cpp</code> 可以直接寫「1000 ms 時讀到 −555 mA、4001 ms 時還沒有新值，畫面應該是什麼」，不用真的等 3 秒。<code>apps/telemetry_display.cpp</code> 是另一半：讀檔、寫裝置、等待、訊號。</p>
+      <figure class="listing"><figcaption>apps/telemetry.h:77–104 — 一個 channel 過時就顯示 --.--，名字記進狀態行；百分比跟著電壓走</figcaption>
+<pre data-start="77" data-hot="90,91,94,95,101,102">// Eight lines for oled_text::draw_text_at (21 columns each):
+//   BAT: 81.22 % / V: 11.92 V / I: -0.56 A / P:  6.53 W / ... / status
+// A stale or missing value shows as --.-- (the percentage goes with the voltage). The status
+// line says OK, which channels are stale, or that no sensor was found, followed by a refresh
+// counter that shows the picture is live.
+inline std::array&lt;std::string, 8&gt; screen(bool sensor, const Value &amp;v, const Value &amp;i,
+                                         const Value &amp;p, long long now_ms, long long stale_ms,
+                                         unsigned seq)
+{
+    struct Row { const char *label; const Value &amp;val; long long unit; const char *si; };
+    const Row rows[] = {{"V", v, 1000, "V"}, {"I", i, 1000, "A"}, {"P", p, 1000000, "W"}};
+    std::array&lt;std::string, 8&gt; s;
+    std::string stale_names;
+    bool v_old = !sensor || stale(v, now_ms, stale_ms);
+    s[0] = std::string("BAT: ") + (v_old ? "--.--" : percent(v.value)) + " %";
+    for (int n = 0; n &lt; 3; ++n) {
+        const Row &amp;r = rows[n];
+        bool old = !sensor || stale(r.val, now_ms, stale_ms);
+        s[n + 1] = std::string(r.label) + ": " + (old ? "--.--" : hundredths(r.val.value, r.unit)) +
+                   " " + r.si;
+        if (old)
+            stale_names += std::string(" ") + r.label;
+    }
+    std::string count = " #" + std::to_string(seq % 10000);
+    s[7] = !sensor ? "NO SENSOR" + count
+                   : stale_names.empty() ? "OK" + count : "STALE" + stale_names + count;
+    return s;
+}</pre></figure>
+      <p>四捨五入用整數做（<code>hundredths()</code>，0.01 為一格、距離 0 遠的方向進位，沒有 <code>-0.00</code>）：浮點數在 −0.555 這種值上的進位方向會因為二進位表示而不可預期，整數不會。狀態行最後的計數器每次刷新加一，人在板子旁才分得出「畫面是活的」和「程式卡住、面板停在最後一張」。</p>
+    </div>
+  </section>
+
+  <section id="percent">
+    <div class="rail"><span class="no">10c.4</span><b>百分比</b>廠商公式</div>
+    <div class="content">
+      <h2>BAT %：照抄廠商範例，連它的缺點一起</h2>
+      <p>原本的規劃只有 V / I / P。驗收時使用者要求加上電量百分比，「就像原本的 <code>ina219.py</code> 提供的資訊」。廠商範例（Step 6-a 原樣收在 <code>third_party/waveshare_ups_c/</code>）的算法只有兩行：<code>p = (bus_voltage - 9) / 3.6 * 100</code>，再夾在 0 到 100 之間。也就是 9.0 V 算 0 %、12.6 V 算 100 %，中間是直線。換成整數：每 36 mV 是 1 %。</p>
+      <figure class="listing"><figcaption>apps/telemetry.h:45–54 — 9000 mV 起算、36 mV 一個百分點；(x × 50 + 9) / 18 是 x × 25 / 9 取最接近的整數</figcaption>
+<pre data-start="45" data-hot="51,52">// Battery percentage the way the vendor sample computes it (third_party/waveshare_ups_c/
+// ina219.py): linear in the bus voltage from 9.0 V (0 %) to 12.6 V (100 %), clamped. It follows
+// the voltage only, so it reads high while charging (Step 6-a measured 79 % -&gt; 93 % on plugging
+// the adapter in): a display value, nothing decides anything from it.
+inline std::string percent(long long mv)
+{
+    long long x = mv - 9000;                                   // 36 mV per percent
+    long long h = x &lt;= 0 ? 0 : x &gt;= 3600 ? 10000 : (x * 50 + 9) / 18;   // hundredths, nearest
+    return hundredths(h, 100);
+}</pre></figure>
+      <div class="sim" id="pctSim">
+        <div class="sim-label">模擬：瀏覽器裡用同一個公式計算，不是實機輸出</div>
+        <div class="sim-ctl"><label>bus 電壓 <input type="range" id="pctV" min="8500" max="13000" step="4" value="12528" aria-label="bus 電壓（mV）"></label></div>
+        <div class="sim-out" id="pctOut"></div>
+        <div class="sim-bar"><div id="pctBar"></div></div>
+      </div>
+      <p>測試的期望值不是自己算的，是<b>這台板子上廠商範例實際印出來的</b>：Step 6-a 的 baseline 記錄了 12.364 V → 93.44 %、12.192 V → 88.67 %、11.86 V → 79.44 %，加上這次驗收時的 12.528 V → 98.00 %。整數算法會不會和 Python 的浮點 <code>{:6.2f}</code> 在進位上分歧？不會：x × 25 / 9 的小數部分只可能是 k/9，永遠不會剛好落在 0.5 上。</p>
+      <div class="callout"><p><b class="hl-bad">這個百分比不是剩餘電量</b>。它只看電壓，而電壓會被充電器往上推：Step 6-a 實測，電池在 11.86 V（79 %）時一插上 adapter，同一個公式立刻顯示 93 %。驗收當天的 98 % 也是在充電（+0.96 A）時讀的。phase04 排除的「low-battery policy」是指依電量<b>採取動作</b>；這裡只顯示、不判斷，所以放進來，限制寫在這裡和 <code>telemetry.h</code> 的註解裡。</p></div>
+    </div>
+  </section>
+
+  <section id="stale">
+    <div class="rail"><span class="no">10c.5</span><b>錯誤</b>讀不到、過時</div>
+    <div class="content">
+      <h2>讀不到不是錯誤，是一種狀態</h2>
+      <p>這支程式要一直跑，任何一個錯誤都不該讓它結束。可能出錯的地方有四個：</p>
+      <table>
+        <thead><tr><th>情況</th><th>怎麼處理</th></tr></thead>
+        <tbody>
+          <tr><td>一個值讀不到（檔案不見、<code>ENODATA</code>、內容不是數字）</td><td>保留最後一筆好值，照樣顯示；超過 <code>--stale-ms</code>（預設 3000）才變 <code>--.--</code>，狀態行列出是哪個。stderr 只在「開始失敗」那一次寫原因。</td></tr>
+          <tr><td>sensor 不見了（rmmod、unbind）</td><td>hwmon 目錄消失 → 重新找；找不到就全部 <code>--.--</code>、狀態 <code>NO SENSOR</code>，每秒再找一次。</td></tr>
+          <tr><td>sensor 換了號碼</td><td>不寫死 <code>hwmon4</code>，每次用 <code>name</code> 檔案確認，對不上就重找（Step 8：重新綁定可能換號）。</td></tr>
+          <tr><td>OLED 寫不進去</td><td>關掉 fd，下一秒重開重寫；也只報一次（10c.6 的節錄）。</td></tr>
+        </tbody>
+      </table>
+      <figure class="figure">
+        <svg viewBox="0 0 720 210" role="img" aria-label="時間軸，每秒一次刷新。0 到 2 秒讀取成功，畫面顯示 -0.56。2 秒起讀取失敗，stderr 只在第一次失敗時寫一行。2 到 5 秒之間畫面仍顯示最後一筆 -0.56，因為它還不到 3 秒舊。超過 3 秒（5 秒之後）畫面變成 --.--，狀態行顯示 STALE I。">
+          <text class="s-mono" x="20" y="26">CURR1_INPUT, --STALE-MS 3000, ONE REFRESH PER SECOND</text>
+          <line x1="40" y1="110" x2="700" y2="110" stroke="var(--line)" stroke-width="2"/>
+          <circle cx="60" cy="110" r="7" fill="var(--ok)"/>
+          <circle cx="140" cy="110" r="7" fill="var(--ok)"/>
+          <circle cx="220" cy="110" r="7" fill="var(--ok)"/>
+          <circle cx="300" cy="110" r="7" fill="var(--bad)"/>
+          <circle cx="380" cy="110" r="7" fill="var(--bad)"/>
+          <circle cx="460" cy="110" r="7" fill="var(--bad)"/>
+          <circle cx="540" cy="110" r="7" fill="var(--bad)"/>
+          <circle cx="620" cy="110" r="7" fill="var(--bad)"/>
+          <text class="s-sm" x="60" y="140" text-anchor="middle">0 s</text>
+          <text class="s-sm" x="220" y="140" text-anchor="middle">2 s</text>
+          <text class="s-sm" x="300" y="140" text-anchor="middle">3 s</text>
+          <text class="s-sm" x="540" y="140" text-anchor="middle">6 s</text>
+          <text class="s-lbl" x="140" y="76" text-anchor="middle">讀到 -555</text>
+          <text class="s-sm" x="300" y="76" text-anchor="middle">讀取失敗</text>
+          <text class="s-sm" x="300" y="94" text-anchor="middle">stderr 一行</text>
+          <rect class="s-box" x="40" y="160" width="440" height="36" rx="6" style="stroke: var(--ok)"/>
+          <text class="s-key" x="260" y="183" text-anchor="middle">畫面：I: -0.56 A　狀態 OK</text>
+          <rect class="s-box" x="500" y="160" width="200" height="36" rx="6" style="stroke: var(--bad)"/>
+          <text class="s-key" x="600" y="183" text-anchor="middle">I: --.-- A　STALE I</text>
+          <line x1="490" y1="40" x2="490" y2="200" stroke="var(--drv)" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <text class="s-sm" x="494" y="54">最後好值 + 3 s</text>
+        </svg>
+        <figcaption>圖 10.2 — 偶爾一次讀取失敗不會讓畫面跳動；持續失敗超過 3 秒，舊數字才被收掉。stderr 只記「開始壞了」那一刻，不會每秒洗版。</figcaption>
+      </figure>
+      <figure class="listing"><figcaption>apps/telemetry_display.cpp:133–151 — 每次先確認目錄還是 edge_ina219，不是就重找；讀不到就不更新 Value，只在連續失敗的第一次寫 stderr</figcaption>
+<pre data-start="133" data-hot="135,136,141,143,144,147,148">    for (long long seq = 1; count == 0 || seq &lt;= count; ++seq) {
+        long long t = now_ms();
+        if (dir.empty() || !is_sensor(dir))
+            dir = find_sensor(root);
+        std::string shown[3] = {"-", "-", "-"};
+        for (int c = 0; c &lt; 3 &amp;&amp; !dir.empty(); ++c) {
+            std::string path = dir + "/" + kChannels[c], text;
+            long long v = 0;
+            bool got = read_file(path, text);
+            int err = errno;
+            bool ok = got &amp;&amp; telemetry::parse_value(text, v);
+            if (!ok &amp;&amp; !failing[c])       // once per failure streak, not every refresh
+                std::fprintf(stderr, "telemetry_display: %s: %s\n", path.c_str(),
+                             got ? "not a number" : std::strerror(err));
+            failing[c] = !ok;
+            telemetry::update(values[c], ok, v, t);
+            if (ok)
+                shown[c] = std::to_string(v);
+        }</pre></figure>
+      <p>把假 sensor 的 <code>curr1_input</code> 刪掉、把過時門檻縮成 0.5 秒，就能在檔案裡看到這個轉變（接著 10c.2 的指令，同一個目錄）：</p>
+<pre class="cmd">rm build/fake/hwmon4/curr1_input
+build/telemetry_display --hwmon-root build/fake --dev build/oled.bin --interval-ms 200 --stale-ms 500 --count 6; echo "exit $?"
+python3 -c "
+import sys; f = open(sys.argv[1], 'rb').read()[-1024:]
+for y in range(56, 64): print(''.join('#' if f[y // 8 * 128 + x] &gt;&gt; y % 8 &amp; 1 else '.' for x in range(66)))
+" build/oled.bin</pre>
+<pre class="out">telemetry_display: build/fake/hwmon4/curr1_input: No such file or directory
+#1 V=12528 I=- P=12064814 oled=ok
+#2 V=12528 I=- P=12064814 oled=ok
+#3 V=12528 I=- P=12064814 oled=ok
+#4 V=12528 I=- P=12064814 oled=ok
+#5 V=12528 I=- P=12064814 oled=ok
+#6 V=12528 I=- P=12064814 oled=ok
+exit 0
+.####.#####..###..#.....#####........###.........#.#....##........
+#.......#...#...#.#.....#.............#..........#.#...#..........
+#.......#...#...#.#.....#.............#.........#####.#...........
+.###....#...#...#.#.....####..........#..........#.#..####........
+....#...#...#####.#.....#.............#.........#####.#...#.......
+....#...#...#...#.#.....#.............#..........#.#..#...#.......
+####....#...#...#.#####.#####........###.........#.#...###........
+..................................................................</pre>
+      <p>這個新程序從來沒讀到過電流，所以 <code>I</code> 一開始就是 <code>--.--</code>，狀態行是 <code>STALE I #6</code>；stderr 那一行只出現一次，雖然 6 次刷新都讀不到。</p>
+    </div>
+  </section>
+
+  <section id="signal">
+    <div class="rail"><span class="no">10c.6</span><b>收尾</b>寫入失敗與訊號</div>
+    <div class="content">
+      <h2>寫不進去就重開；被要求結束就清空畫面</h2>
+      <figure class="listing"><figcaption>apps/telemetry_display.cpp:158–183 — fd 失敗就關掉、下一次重開；等待本身就是 sigtimedwait</figcaption>
+<pre data-start="158" data-hot="158,159,160,165,166,167,175,179,180,181">        if (fd &lt; 0)
+            fd = open(dev.c_str(), O_WRONLY);
+        rc = fd &gt;= 0 &amp;&amp; write(fd, f.data(), f.size()) == static_cast&lt;ssize_t&gt;(f.size()) ? 0 : 1;
+        int err = errno;
+        if (rc &amp;&amp; !oled_failing)
+            std::fprintf(stderr, "telemetry_display: %s: %s\n", dev.c_str(), std::strerror(err));
+        oled_failing = rc;
+        if (rc &amp;&amp; fd &gt;= 0) {
+            close(fd);            // reopen next time: an unbound driver leaves this fd dead
+            fd = -1;
+        }
+        std::printf("#%lld V=%s I=%s P=%s oled=%s\n", seq, shown[0].c_str(), shown[1].c_str(),
+                    shown[2].c_str(), rc ? std::strerror(err) : "ok");
+        std::fflush(stdout);
+
+        if (count &amp;&amp; seq == count)
+            break;
+        next += interval;
+        long long wait = next - now_ms();
+        timespec ts{static_cast&lt;time_t&gt;(wait &gt; 0 ? wait / 1000 : 0),
+                    static_cast&lt;long&gt;(wait &gt; 0 ? wait % 1000 * 1000000 : 0)};
+        if (sigtimedwait(&amp;stop_set, nullptr, &amp;ts) &gt; 0) {
+            stopped = true;
+            break;
+        }
+    }</pre></figure>
+      <p><b>為什麼寫入失敗要關掉 fd</b>：Step 10-a 的 driver 被 unbind 之後，已經開著的 fd 永遠回 <code>ENODEV</code>，即使 driver 又綁回來；只有重新 <code>open()</code> 才會拿到新的那一個。OLED 只是拔線（driver 還在）時，同一個 fd 本來就能繼續用，關掉重開也無妨。</p>
+      <p><b>為什麼用 <code>sigtimedwait()</code> 而不是 signal handler + <code>sleep()</code></b>。常見的寫法是 handler 設一個旗標，主迴圈每次 <code>sleep()</code> 醒來檢查。它有一個縫：訊號剛好在「檢查旗標」之後、「開始 sleep」之前到，handler 設了旗標，程式卻照樣睡滿一整秒才發現。這裡的做法是先把 SIGINT / SIGTERM 擋住（block），訊號到了只會被記成 pending；等下一秒的那個呼叫就是 <code>sigtimedwait()</code>，pending 的訊號會讓它立刻回來。訊號什麼時候到都一樣，沒有縫，也不需要 handler。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 200" role="img" aria-label="上面一條：handler 加 sleep。主迴圈檢查旗標，旗標是 0；接著訊號到達，handler 把旗標設成 1；然後程式進入 sleep，睡滿一秒才醒來發現旗標。下面一條：先 block 訊號再 sigtimedwait。訊號在任何時刻到達都只是變成 pending，sigtimedwait 一進去就看到 pending 的訊號，立刻回來。">
+          <text class="s-mono" x="20" y="26">HANDLER + SLEEP</text>
+          <rect class="s-box" x="20" y="40" width="150" height="40" rx="6" style="stroke: var(--user)"/>
+          <text class="s-lbl" x="95" y="65" text-anchor="middle">檢查旗標 = 0</text>
+          <rect class="s-box" x="190" y="40" width="150" height="40" rx="6" style="stroke: var(--bad)"/>
+          <text class="s-lbl" x="265" y="65" text-anchor="middle">SIGTERM → 旗標 1</text>
+          <rect class="s-box" x="360" y="40" width="340" height="40" rx="6" style="stroke: var(--bad)"/>
+          <text class="s-lbl" x="530" y="65" text-anchor="middle">sleep(1)：白白睡滿一秒才發現</text>
+          <text class="s-mono" x="20" y="126">BLOCK + SIGTIMEDWAIT</text>
+          <rect class="s-box" x="20" y="140" width="150" height="40" rx="6" style="stroke: var(--user)"/>
+          <text class="s-lbl" x="95" y="165" text-anchor="middle">畫完、寫完</text>
+          <rect class="s-box" x="190" y="140" width="150" height="40" rx="6" style="stroke: var(--kern)"/>
+          <text class="s-lbl" x="265" y="165" text-anchor="middle">SIGTERM → pending</text>
+          <rect class="s-box" x="360" y="140" width="340" height="40" rx="6" style="stroke: var(--ok)"/>
+          <text class="s-lbl" x="530" y="165" text-anchor="middle">sigtimedwait：看到 pending，立刻回來</text>
+        </svg>
+        <figcaption>圖 10.3 — 同一個時機到達的訊號。上面是推論出的縫（這個程式沒有這樣寫過）；測試把「先 sleep 再看訊號」做成變異，SIGTERM 與 SIGINT 兩個「0.5 秒內結束」的檢查都紅了。</figcaption>
+      </figure>
+      <p>收到訊號後，程式寫一張<b>全黑的畫面</b>才結束：一個停住的程式留下一張看起來正常的數字畫面，比黑屏更誤導人。試試看（接著上面的指令；第一行先清空檔案，讓「最後 1024 byte」就是這個程序寫的）：</p>
+<pre class="cmd">: &gt; build/oled.bin
+build/telemetry_display --hwmon-root build/fake --dev build/oled.bin 2&gt;/dev/null &amp; sleep 1.5; kill -TERM $!; wait $!; echo "exit $?"
+python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(len(d) // 1024, 'frames, last one blank:', not any(d[-1024:]))" build/oled.bin</pre>
+<pre class="out">#1 V=12528 I=- P=12064814 oled=ok
+#2 V=12528 I=- P=12064814 oled=ok
+[1]+  Done                    build/telemetry_display --hwmon-root build/fake --dev build/oled.bin 2&gt; /dev/null
+exit 0
+3 frames, last one blank: True</pre>
+      <p>兩次刷新加一張空白畫面。<code>[1]+ Done</code> 那行是互動 shell 的工作控制訊息，開頭可能還會多一行 <code>[1] 12345</code>，兩者都會因環境不同而不一樣。<b>不要</b>把第一行和第二行用 <code>&amp;&amp;</code> 接成一行：那樣 <code>&amp;</code> 會把整串放進一個子 shell，<code>$!</code> 指向子 shell，<code>kill</code> 殺掉的就不是這支程式（寫這章時踩到，結束碼 143）。</p>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">10c.7</span><b>測試</b>先紅後綠</div>
+    <div class="content">
+      <h2>測試：期望畫面由 10-b 的工具畫</h2>
+      <ul>
+        <li><b><code>tests/test_telemetry.cpp</code></b>：8 組向量。sysfs 整數解析（拒絕空字串、<code>12a</code>、兩行）、0.01 四捨五入與沒有 <code>-0.00</code>、新鮮的畫面、讀取失敗保留舊值到剛好過時（3000 ms 還算新、3001 ms 過時）、過時的 channel、沒有 sensor、計數器與 21 欄、百分比對廠商公式的 12 個值。</li>
+        <li><b><code>tests/test_telemetry_display.py</code></b>：<span data-tests="tests/test_telemetry_display.py">17</span> 個，不需要硬體。app 在假 hwmon 目錄上跑 7 個情境：用 <code>name</code> 選對 hwmon（前面放一個 <code>pwmfan</code> 當干擾）、沒有 sensor、一個 channel 過時、hwmon 換號、OLED 寫入失敗（結束碼 1、錯誤只報一次）、SIGTERM 與 SIGINT（0.5 秒內結束、最後一張全黑）、用法錯誤。另有範圍檢查 1 個、驗收腳本 8 個。</li>
+      </ul>
+      <p>關鍵的一點：app 寫出的畫面要和 <b>Step 10-b 的 <code>edge_oled_ctl text</code> 畫出的</b>逐 byte 相同。期望值來自另一支已經在面板上驗過的工具，不是由 app 自己的程式碼產生，所以 app 的排版錯了測試會發現，而不是跟著錯。</p>
+      <p>實作前：<code>AppTest</code> 的 7 個被建置失敗蓋住，總共 7 個 fail、3 個 error。之後的三次改動都先紅：發問前清掉終端機輸入（10c.8）、<code>--watch-seconds</code>、百分比。變異：stale 用 <code>&gt;=</code>、截斷代替四捨五入、負零、失敗時丟掉舊值、不重找 hwmon、每次失敗都報、收到訊號不清空畫面、先 sleep 再看訊號，每一種都讓至少一條測試紅。百分比的上限 3600 改成 3700 <b class="hl-bad">第一次沒抓到</b>：12.6 V 時兩種寫法都是 100.00。補了 12.65 V（廠商公式 101.39，夾成 100.00）之後才紅。</p>
+<pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_telemetry &gt;/dev/null &amp;&amp; build/test_telemetry
+python3 -m unittest discover -s tests -p test_telemetry_display.py</pre>
+<pre class="out">OK (0 failure(s))
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 1.630s
+
+OK</pre>
+      <p>秒數會不同。第二行在背景跑 app、送訊號，大約 2 秒；不需要 root，也不需要硬體。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">10c.8</span><b>驗收</b>實機</div>
+    <div class="content">
+      <h2>實測：兩個 driver、一支 app、一個人</h2>
+      <p>前提：overlay 有 <code>ina219@41</code> 與 <code>oled@3c</code>（Step 10-a 起），UPS 模組與 OLED 都接著，兩個 module 都<b>沒有</b>載入（腳本自己 insmod，結束時 rmmod）。在 repo 根目錄的終端機裡跑：</p>
+<pre class="cmd">sudo bash scripts/verify_telemetry_display.sh --no-unplug</pre>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>insmod 兩個 module、找 hwmon 號碼</td><td>腳本建置並載入 <code>edge_ina219</code> 與 <code>edge_oled</code>，用 <code>name</code> 找 hwmon；結束時（含 Ctrl-C）rmmod。</td></tr>
+          <tr><td>對照 app 的數字</td><td>腳本同時讀 hwmon，自動比對（電壓 40 mV、電流 50 mA 內），並印出廠商公式算出的百分比讓你對照螢幕。</td></tr>
+          <tr><td>拔 sensor</td><td>不用動 UPS（它在供電給 Jetson）：腳本 unbind / bind <code>7-0041</code>，hwmon 目錄就會消失再出現。</td></tr>
+          <tr><td>結束 app、確認沒有殘留</td><td>腳本用 <code>setsid</code> 讓 app 有自己的 process group，<code>kill -TERM -- -PID</code>，再用 <code>pgrep</code> 確認。</td></tr>
+        </tbody>
+      </table>
+      <p>第二輪（2026-10-14，加了百分比之後）的完整輸出：</p>
+<pre class="out" data-marks>PASS build edge_ina219.ko
+PASS build edge_oled.ko
+PASS build telemetry_display, test_telemetry (CMake)
+PASS telemetry vectors
+PASS sensor at /sys/class/hwmon/hwmon4, /dev/edge_oled present
+== the app, 1 s refresh, own process group
+    app: #3 V=12528 I=963 P=12064814 oled=ok «1»
+    hwmon now: in1_input 12528 mV, curr1_input 962 mA, power1_input 12049569 uW
+    vendor formula: BAT 98.00 %
+PASS app values match hwmon (V 12528 vs 12528 mV, I 963 vs 962 mA)
+&gt;&gt;&gt; OLED: BAT % as the vendor formula above, then V / I / P with the hwmon numbers (rounded to 0.01), status OK and a counter going up? [y/n] y «2»
+PASS OLED: BAT % as the vendor formula above, then V / I / P with the hwmon numbers (rounded to 0.01), status OK and a counter going up?
+== sensor unbound, then bound again
+    app: #25 V=- I=- P=- oled=ok «3»
+PASS app reads nothing while the sensor is unbound
+&gt;&gt;&gt; OLED: V / I / P show --.-- and the status says NO SENSOR (counter still going up)? [y/n] y
+PASS OLED: V / I / P show --.-- and the status says NO SENSOR (counter still going up)?
+    sensor now at /sys/class/hwmon/hwmon4; app: #34 V=12528 I=944 P=11839190 oled=ok «4»
+PASS values back after bind, app not restarted
+&gt;&gt;&gt; OLED: numbers and status OK back? [y/n] y
+PASS OLED: numbers and status OK back?
+SKIP OLED unplug (--no-unplug)
+== watch for 30 s: flicker or brightness drop at any refresh (--watch-seconds 0 skips)
+&gt;&gt;&gt; Look at the OLED and keep watching until asked, then press Enter
+PASS 30 refreshes in 30 s, every write ok «5»
+&gt;&gt;&gt; During those 30 s: no flicker and no brightness drop at any refresh? [y/n] y
+PASS During those 30 s: no flicker and no brightness drop at any refresh?
+== SIGTERM to the process group
+PASS exit 0 within 2 s «6»
+PASS no process left (pgrep)
+&gt;&gt;&gt; OLED: blank (dark), no numbers left on it? [y/n] y
+PASS OLED: blank (dark), no numbers left on it?
+PASS dmesg free of Oops/BUG/WARNING
+    [11896.457939] edge_ina219 7-0041: probed: Config 0x0EEF -&gt; 0x0EEF, Cal 26868, shunt 10 mohm, hwmon4
+    [11896.561007] edge_oled 1-003c: probed: 128x64, /dev/edge_oled
+    [11915.741651] edge_ina219 7-0041: removed
+    [11927.225902] edge_ina219 7-0041: probed: Config 0x0EEF -&gt; 0x0EEF, Cal 26868, shunt 10 mohm, hwmon4
+    [11979.644079] edge_oled 1-003c: removed
+    [11979.672192] edge_ina219 7-0041: removed
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>app 第 3 次刷新讀到的值和腳本隨後直接讀 hwmon 的值：電壓相同、電流差 1 mA（兩次讀取不是同一次轉換，電流本來就在跳）。電流是正的：UPS 正在充電。</span></li>
+        <li><span class="mk">2</span><span><b class="hl-ok">phase04 的驗收條件</b>：OLED 持續顯示 BAT / Voltage / Current / Power，計數器往上跳；百分比和廠商公式一致（98.00 %）。</span></li>
+        <li><span class="mk">3</span><span>unbind 之後 hwmon 目錄消失，app 讀不到任何值，畫面 <code>--.--</code> 與 <code>NO SENSOR</code>，但程式還在、計數器照走。</span></li>
+        <li><span class="mk">4</span><span>bind 回來，<b class="hl-ok">app 沒有重啟就自己找回 sensor</b>。這台重新綁定後仍是 <code>hwmon4</code>，所以「換號」這件事只在假目錄的測試裡驗過。</span></li>
+        <li><span class="mk">5</span><span>Step 10-b 帶過來的：每次刷新都重送設定，30 秒 30 次，每次寫入都成功，人眼沒看到閃爍或亮度掉。第一輪另外看了 3 分鐘，結果相同（見 10c.9 第一格）。</span></li>
+        <li><span class="mk">6</span><span>SIGTERM 送給整個 process group：2 秒內結束、結束碼 0、沒有殘留程序、面板全黑。</span></li>
+      </ol>
+      <p>第一輪（還沒有百分比）多跑了 OLED 拔線：四條線全拔再接回，app 一直在跑，stderr 只有一行 <code>telemetry_display: /dev/edge_oled: Remote I/O error</code>，接回後畫面自己回來。要再跑這一段就把 <code>--no-unplug</code> 拿掉，腳本會停下來等你拔線、接線。你的數值、hwmon 號碼與時間戳記都會不同；電池在放電時電流是負的。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：實機上 hwmon 換號；數小時的長時間執行；app 端遇到 <code>ENODATA</code>（Step 8 在 hwmon 端驗過，app 端只用「檔案不見」模擬）；加了百分比之後的拔線（之前已過，之後只改了顯示文字）。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">10c.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 read 只讀到發問後的按鍵</h4><dl><dt>症狀</dt><dd>3 分鐘觀察期間多按的一次 Enter 留在 tty 緩衝裡，問題一印出就被當成空白答案讀走：<code>[y/n]</code> 後面直接接 <code>FAIL</code>、沒有換行。</dd><dt>後果</dt><dd>畫面明明沒閃，卻記成 FAIL；人是事後口頭回報的。</dd><dt>正解</dt><dd class="fix">每次發問前 <code>drain_tty</code>，把積著的輸入讀掉；用 <code>script</code> 開 pty 先送一行再發問，確認被丟掉。</dd></dl></div>
+        <div class="pit"><h4>驗收要人看太久</h4><dl><dt>症狀</dt><dd>3 分鐘的觀察，使用者看完說太久。</dd><dt>後果</dt><dd>站在板子旁盯著看，注意力撐不住，答案也就不可靠。</dd><dt>正解</dt><dd class="fix"><code>--watch-seconds</code>，預設 30；3 分鐘那次照實記成口頭回報。</dd></dl></div>
+        <div class="pit"><h4>以為百分比算 policy</h4><dl><dt>症狀</dt><dd>範圍測試一開始禁止 <code>percent</code> 這個字。</dd><dt>後果</dt><dd>使用者要的、廠商範例本來就有的資訊被當成範圍外。</dd><dt>正解</dt><dd class="fix">policy 是依電量採取動作；只顯示不算。改成禁止門檻、警報、通知，並寫明這個百分比的限制。</dd></dl></div>
+        <div class="pit"><h4>pgrep 找不到程式</h4><dl><dt>症狀</dt><dd><code>pgrep -x telemetry_display</code> 永遠沒有結果。</dd><dt>後果</dt><dd>「沒有殘留程序」這項檢查永遠會過，等於沒檢查。</dd><dt>正解</dt><dd class="fix">kernel 的程序名稱只留 15 字元：用 <code>telemetry_displ</code>（腳本裡的 <code>COMM</code>）。</dd></dl></div>
+        <div class="pit"><h4>指令把 &amp; 套在整串上</h4><dl><dt>症狀</dt><dd>寫章時試 <code>: &gt; f &amp;&amp; app &amp;</code>，<code>kill $!</code> 之後結束碼 143，app 沒寫空白畫面。</dd><dt>後果</dt><dd><code>$!</code> 是子 shell，訊號沒送到 app。</dd><dt>正解</dt><dd class="fix">清空檔案拆成獨立一行，讓 <code>&amp;</code> 只套在 app 上。</dd></dl></div>
+        <div class="pit"><h4>測試抓字面而不是行為</h4><dl><dt>症狀</dt><dd>驗收腳本的測試要找 <code>edge_ina219/unbind</code>，腳本寫的是 <code>$INA_DRV/unbind</code>。</dd><dt>後果</dt><dd>紅燈不是腳本錯；照紅燈改腳本只會讓它更難讀。</dd><dt>正解</dt><dd class="fix">改測試：確認 <code>INA_DRV</code> 指向 <code>edge_ina219</code>，再找 <code>$INA_DRV/unbind</code>。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">10c.10</span><b>收尾</b>Phase 4 → 5</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y"><code>telemetry_display</code>：每秒讀 <code>edge_ina219</code> 的 hwmon，顯示 <code>BAT %</code> / V / I / P 與狀態行；兩個 driver 都沒改。</li>
+        <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：OLED 持續顯示 BAT / Voltage / Current / Power，數值和 hwmon 一致。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">讀不到、過時、sensor 消失與換號、OLED 寫入失敗都不會讓程式結束；SIGINT / SIGTERM 立刻停、清空畫面。</li>
+        <li class="y">Step 10-b 帶過來的：每次重送設定，人眼看 3 分鐘與 30 秒都沒有閃爍，不改 driver。</li>
+        <li class="y">測試：8 組 C++ 向量、<span data-tests="tests/test_telemetry_display.py">17</span> 個 Python 測試，app 的期望畫面由 10-b 的工具產生。</li>
+        <li class="n">沒有實測：實機 hwmon 換號、長時間執行、app 端的 <code>ENODATA</code>。規模 798 行，貼著 800 行上限。</li>
+      </ul>
+      <p>Phase 4 到這裡結束：從 userspace 送 byte（Step 9）、driver 骨架（10-a）、字型（10-b），到一支實際有用的程式（10-c）。Step 11 換到另一端：在 STM32F103 上寫一個 I2C slave，讓 Jetson 這邊的 driver 有一個<b>自己設計的</b>周邊可以對話。</p>
+      <details class="quiz"><summary>1. 電流讀取失敗了一次、下一秒又成功，畫面會怎樣？</summary><p>不會變：失敗那一次 <code>Value</code> 保留上一筆和它的時間，還不到 3 秒，照樣顯示；stderr 會有一行原因。下一秒成功就換成新值。只有連續失敗超過 3 秒才變 <code>--.--</code>。</p></details>
+      <details class="quiz"><summary>2. 為什麼 app 不把 <code>hwmon4</code> 寫死在程式裡？</summary><p>號碼依註冊順序分配。開機時 hwmon0–3 被其他 driver 佔走，<code>edge_ina219</code> 才拿到 4；unbind / bind 或 rmmod / insmod 之後可能換號。用 <code>name</code> 找，目錄消失就重找。</p></details>
+      <details class="quiz"><summary>3. 如果改成 signal handler 設旗標、主迴圈 <code>sleep(1)</code>，最壞要等多久才結束？</summary><p>將近一秒：訊號剛好在「檢查旗標」之後、「開始 sleep」之前到達時，要睡滿這一秒才會再檢查。block 訊號後用 <code>sigtimedwait()</code> 等，pending 的訊號讓它立刻回來，沒有這個縫。</p></details>
+      <details class="quiz"><summary>4. 接上 adapter 的瞬間 BAT 從 79 % 跳到 93 %，是 bug 嗎？</summary><p>不是 app 的 bug，是廠商公式的限制：它只看 bus 電壓，充電器把電壓往上推，百分比跟著變高。要真正的剩餘電量需要累計電流（庫侖計）或電池管理晶片，不在這一步的範圍內。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10b.html">← Step 10-b</a><span class="disabled">Step 11 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A simulation of apps/telemetry.h's percent() in the browser, not the board.
+  var v = document.getElementById('pctV'), out = document.getElementById('pctOut'), bar = document.getElementById('pctBar');
+  function render() {
+    var mv = parseInt(v.value, 10), x = mv - 9000;
+    var h = x <= 0 ? 0 : x >= 3600 ? 10000 : Math.floor((x * 50 + 9) / 18);
+    var pct = (h / 100).toFixed(2);
+    out.innerHTML = 'V = <b>' + (mv / 1000).toFixed(3) + ' V</b>　→　BAT: <b>' + pct + ' %</b>' +
+      (x <= 0 ? '（低於 9.0 V，夾成 0）' : x >= 3600 ? '（高於 12.6 V，夾成 100）' : '');
+    bar.style.width = (h / 100) + '%';
+  }
+  v.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

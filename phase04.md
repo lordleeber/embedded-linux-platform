@@ -405,6 +405,25 @@ app 要處理：
 ### 從 Step 10-b 帶過來的
 
 - `edge_oled` 每次 flush 都在面板亮著時重送整份設定（含 `D5` 時脈、`A8` multiplex、`8D 14` charge pump），10-b 只人眼看了 5 次刷新沒閃（PR #15 code review）。這一步會長時間每秒刷新：驗收加一項「連續刷新幾分鐘，看有沒有閃爍或亮度掉」。真的看到時，再考慮刷新只送和 reset 值不同的設定（`20 00`、`A1`、`C8`、`81`、`D9`、`DB`、`8D`），要先查 datasheet 的 reset 值。不能只送 charge pump + Display ON：斷電又接回時晶片會回到 page addressing、`A0` / `C0`，畫面會鏡像、顛倒、排錯
+- **結果（Step 10-c）**：每秒刷新，人眼看了 3 分鐘（第一輪，口頭回報）與 30 秒（第二輪，腳本記錄）都沒有閃爍或亮度掉，不改 driver。驗收腳本保留這一項（`--watch-seconds`，預設 30）
+
+### 實作決策（Step 10-c 落地時裁決）
+
+- 誰和誰互動：INA219（target，`i2c-7` 0x41）→ `edge_ina219`（Step 8，hwmon）→ `/sys/class/hwmon/hwmonN/{in1,curr1,power1}_input` → `build/telemetry_display`（userspace）→ `write()` 1024 byte → `/dev/edge_oled` → `edge_oled` → SSD1306（target，`i2c-1` 0x3C）。兩條 I2C 的 controller 都是 Tegra；app 只碰 sysfs 與 `/dev`，**兩個 driver 都沒改**
+- 分層：`apps/telemetry.h` 只放「顯示什麼」（解析 sysfs 整數、四捨五入到 0.01、stale 規則、8 行版面），沒有 I/O 和時鐘，C++ 向量直接餵數字與時間；`apps/telemetry_display.cpp` 負責讀檔、寫 frame、等待與訊號。文字由 Step 10-b 的 `oled_text.h` 畫
+- 畫面：`BAT: 98.00 %` / `V: 12.53 V` / `I:  0.96 A` / `P: 12.06 W` / 三行空白 / 狀態行（`OK #N`、`STALE I #N`、`NO SENSOR #N`，計數器讓人看得出畫面是活的）。使用者在驗收時要求加百分比：照廠商 `ina219.py` 的公式 `(V − 9) / 3.6 × 100`，夾在 0–100；只是顯示，沒有任何門檻或動作（不是 low-battery policy）。它只看電壓，充電時偏高（Step 6-a 實測）
+- 錯誤處理：每個 channel 保留最後一筆好值；讀不到時照樣顯示，超過 `--stale-ms`（預設 3000）才變 `--.--`。錯誤原因寫 stderr，每次連續失敗只寫一次。hwmon 目錄用 `name` = `edge_ina219` 找，目錄消失（unbind / rmmod）就重找，因為重新綁定可能換號（Step 8）。OLED 寫入失敗：關掉 fd、下一秒重開重寫（driver unbind 後舊 fd 永遠 `ENODEV`，Step 10-a），也只報一次
+- 時間與訊號：固定間隔（`--interval-ms`，預設 1000，用 CLOCK_MONOTONIC 的絕對時間排下一次）。SIGINT / SIGTERM 先被 block，等待本身就是 `sigtimedwait()`：訊號隨時到都立刻結束等待，沒有 handler、沒有競爭。結束前寫一張空白 frame（面板上不留看起來像即時的舊數字）
+- 結束碼：0 = 停止且最後一次 OLED 寫入成功；1 = 最後一次寫入失敗；2 = 用法錯。`--count N`（測試用）跑 N 次就停、保留最後一張畫面
+- 規模：非空白新增 798 行（產品碼 278：`telemetry.h` 95、`telemetry_display.cpp` 179、CMake 4；測試 346；驗收腳本 174）。動工前估 720，貼著 800 行上限；多出來的是驗收時加的百分比與兩次腳本修正
+
+### 預期檔案（Step 10-c）
+
+```text
+apps/telemetry.h、apps/telemetry_display.cpp
+tests/test_telemetry.cpp、tests/test_telemetry_display.py
+scripts/verify_telemetry_display.sh
+```
 
 ### 這一步不做
 
