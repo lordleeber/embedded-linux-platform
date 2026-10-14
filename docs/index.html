@@ -603,6 +603,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step09.html">Step 9 · OLED：先在 userspace 點亮 EDGE（SSD1306 協定）</a><p class="toc-desc">i2c-dev 的 <code>I2C_RDWR</code> 只寫不讀：control byte <code>0x00</code> / <code>0x40</code>、每次完整 init、page 排列的 framebuffer；<code>i2ctransfer</code> 打亂與四條線全拔後仍能重新點亮 <code>EDGE</code>。</p></li>
     <li><a class="toc-title" href="step10a.html">Step 10-a · OLED：把協定搬進 kernel（I2C client driver 骨架）</a><p class="toc-desc"><code>edge_oled</code> 綁定 <code>gen2_i2c</code> 上的 <code>oled@3c</code>，<code>/dev/edge_oled</code> 收整張 1024 byte 畫面、CLEAR / FILL ioctl；錯誤原樣回報、斷線後自動重送 init；<code>kref</code> 讓 unbind 時開著的檔案得到 <code>ENODEV</code>。</p></li>
     <li><a class="toc-title" href="step10b.html">Step 10-b · OLED：把字畫成 pixel（5x7 字型與文字排版）</a><p class="toc-desc">字型與排版全在 userspace（<code>apps/oled_text.h</code>），driver 仍只收整張畫面；字格 6x8、一行 21 字、一行一個 page；太長截斷不換行、不認得的字畫方框。先重現 10-a 留下的「斷電又接回、ACK 但全黑」，再讓 driver 每次 flush 都重送設定。</p></li>
+    <li><a class="toc-title" href="step10c.html">Step 10-c · OLED：電池數值上螢幕（hwmon → userspace → /dev/edge_oled）</a><p class="toc-desc"><code>telemetry_display</code> 每秒讀 <code>edge_ina219</code> 的 hwmon，顯示 BAT % / V / I / P 與狀態行，兩個 driver 都沒改；讀不到、過時、sensor 換號、OLED 拔線都不中斷；<code>sigtimedwait()</code> 收 SIGINT / SIGTERM，清空畫面後結束。百分比照廠商公式，只看電壓。</p></li>
   </ol>
 </main>
 <script id="inline-js">
