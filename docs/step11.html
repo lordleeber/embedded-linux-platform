@@ -386,22 +386,24 @@ void i2c_target_rx(struct i2c_target *t, uint8_t byte)
     I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE);</pre>
       </figure>
       <p><code>I2C_OwnAddress1</code> 要左移一位：OAR1 暫存器的 bit 0 在 7-bit 模式不用，位址放在 bit 7:1。<code>I2C_ClockSpeed</code> 只有當 controller 時才用到，但 SPL 的 <code>I2C_Init()</code> 一定會拿它算時脈分頻，所以還是要填。三種中斷：<code>EVT</code>（ADDR、STOPF 這類事件）、<code>BUF</code>（RXNE / TXE：資料暫存器滿了 / 空了）、<code>ERR</code>（AF、bus 錯誤）。事件與錯誤是 <b>兩個不同的中斷向量</b>：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:67–96 — 一次讀出 SR1 與 SR2，依旗標呼叫 i2c_target；錯誤中斷（含讀取結束的 AF）清旗標並結束 transaction</figcaption>
-<pre data-start="67" data-hot="70,71,73,76,83,85,94,95">void I2C1_EV_IRQHandler(void)
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:67–98 — 一次讀出 SR1 與 SR2，先收下 DR 裡的資料再看 ADDR；錯誤中斷（含讀取結束的 AF）清旗標並結束 transaction</figcaption>
+<pre data-start="67" data-hot="70,71,75,76,79,85,87,96,97">void I2C1_EV_IRQHandler(void)
 {
     /* Reads SR1 then SR2, which also clears ADDR; SR2 sits in the upper 16 bits. */
     uint32_t ev = I2C_GetLastEvent(I2C1);
     int reading = (ev &amp; ((uint32_t)I2C_SR2_TRA &lt;&lt; 16)) != 0;
 
-    if ((ev &amp; I2C_SR1_ADDR) &amp;&amp; !reading)
-        i2c_target_write_start(&amp;target);
+    /* A data byte still in DR belongs to the transaction before a repeated START in the same
+     * snapshot: take it before ADDR starts a new write, or it would become the pointer. */
     if (ev &amp; I2C_SR1_RXNE) {
         i2c_target_rx(&amp;target, I2C_ReceiveData(I2C1));
         led_apply();
     }
-    /* TXE: DR is empty, the controller is (or may be) clocking out the next byte. Every byte of
-     * a read is the selected register, so a byte loaded ahead of the controller's NACK is
-     * never wrong; measured in Step 11, alternating reads never return the previous byte. */
+    if ((ev &amp; I2C_SR1_ADDR) &amp;&amp; !reading)
+        i2c_target_write_start(&amp;target);
+    /* TXE: DR is empty. TXE also loads one byte ahead of the controller's NACK; that byte is the
+     * same register, and pointer and value only change through a write, whose received bytes
+     * go through the same DR. Measured in Step 11: no read ever returned an older byte. */
     if (reading &amp;&amp; (ev &amp; I2C_SR1_TXE))
         I2C_SendData(I2C1, i2c_target_tx(&amp;target));
     if (ev &amp; I2C_SR1_STOPF) {
@@ -423,8 +425,9 @@ void I2C1_ER_IRQHandler(void)
         <li><b>清旗標的方法各不相同</b>。<code>ADDR</code> 要「讀 SR1 再讀 SR2」才會清掉，<code>I2C_GetLastEvent()</code> 正好就是這兩次讀取（還把 SR2 放在高 16 位元，所以 <code>TRA</code> 要左移 16）。<code>RXNE</code> / <code>TXE</code> 靠讀寫 <code>DR</code> 清。<code>STOPF</code> 要「讀 SR1 之後寫一次 CR1」：<code>I2C_Cmd(I2C1, ENABLE)</code> 就是把已經是 1 的 PE 位元再寫一次。哪一個沒清掉，中斷一返回就會立刻再進來，CPU 永遠出不來。</li>
         <li><b>讀取不是以 STOP 結束的</b>。controller 讀完最後一個 byte 回 NACK，target 這端收到的是錯誤中斷裡的 <code>AF</code>（acknowledge failure），而不是 <code>STOPF</code>。只在 STOPF 收尾的話，讀取永遠不會回到 IDLE。</li>
         <li><b>TRA 決定方向</b>。ADDR 同時有 <code>TRA = 1</code>（Jetson 要讀），就不呼叫 <code>write_start()</code>，接下來的 <code>TXE</code> 才是送 byte 的時機。</li>
+        <li><b>同一次讀到的旗標，先處理 RXNE 再處理 ADDR</b>。寫入的資料 byte 還沒被讀走、controller 就送了 repeated START 時，同一份 SR1 會同時有 RXNE 和 ADDR。第一版先呼叫 <code>write_start()</code>，那個資料 byte 就會被當成新的 pointer，LED 的寫入就這樣不見了。這是 PR #17 code review 抓到的；中斷處理這麼短，實機很難碰到，所以只用一條測試檢查原始碼裡的順序，沒有實測。</li>
       </ul>
-      <div class="callout"><p><b>原本以為要防的 bug，實測沒有發生</b>：BUF 中斷開著時，硬體把一個 byte 搬去送的同時 <code>TXE</code> 就又亮了，firmware 會在 Jetson 回 NACK <b>之前</b>先放好下一個 byte。我讀 RM0008 推論：這個預先放好的 byte 會留在 <code>DR</code>，在<b>下一次</b>讀取時先被送出去，讀 0x20 會拿到上一次讀的 0x00 的值。所以第一版在讀取時關掉 BUF、改用 BTF 補 byte。實機上試了兩種沒有防護的寫法，「交替讀 400 次」<b class="hl-ok">都全對</b>，所以改回最簡單的 TXE 寫法，只在註解寫實測結果。至於硬體為什麼沒把舊 byte 送出去，沒有查證。11.7 會說明怎麼確認這個測試真的抓得到這種錯。</p></div>
+      <div class="callout"><p><b>原本以為要防的 bug，實測沒有發生</b>：BUF 中斷開著時，硬體把一個 byte 搬去送的同時 <code>TXE</code> 就又亮了，firmware 會在 Jetson 回 NACK <b>之前</b>先放好下一個 byte。我讀 RM0008 推論：這個預先放好的 byte 會留在 <code>DR</code>，在<b>下一次</b>讀取時先被送出去，讀 0x20 會拿到上一次讀的 0x00 的值。所以第一版在讀取時關掉 BUF、改用 BTF 補 byte。實機上試了兩種沒有防護的寫法，「交替讀 400 次」<b class="hl-ok">都全對</b>，所以改回最簡單的 TXE 寫法。code review 時又問到：值在兩次讀取之間改變的話呢？想清楚就知道不會出事：預先放的永遠是同一個 register 的值，而 pointer 和值只會被<b>寫入</b>改變，寫入收到的 byte 也經過同一個 <code>DR</code>，會把預先放的那個蓋掉。實機上 LED 切換 20 次、每次分別用 <code>i2cget</code> 和不寫 pointer 的 <code>i2ctransfer r1</code> 讀回，<b class="hl-ok">全部正確</b>，這條也加進了硬體測試。硬體本身怎麼處理那個沒送出去的 byte，沒有查證。11.7 會說明怎麼確認這些測試真的抓得到這種錯。</p></div>
       <p><code>main()</code> 本身什麼都不做，所有事情都在中斷裡發生。主迴圈原本寫成 <code>for (;;) __WFI();</code>（睡到下一個中斷），後來改成空迴圈，原因在 11.8。</p>
     </div>
   </section>
@@ -434,8 +437,8 @@ void I2C1_ER_IRQHandler(void)
     <div class="content">
       <h2>PlatformIO，但不用它的 SPL</h2>
       <p>PlatformIO 是建置工具：負責下載 toolchain、編譯、連結、呼叫 OpenOCD 燒錄。它的設定可以寫 <code>framework = spl</code>，讓它提供 SPL，但 PlatformIO 的 <code>framework-spl</code> 套件<b class="hl-bad">沒有 STM32F1</b>（只有 F0 / F3 / F4 / L1），Blue Pill 會得到 <code>This board doesn't support spl framework</code>。所以照這個專案作者自己的 SPL 課程（VS Code + PlatformIO）的做法：<b class="hl-key">不指定 framework</b>，CMSIS 與 SPL 原始檔放在專案目錄裡，PlatformIO 只負責編譯它們。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/platformio.ini:12–43 — 沒有 framework；toolchain 釘在有 aarch64 版的 GCC 12.3.1；只編四個用到的 SPL 驅動</figcaption>
-<pre data-start="12" data-hot="13,19,35,36,37">[platformio]
+      <figure class="listing"><figcaption>firmware/stm32f103/platformio.ini:14–48 — 沒有 framework；toolchain 釘在有 aarch64 版的 GCC 12.3.1；warning 一律當錯誤；只編四個用到的 SPL 驅動</figcaption>
+<pre data-start="14" data-hot="15,21,32,33,34,40,41,42">[platformio]
 src_dir = .
 
 [env:bluepill]
@@ -455,6 +458,9 @@ build_flags =
     -I Library
     -specs=nano.specs
     -specs=nosys.specs
+    -Wall
+    -Wextra
+    -Werror
 
 ; Only the SPL drivers this firmware calls. Start/core_cm3.c is left out: its old inline asm
 ; (__STREXB / __STREXH) does not assemble with newer GNU as, and core_cm3.h inlines what we use.
@@ -468,7 +474,7 @@ build_src_filter =
     +&lt;Start/system_stm32f10x.c&gt;
     +&lt;startup/&gt;</pre>
       </figure>
-      <p>和課程原本的設定差兩處，都是因為這次在 Jetson（aarch64）上建置：課程用的 <code>toolchain-gccarmnoneeabi@1.70201.0</code>（GCC 7.2.1）沒有 aarch64 版，換成 12.3.1；而 GCC 12 的 assembler 不接受 <code>build_type = debug</code> 傳給 <code>.s</code> 檔的 <code>-g2</code>，所以拿掉 debug 建置。<code>Start/</code>、<code>Library/</code>、<code>startup/</code>、<code>ldscript/</code> 的 14 個檔從課程原樣複製，SHA-256 記在 <code>vendor.sha256</code>，有一條測試逐檔比對；<code>.gitattributes</code> 把它們設成 <code>-text</code>，git 不會改動 CRLF 換行。</p>
+      <p>和課程原本的設定差三處。前兩處是因為這次在 Jetson（aarch64）上建置：課程用的 <code>toolchain-gccarmnoneeabi@1.70201.0</code>（GCC 7.2.1）沒有 aarch64 版，換成 12.3.1；而 GCC 12 的 assembler 不接受 <code>build_type = debug</code> 傳給 <code>.s</code> 檔的 <code>-g2</code>，所以拿掉 debug 建置。第三處是 <code>-Wall -Wextra -Werror</code>：host 端的 CMake 只編 <code>i2c_target.c</code>，<code>main.c</code> 只有這裡會編到；實測連 SPL 的檔案在這組旗標下也沒有任何 warning。<code>Start/</code>、<code>Library/</code>、<code>startup/</code>、<code>ldscript/</code> 的 14 個檔從課程原樣複製，SHA-256 記在 <code>vendor.sha256</code>，有一條測試逐檔比對；<code>.gitattributes</code> 把它們設成 <code>-text</code>，git 不會改動 CRLF 換行。</p>
       <h3>自己建置一次</h3>
       <p>起點：repo 根目錄、Jetson 或任何 Linux，有 Python 3。第一次要裝 PlatformIO Core（裝到 VS Code 擴充套件也用的 <code>~/.platformio/penv</code>）：</p>
 <pre class="cmd">python3 -m venv ~/.platformio/penv &amp;&amp; ~/.platformio/penv/bin/pip install platformio==6.1.19</pre>
@@ -479,10 +485,10 @@ build_src_filter =
 Checking size .pio/build/bluepill/firmware.elf
 Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
 RAM:   [          ]   2.3% (used 464 bytes from 20480 bytes)
-Flash: [          ]   3.0% (used 1960 bytes from 65536 bytes)
+Flash: [          ]   2.9% (used 1912 bytes from 65536 bytes)
 Building .pio/build/bluepill/firmware.bin
-========================= [SUCCESS] Took 1.11 seconds =========================</pre>
-      <p>那行 <code>RWX permissions</code> 的 warning 來自課程的 linker script（新版 ld 才會檢查），不影響執行。整個 firmware 不到 2 KB；換了 toolchain 版本的話，大小差幾十 byte 是正常的。不想裝 PlatformIO 也能驗 protocol，host 端測試只需要 CMake：</p>
+========================= [SUCCESS] Took 1.10 seconds =========================</pre>
+      <p>那行 <code>RWX permissions</code> 的 warning 來自課程的 linker script（新版 ld 才會檢查），不影響執行。整個 firmware 不到 2 KB（code review 修正前是 1960 byte）；換了 toolchain 版本的話，大小差幾十 byte 是正常的。不想裝 PlatformIO 也能驗 protocol，host 端測試只需要 CMake：</p>
 <pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target test_i2c_target &amp;&amp; build/test_i2c_target</pre>
 <pre class="out">all i2c_target vectors passed</pre>
     </div>
@@ -494,7 +500,7 @@ Building .pio/build/bluepill/firmware.bin
       <h2>測試：protocol 在 host、接線在板子、測試本身也要被測</h2>
       <ul>
         <li><b><code>tests/test_i2c_target.cpp</code></b>：11 組向量，從 header 的規格寫，不是從實作抄：ID / 版本、reset 狀態、LED 開關、不合法的 LED 值（從 0 和從 1 出發各 3 個值）、RO、7 個沒定義的位址、不 auto-increment、pointer 跨 transaction、多餘的資料 byte、repeated START 再寫、transaction 外的 byte。</li>
-        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">26</span> 個。register-map.md 的表格對 header 的值；<code>i2c_target.c</code> 不准出現任何暫存器；<code>main.c</code> 用 I2C1、PB6 / PB7、<code>0x42 &lt;&lt; 1</code>、PC13 低電位亮；AF 會結束 transaction；主迴圈沒有 WFI；範圍檢查（沒有 ADC、IWDG、SPI、DMA，沒有 <code>kernel/edge_ctrl</code>）；vendor 檔的 SHA-256。PlatformIO 有裝時真的建置 firmware，再用 <code>arm-none-eabi-nm</code> 確認兩個中斷 handler 是我們的強符號。硬體測試 5 個（<code>EDGE_STM32_HW=1</code>），其餘不需要板子。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個。register-map.md 的表格對 header 的值；<code>i2c_target.c</code> 不准出現任何暫存器；<code>main.c</code> 用 I2C1、PB6 / PB7、<code>0x42 &lt;&lt; 1</code>、PC13 低電位亮；AF 會結束 transaction；RXNE 在 ADDR 之前處理；主迴圈沒有 WFI；ini 有 <code>-Wall -Wextra -Werror</code>；範圍檢查（沒有 ADC、IWDG、SPI、DMA，沒有 <code>kernel/edge_ctrl</code>）；vendor 檔的 SHA-256。PlatformIO 和釘住的 toolchain（1.120301.0）都已經裝好時，真的建置 firmware，再用那個 toolchain 的 <code>arm-none-eabi-nm</code> 確認兩個中斷 handler 是我們的強符號；沒裝就 skip，不會在跑測試時上網下載。硬體測試 6 個（<code>EDGE_STM32_HW=1</code>），其餘不需要板子。</li>
       </ul>
       <p>中斷 handler 那條是 firmware 特有的陷阱：startup 檔把每個中斷向量都先定成 <b>weak</b> 的 <code>Default_Handler</code>。handler 名字拼錯（例如寫成 <code>I2C1_ERR_IRQHandler</code>）照樣編譯、照樣連結，只是錯誤中斷發生時跳進 <code>Default_Handler</code> 的無窮迴圈。故意改錯名字，這條測試就紅。</p>
       <h3>測試有沒有紅過</h3>
@@ -505,7 +511,7 @@ FAIL FW_MINOR: reg 0x02 = '0x00', want 0x01
 ...
 == 25 rounds of alternating reads (0x00 0x01 0x02 0x20, LED on)
 FAIL 75 of 100 reads wrong</pre>
-      <p>每次都拿到上一個 register 的值；100 次裡剩下的 25 次「對」，是因為 0x02 之後接 0x20，兩個剛好都是 <code>0x01</code>。測試抓得到這種錯，燒回正確的 firmware 之後又全對。</p>
+      <p>每次都拿到上一個 register 的值；100 次裡剩下的 25 次「對」，是因為 0x02 之後接 0x20，兩個剛好都是 <code>0x01</code>。code review 後加的「LED 切換後讀回」測試在同一個變異版上也紅了（第一輪就讀到 <code>0xED</code>，要的是 0）。燒回正確的 firmware 之後全對。</p>
     </div>
   </section>
 
@@ -613,7 +619,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li><span class="mk">5</span><span>一次讀 3 byte，3 個都是 FW_MINOR：不 auto-increment。</span></li>
         <li><span class="mk">6</span><span>四個 register 輪流讀 100 輪，沒有一次拿到上一個 register 的值。每次 <code>i2cget</code> 都是一個新 process，約 3 ms 一次。</span></li>
       </ol>
-      <p>遠端時不能看 LED，就加 <code>--no-look</code>（不問 y/n，其餘照跑）。你的板子沒接 OLED 時那行同樣是 SKIP；接著 OLED 時會多一行 PASS。手動試的話：</p>
+      <p>這份輸出是 code review 修正之前跑的。修正後（RXNE / ADDR 順序、<code>-Werror</code>）重燒，以 <code>--no-look</code> 重跑一次 <b class="hl-ok">0 failure</b>，板上 unit test 多了「LED 切換後讀回」那一條；LED 的人眼確認沒有重做。遠端時不能看 LED，就加 <code>--no-look</code>（不問 y/n，其餘照跑）。你的板子沒接 OLED 時那行同樣是 SKIP；接著 OLED 時會多一行 PASS。手動試的話：</p>
 <pre class="cmd">i2cget -y 1 0x42 0x00 &amp;&amp; i2cset -y 1 0x42 0x20 1 &amp;&amp; i2cget -y 1 0x42 0x20</pre>
 <pre class="out">0xed
 0x01</pre>
@@ -645,8 +651,8 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">Blue Pill 在 Jetson 的 <code>i2c-1</code> 上以 0x42 回應：DEVICE_ID、版本、LED_CONTROL，不合法的存取有明確定義。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：Jetson userspace 讀得到 Device ID 與版本，寫 LED_CONTROL 讓 LED 亮、滅。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">protocol 和硬體分開：<code>i2c_target.c</code> 在 Jetson 上跑 11 組向量，<code>main.c</code> 只翻譯 I2C1 的旗標。</li>
-        <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">26</span> 個 Python 測試；故意出錯的 firmware 證明交替讀測試抓得到舊 byte。</li>
-        <li class="n">沒有實測：OLED 同時在 bus 上、reset 後的預設值、400 kHz、長時間存取。規模：非空白 739 行（不含 vendor 檔）。</li>
+        <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個 Python 測試；故意出錯的 firmware 證明交替讀、LED 切換後讀回兩條測試抓得到舊 byte。</li>
+        <li class="n">沒有實測：OLED 同時在 bus 上、reset 後的預設值、400 kHz、長時間存取。規模：非空白 796 行（不含 vendor 檔），含 code review 的修正。</li>
       </ul>
       <p>Step 12 把這四個 register 擴充成正式的 register map：分區（識別 / 輸入 / 輸出 / 健康狀態）、ADC 這種超過 1 byte 的值（要定義 auto-increment 與 byte 順序）、STATUS register 回報不合法的寫入，以及 protocol 版本規則。那時候「預先放好的 byte」就不再無害：多讀一個 byte 會讓 pointer 多前進一格，要重新驗證。</p>
       <details class="quiz"><summary>1. 為什麼讀 register 要先「寫」一個 byte？</summary><p>I2C 只有「寫一串 byte」與「讀一串 byte」。target 要知道該回哪個 register，controller 只能先寫一個 byte 當 pointer，再用 repeated START 改成讀。這個「第一個 byte 是 pointer」是我們自己的 protocol 規定的，I2C 本身沒有。</p></details>

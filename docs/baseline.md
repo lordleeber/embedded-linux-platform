@@ -484,7 +484,7 @@
 - **未實測**：OLED 和 STM32 同時在 bus 上（腳本看得到 0x3c 時會檢查它還在）；Blue Pill reset 後 LED 回到 0（reset 預設值只在 host 向量裡驗）；400 kHz；長時間連續存取；F1 errata 的 BUSY 卡住（沒遇到）。
 - 自動測試：`tests/test_i2c_target.cpp` 11 組向量（ID / 版本、reset 狀態、LED 開關、不合法 LED 值、RO、沒定義的 register、不 auto-increment、pointer 跨 transaction、多餘的資料 byte、repeated START 再寫、transaction 外的 byte）；`tests/test_stm32_i2c_target.py` 26 個（向量 1、register map 對 header 2、firmware 原始碼 8、vendor 2、PlatformIO 建置與 IRQ handler 不是 weak default 2（沒裝 PlatformIO 時 skip）、硬體 5（`EDGE_STM32_HW=1`）、驗收腳本 6）。全套 370 個，`OK (skipped=70)`。
 - 紅燈紀錄：實作前 `test_stm32_i2c_target.py` 7 failures、9 errors（5 個硬體 skip），先過的 3 個是守門測試（register map 對 header、vendor SHA-256）；第一次實作後還紅 2 個：CMake 少 include 路徑、測試對 ini 全文找 `core_cm3.c` 找到註解（改成只看 `+<...>`）。變異：接受 LED 值 2、多餘的資料 byte 也寫、repeated START 不重設、沒定義的讀成 0、reset 時 pointer 不在 0x00、STOP 不回 IDLE、IDLE 收到的 byte 改到 pointer，7 種都讓向量失敗；最後一種**第一次沒抓到**（只看 LED，沒看 pointer），補檢查後紅。硬體：把 `I2C1_ER_IRQHandler` 改名，`nm` 測試抓到 handler 退回 `Default_Handler`；故意送「上一次的 byte」的 firmware，交替讀 100 次錯 75 次（0x02 → 0x20 剛好都是 0x01，所以不是 100 %）。
-- 規模：`git diff --numstat`（不含 vendor 檔、docs 與 .md）新增 882 行、非空白 739：產品碼約 260（`main.c` 108 行含註解、`i2c_target.c` 59、`i2c_target.h` 65、`stm32f10x_conf.h` 13、`platformio.ini` 48）、測試 447（C++ 192、Python 255）、驗收腳本 117。phase05 沒有給估計；動工前估約 730（產品碼約 280、測試約 350、驗收腳本約 150）。
+- 規模（code review 後見下）：`git diff f8728e8`（不含 vendor 檔、docs 與 .md）新增 882 行、**非空白 754**：產品碼 278、測試 372、驗收腳本 104。800 行上限照 Step 10-b / 10-c 的算法看非空白行。PR 開出時寫的「739」是漏算 CMake、`.gitattributes`、`vendor.sha256` 的錯數字，各類別又混用了含空白與非空白（code review 指出）。phase05 沒有給估計；動工前估約 730（產品碼約 280、測試約 350、驗收腳本約 150）。
 
 ### 踩坑
 
@@ -495,3 +495,13 @@
 - 原本以為使用者說「拔掉 pin 28」是拔 Jetson 那頭；其實都是拔麵包板（Blue Pill）那頭。判斷 bus 有沒有被拉住時兩頭等價；要分辨「腳壞」和「線碰到 GND」時才不同。
 - 原本以為主迴圈 `for (;;) __WFI();` 無害。使用者重插 ST-Link（Blue Pill 斷電）之後，OpenOCD `SWD DPIDR 0x1ba01477` 讀得到、`Failed to read memory at 0xe000ed04` / `Examination failed`，`reset halt` 也是 `AP write error`。之前接得上，是因為燒錄時 OpenOCD 設了 DBGMCU_CR 的 DBG_SLEEP，斷電才清掉；DBG_SLEEP = 0 時 Sleep mode 下 HCLK 關掉，除錯器經 AHB 讀不到記憶體（RM0008 DBGMCU_CR）。救回：BOOT0 jumper 移到 1、按 RESET（PC 停在 system memory `0x1ffff1ec`）→ 燒新版 → BOOT0 回 0、RESET。改成空迴圈，先寫 `test_main_loop_does_not_sleep` 看它紅。斷電後 SWD 照樣接得上這點：BOOT0 回 0 之後沒有再斷電試（推論）。
 - 原本以為（讀 RM0008 推論）BUF 中斷開著時，TXE 會在對方 ACK 前就把下一個 byte 放進 DR，對方 NACK 後那個 byte 留在 DR、在下一次讀取先送出去，所以第一版讀取時關 BUF、改在 BTF 補 byte。燒了兩個變異版實測：(1) BUF 一直開、ADDR 時寫 DR、之後 TXE 補；(2) ADDR 時不寫、完全靠 TXE。兩個都 0 failure、交替讀全對。推論不成立，firmware 改成 (2) 的寫法（SPL 標準的 TXE 驅動），註解只寫實測結果，原本要求 `I2C_IT_BUF, DISABLE` 的靜態測試改成「沒有切換 BUF」。DR 裡的舊 byte 為什麼沒送出去（硬體在 AF / STOP 時清掉，或被 ADDR 後的新寫入蓋掉）沒有查證。
+- code review（PR #17，medium）找出 9 項：6 項修正、1 項排到 Step 12、2 項不改。原本都以為沒事：
+  - 原本以為 EV 中斷裡先看 ADDR、再看 RXNE 沒差。寫入的資料 byte 還沒被讀走時 controller 送 repeated START 再寫，同一份 SR1 會同時有 RXNE 與 ADDR，`write_start()` 先跑，那個資料 byte 就變成 pointer、LED 的寫入不見。改成先收 RXNE。只用原始碼順序的測試守住，**沒有實測**（中斷處理很短，實機很難碰到）。
+  - 原本以為 TXE 預先放的 byte「不會錯」的理由是「每個 byte 都是同一個 register」。reviewer 舉「LED=1 讀 0x20 → 寫 0 → 再讀」說可能讀回舊的 0x01：實測讀回 `0x00`，LED 切換 50 次、每次讀回都對，`i2ctransfer r1`（不寫 pointer）也對。真正的理由是 pointer 與值只會被寫入改變，寫入收到的 byte 經過同一個 DR，會蓋掉預先放的那個；註解改寫成這個理由，並新增硬體測試 `test_read_after_the_value_changed`（20 輪，`i2cget` 與純讀取各一次）。這條測試在「送上一次 byte」的變異版上紅（第一輪讀到 0xED）。
+  - 原本以為 firmware 的 warning 有 host 端的 `-Werror` 管；host 只編 `i2c_target.c`。`platformio.ini` 加 `-Wall -Wextra -Werror`：SPL 的檔案也沒有任何 warning，故意加一個沒用到的變數就建置失敗。
+  - 原本以為 `pio run` 放在一般的 `unittest discover` 裡無妨；第一次會下載 toolchain、離線時失敗而不是 skip。改成 PlatformIO 與釘住的 toolchain（`package.json` 版本 1.120301.0，依 `PLATFORMIO_CORE_DIR` 找、目錄名可以帶 `@版本`）都已經裝好才跑，timeout 900 → 300 s；`nm` 從同一個 toolchain 找。不採用 reviewer 建議的環境變數開關：那樣平常沒人會跑，handler 名稱拼錯就沒人發現。用空的 `PLATFORMIO_CORE_DIR` 確認兩個建置測試是 skip。
+  - 行數：見上面的「規模」。
+  - 排到 Step 12（寫進 phase05）：錯誤後沒有 SWRST / 重新初始化，BUSY 卡住（ES096）時只能按 RESET。現在沒有重現方法，改了也驗不了。
+  - 不改：`test_i2c_target.cpp` 用相對路徑 include header（repo 的測試都這樣寫，如 `../apps/telemetry.h`）。
+  - 修正前新增的測試：靜態 2 個（RXNE 在 ADDR 之前、ini 的 warning 旗標）在改之前紅；硬體 1 個在變異版上紅。`test_stm32_i2c_target.py` 26 → 29 個；全套 373 個，`OK (skipped=71)`。規模 754 → 796 行（非空白）。
+- 修正後重燒（flash 1960 → **1912 byte**，沒有逐項追查是哪個改動造成的）並重跑 `bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`：400 次交替讀 1.2 s 全對，板上 unit test 6 個通過；ina3221 仍是 `0x4954`。LED 的人眼確認沒有重做（只改了 RXNE / ADDR 的順序與編譯旗標，LED 讀回仍由腳本檢查）。

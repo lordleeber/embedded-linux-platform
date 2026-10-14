@@ -70,15 +70,17 @@ void I2C1_EV_IRQHandler(void)
     uint32_t ev = I2C_GetLastEvent(I2C1);
     int reading = (ev & ((uint32_t)I2C_SR2_TRA << 16)) != 0;
 
-    if ((ev & I2C_SR1_ADDR) && !reading)
-        i2c_target_write_start(&target);
+    /* A data byte still in DR belongs to the transaction before a repeated START in the same
+     * snapshot: take it before ADDR starts a new write, or it would become the pointer. */
     if (ev & I2C_SR1_RXNE) {
         i2c_target_rx(&target, I2C_ReceiveData(I2C1));
         led_apply();
     }
-    /* TXE: DR is empty, the controller is (or may be) clocking out the next byte. Every byte of
-     * a read is the selected register, so a byte loaded ahead of the controller's NACK is
-     * never wrong; measured in Step 11, alternating reads never return the previous byte. */
+    if ((ev & I2C_SR1_ADDR) && !reading)
+        i2c_target_write_start(&target);
+    /* TXE: DR is empty. TXE also loads one byte ahead of the controller's NACK; that byte is the
+     * same register, and pointer and value only change through a write, whose received bytes
+     * go through the same DR. Measured in Step 11: no read ever returned an older byte. */
     if (reading && (ev & I2C_SR1_TXE))
         I2C_SendData(I2C1, i2c_target_tx(&target));
     if (ev & I2C_SR1_STOPF) {

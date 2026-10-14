@@ -10,6 +10,7 @@ EDGE_STM32_HW=1, which scripts/verify_stm32_i2c.sh sets.
 """
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -100,6 +101,13 @@ class FirmwareSourceTest(unittest.TestCase):
                   "i2c_target_write_start(", "i2c_target_rx(", "i2c_target_tx(", "i2c_target_stop("):
             self.assertIn(s, self.main)
 
+    def test_pending_byte_is_taken_before_a_new_address(self):
+        # PR #17 review: one SR1 snapshot can hold RXNE (the last data byte, not read yet) and
+        # ADDR (a repeated START). write_start() first would turn that data byte into a pointer.
+        ev = self.main[self.main.index("void I2C1_EV_IRQHandler(void)"):]
+        ev = ev[:ev.index("\n}")]
+        self.assertLess(ev.index("I2C_SR1_RXNE"), ev.index("I2C_SR1_ADDR"))
+
     def test_read_ends_on_the_controllers_nack(self):
         # A read ends with the controller's NACK (AF), not STOPF (RM0008 slave transmitter):
         # AF must be cleared and must end the transaction, or the error interrupt never stops.
@@ -146,16 +154,43 @@ class VendorTest(unittest.TestCase):
         self.assertNotRegex(ini, r"(?m)^framework")
         self.assertRegex(ini, r"(?m)^ *platformio/toolchain-gccarmnoneeabi@1\.120301\.0")
 
+    def test_firmware_is_built_with_warnings_as_errors(self):
+        # PR #17 review: the host build only compiles i2c_target.c with -Werror; main.c and the
+        # vendor files go through PlatformIO only (all of them build clean with these flags).
+        flags = INI.read_text().split("build_flags =", 1)[1].split("\n\n", 1)[0].split()
+        for f in ("-Wall", "-Wextra", "-Werror"):
+            self.assertIn(f, flags)
 
-@unittest.skipUnless(Path(PIO).exists() or shutil.which("pio"), "PlatformIO not installed")
+
+def pio_core_dir():
+    return Path(os.environ.get("PLATFORMIO_CORE_DIR", Path.home() / ".platformio"))
+
+
+def pinned_toolchain():
+    """bin/ of the installed toolchain-gccarmnoneeabi 1.120301.0, or None. PlatformIO names the
+    directory toolchain-gccarmnoneeabi or, next to another version, toolchain-gccarmnoneeabi@<v>."""
+    for d in sorted(pio_core_dir().glob("packages/toolchain-gccarmnoneeabi*")):
+        try:
+            if json.loads((d / "package.json").read_text()).get("version") == "1.120301.0":
+                return d / "bin"
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def pio_exe():
+    return PIO if Path(PIO).exists() else shutil.which("pio")
+
+
+# PR #17 review: only when PlatformIO and the pinned toolchain are already installed, so a
+# plain `unittest discover` never downloads packages (and an offline machine skips, not fails).
+@unittest.skipUnless(pio_exe() and pinned_toolchain(), "PlatformIO or toolchain-gccarmnoneeabi 1.120301.0 not installed")
 class FirmwareBuildTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        pio = PIO if Path(PIO).exists() else shutil.which("pio")
-        cls.r = subprocess.run([pio, "run", "-d", str(FW)], capture_output=True, text=True, timeout=900)
+        cls.r = subprocess.run([pio_exe(), "run", "-d", str(FW)], capture_output=True, text=True, timeout=300)
         cls.elf = FW / ".pio" / "build" / "bluepill" / "firmware.elf"
-        tc = Path.home() / ".platformio" / "packages" / "toolchain-gccarmnoneeabi" / "bin"
-        cls.nm = tc / "arm-none-eabi-nm"
+        cls.nm = pinned_toolchain() / "arm-none-eabi-nm"
 
     def test_builds(self):
         self.assertEqual(self.r.returncode, 0, self.r.stdout[-3000:])
@@ -214,6 +249,15 @@ class HardwareTest(unittest.TestCase):
         for _ in range(25):
             for reg, value in want.items():
                 self.assertEqual(get(reg), value, hex(reg))
+
+    def test_read_after_the_value_changed(self):
+        # PR #17 review: TXE loads a byte before the controller's NACK. A value can only change
+        # through a write, whose bytes land in the same DR, so the next read must see the new value.
+        for i in range(20):
+            put(0x20, i % 2)
+            self.assertEqual(get(0x20), i % 2, f"round {i}")
+            r = i2c("i2ctransfer", "-y", BUS, f"r1@{ADDR}")  # no pointer write
+            self.assertEqual(r.stdout.split(), [f"0x0{i % 2}"], f"round {i}: {r.stderr}")
 
     def test_multi_byte_read_repeats_the_register(self):
         r = i2c("i2ctransfer", "-y", BUS, f"w1@{ADDR}", "0x02", f"r3@{ADDR}")

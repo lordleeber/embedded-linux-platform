@@ -258,7 +258,8 @@ write 0x20 = 0 → LED 滅
 - 分層：`Core/Src/i2c_target.c` 是沒有任何 SPL 呼叫的 register state machine（`write_start` / `rx` / `tx` / `stop` 四個事件），host 端用 CMake 編進 `build/test_i2c_target`；`Core/Src/main.c` 只做 SPL 初始化與兩個中斷（EV：ADDR、RXNE、TXE、STOPF；ER：AF = 讀取結束的 NACK、BERR、ARLO、OVR）
 - protocol：寫入的第 1 個 byte 是 pointer、第 2 個是資料、之後丟掉；讀取不 auto-increment（每個 byte 都是同一個 register）；pointer 保留到下次寫入。RO / 沒定義的 register 與 LED 值不是 0 / 1 的寫入：bus 上照樣 ACK，然後丟掉；沒定義的 register 讀到 0xFF。DEVICE_ID 0xED、版本 0.1
 - 主迴圈不用 `__WFI()`：DBGMCU_CR.DBG_SLEEP 被斷電清掉之後，睡在 WFI 的 F1 讓 SWD 讀不到記憶體，無法再燒錄（見 baseline 踩坑）
-- 規模：非空白新增 739 行（不含 vendor 檔與文件）：產品碼約 260（`i2c_target.h` / `.c`、`main.c`、`stm32f10x_conf.h`、`platformio.ini`）、測試約 390（C++ 向量、Python）、驗收腳本約 100
+- 規模（非空白行，和 Step 10-b / 10-c 同一種算法；不含 vendor 檔與文件）：PR 開出時 754 行，code review 修正後 **796 行**：產品碼 285（`main.c` 96、`i2c_target.c` 53、`i2c_target.h` 55、`stm32f10x_conf.h` 10、`platformio.ini` 47，其餘是 CMake、`.gitattributes`、`.gitignore`、`vendor.sha256`）、測試 407（C++ 172、Python 235）、驗收腳本 104。動工前估約 730
+- 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；若 BUSY 卡住（ES096），0x42 不會再 ACK，只能按 RESET。排進 Step 12，和 STATUS register 一起做（先能觀測錯誤，再處理復原）
 
 ### 從 Step 11 帶到後面的
 
