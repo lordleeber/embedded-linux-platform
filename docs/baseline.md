@@ -504,4 +504,4 @@
   - 排到 Step 12（寫進 phase05）：錯誤後沒有 SWRST / 重新初始化，BUSY 卡住（ES096）時只能按 RESET。現在沒有重現方法，改了也驗不了。
   - 不改：`test_i2c_target.cpp` 用相對路徑 include header（repo 的測試都這樣寫，如 `../apps/telemetry.h`）。
   - 修正前新增的測試：靜態 2 個（RXNE 在 ADDR 之前、ini 的 warning 旗標）在改之前紅；硬體 1 個在變異版上紅。`test_stm32_i2c_target.py` 26 → 29 個；全套 373 個，`OK (skipped=71)`。規模 754 → 796 行（非空白）。
-- 修正後重燒（flash 1960 → **1912 byte**，沒有逐項追查是哪個改動造成的）並重跑 `bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`：400 次交替讀 1.2 s 全對，板上 unit test 6 個通過；ina3221 仍是 `0x4954`。LED 的人眼確認沒有重做（只改了 RXNE / ADDR 的順序與編譯旗標，LED 讀回仍由腳本檢查）。
+- 修正後重燒（flash 1960 → **1912 byte**，沒有逐項追查是哪個改動造成的）並重跑 `bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`：400 次交替讀 1.2 s 全對，板上 unit test 6 個通過；ina3221 仍是 `0x4954`。之後使用者在板子旁重跑完整的 `bash scripts/verify_stm32_i2c.sh` `=== 0 failure(s)`：人確認 PC13 亮、滅，400 次交替讀 1.2 s 全對。

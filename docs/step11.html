@@ -619,7 +619,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li><span class="mk">5</span><span>一次讀 3 byte，3 個都是 FW_MINOR：不 auto-increment。</span></li>
         <li><span class="mk">6</span><span>四個 register 輪流讀 100 輪，沒有一次拿到上一個 register 的值。每次 <code>i2cget</code> 都是一個新 process，約 3 ms 一次。</span></li>
       </ol>
-      <p>這份輸出是 code review 修正之前跑的。修正後（RXNE / ADDR 順序、<code>-Werror</code>）重燒，以 <code>--no-look</code> 重跑一次 <b class="hl-ok">0 failure</b>，板上 unit test 多了「LED 切換後讀回」那一條；LED 的人眼確認沒有重做。遠端時不能看 LED，就加 <code>--no-look</code>（不問 y/n，其餘照跑）。你的板子沒接 OLED 時那行同樣是 SKIP；接著 OLED 時會多一行 PASS。手動試的話：</p>
+      <p>這份輸出是 code review 修正之前跑的。修正後（RXNE / ADDR 順序、<code>-Werror</code>）重燒，再在板子旁跑一次完整的腳本，<b class="hl-ok">0 failure</b>：LED 亮、滅都確認了，400 次交替讀 1.2 s，板上 unit test 多了「LED 切換後讀回」那一條。遠端時不能看 LED，就加 <code>--no-look</code>（不問 y/n，其餘照跑）。你的板子沒接 OLED 時那行同樣是 SKIP；接著 OLED 時會多一行 PASS。手動試的話：</p>
 <pre class="cmd">i2cget -y 1 0x42 0x00 &amp;&amp; i2cset -y 1 0x42 0x20 1 &amp;&amp; i2cget -y 1 0x42 0x20</pre>
 <pre class="out">0xed
 0x01</pre>
