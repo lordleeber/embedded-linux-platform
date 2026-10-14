@@ -41,3 +41,6 @@ add_executable(edge_oled_ctl apps/edge_oled_ctl.cpp)
 target_include_directories(edge_oled_ctl PRIVATE include tools)
 add_executable(test_edge_oled_proto tests/test_edge_oled_proto.cpp)
 target_include_directories(test_edge_oled_proto PRIVATE include)
+
+# Step 10-b: text into the frame (apps/oled_text.h, 5x7 font), drawn by edge_oled_ctl text / font.
+add_executable(test_oled_text tests/test_oled_text.cpp)

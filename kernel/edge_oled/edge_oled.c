@@ -18,9 +18,13 @@
  * item that could still be pending when the device goes away.
  *
  * Errors: a transfer that fails (no ACK = -EREMOTEIO) is returned to the caller
- * once, not retried. It also clears ->initialized, because the usual cause is
- * the OLED losing power, after which the chip is back at its reset state
- * (display off, charge pump off): the next write sends the init sequence again.
+ * once, not retried. It also clears ->initialized, so the next flush starts with
+ * Display OFF as at probe.
+ *
+ * Power loss: an OLED that lost power is back at its reset state (display off,
+ * charge pump off). Every flush re-sends the settings and Display ON (Step
+ * 10-b), so the next write brings it back whether or not a write failed while
+ * it was off.
  */
 #include <linux/fs.h>
 #include <linux/i2c.h>
@@ -41,7 +45,7 @@ struct edge_oled {
 	struct miscdevice misc;
 	struct mutex lock;		/* client, frame, tx, initialized */
 	struct kref ref;		/* the binding + one per open file */
-	bool initialized;		/* init sequence sent and nothing failed since */
+	bool initialized;		/* panel lit by the last flush */
 	u8 frame[EDGE_OLED_FRAME_SIZE];
 	u8 tx[1 + EDGE_OLED_WIDTH];	/* control byte + one page */
 };
@@ -66,28 +70,38 @@ static int edge_oled_send(struct edge_oled *oled, u8 control, const u8 *data, si
 	return (size_t)ret == len + 1 ? 0 : -EIO;
 }
 
-/* Put the frame src on the panel; first (re)initialise the chip if needed. */
+/*
+ * Put the frame src on the panel. The settings go out before every frame, not only after a
+ * failure (Step 10-b): an OLED that lost power between two writes is back at its reset state
+ * (display off) but ACKs as before, and the SSD1306 cannot be read over I2C to tell. That
+ * costs two more messages, 29 bytes on the wire with address and control bytes, about
+ * 2.6 ms at 100 kHz on top of a 1050-byte frame.
+ */
 static int edge_oled_flush(struct edge_oled *oled, const u8 *src)
 {
 	static const u8 on = EDGE_OLED_CMD_DISPLAY_ON;
-	bool init = !oled->initialized;
+	const u8 *seq = edge_oled_init_seq;
+	size_t len = sizeof(edge_oled_init_seq);
 	int page, ret;
 
-	if (!oled->initialized) {
-		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_init_seq,
-				     sizeof(edge_oled_init_seq));
-		if (ret)
-			goto out;
+	/*
+	 * Display OFF (the first byte) only before the first frame, so the old RAM content
+	 * never flashes up; a refresh of a lit panel must not blink it.
+	 */
+	if (oled->initialized) {
+		seq++;
+		len--;
 	}
-	ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_window,
-			     sizeof(edge_oled_window));
+	ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, seq, len);
+	if (!ret)
+		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, edge_oled_window,
+				     sizeof(edge_oled_window));
 	for (page = 0; !ret && page < EDGE_OLED_PAGES; page++)
 		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_DATA,
 				     src + page * EDGE_OLED_WIDTH, EDGE_OLED_WIDTH);
-	/* Display ON after the frame, so the old RAM content never flashes up. */
-	if (!ret && init)
+	/* After the frame, every time: a panel that was reset is still off until here. */
+	if (!ret)
 		ret = edge_oled_send(oled, EDGE_OLED_CONTROL_CMD, &on, 1);
-out:
 	oled->initialized = ret == 0;
 	return ret;
 }

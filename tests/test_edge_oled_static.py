@@ -185,7 +185,10 @@ class OledDriverContractTest(unittest.TestCase):
         # flush sends the init sequence again.
         b = self.body("edge_oled_flush")
         self.assertIn("edge_oled_init_seq", b)
-        self.assertRegex(b, r"if \(!oled->initialized\)")
+        # Step 10-b: the settings go out every time; only skipping Display OFF (the first
+        # byte) depends on the flag, so after a failure the whole sequence goes out again.
+        self.assertRegex(b, r"if \(oled->initialized\) \{\s*seq\+\+;\s*len--;\s*\}")
+        self.assertRegex(b, r"const u8 \*seq = edge_oled_init_seq;")
         self.assertRegex(b, r"oled->initialized = (false|ret == 0|!ret)")
 
     def test_write_takes_exactly_one_frame(self):

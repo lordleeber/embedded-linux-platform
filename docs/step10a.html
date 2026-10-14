@@ -139,7 +139,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><span class="disabled">Step 10-b →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><a href="step10b.html">Step 10-b →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 10-a · SSD1306 OLED（kernel driver 骨架）</div>
     <h1>OLED：把協定搬進 kernel</h1>
@@ -311,8 +311,9 @@ od -Ad -tx1 -v build/frame.bin | grep -v '\( 00\)\{16\}$'</pre>
     <div class="rail"><span class="no">10a.5</span><b>傳輸</b>flush</div>
     <div class="content">
       <h2>一次 flush：失敗了，下次就從頭來</h2>
+      <div class="callout"><p>Step 10-b 改了 <code>edge_oled_flush()</code>：每次 flush 都重送設定，結尾每次都送 Display ON。原因是 OLED 在兩次寫入之間斷電又接回時，下面這一版會讓螢幕一直黑著（實測重現過）。這一章 <code>edge_oled.c</code> 的五段節錄因此釘在 Step 10-a 合併時的 commit（外框標 <code>@4479e44</code>）。現在的寫法見下一章。</p></div>
       <p>所有 I2C 傳輸都經過兩個函式。<code>edge_oled_send()</code> 把 control byte 放在前面、送一個訊息；<code>edge_oled_flush()</code> 決定要送哪些訊息：</p>
-      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:56–93 — 一個訊息 = control + data；flush 送呼叫者給的 src，需要時先送 init，結尾才 Display ON；任何錯誤都讓 initialized 變 false</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:56–93 — 一個訊息 = control + data；flush 送呼叫者給的 src，需要時先送 init，結尾才 Display ON；任何錯誤都讓 initialized 變 false</figcaption>
 <pre data-start="56" data-hot="63,64,65,66,76,86,88,89,91">/* One I2C write: [control][data]. Returns 0 or a negative errno. */
 static int edge_oled_send(struct edge_oled *oled, u8 control, const u8 *data, size_t len)
 {
@@ -357,7 +358,7 @@ out:
         <li><b>init 不是只在 probe 做一次</b>。直覺的做法是「probe 初始化，之後只送畫面」。可是 OLED 斷電再接回時，晶片回到 power-on reset（Step 9 實測螢幕全黑；依 datasheet，reset 後 display OFF、charge pump 也關），只送畫面會全部 ACK、螢幕卻是黑的。所以 <code>initialized</code> 在任何一次失敗後變成 false，下一次 flush 會重送 25 byte 的 init，畫面送完再開顯示。驗收時四條線全拔再接回，<b class="hl-ok">下一次 write 自己把畫面帶回來了</b>（10a.10 的 ⑩）。</li>
         <li><b>byte 不在 driver 裡</b>。init 序列與 window 指令放在 <code>include/edge_oled_proto.h</code>（plain C，kernel 能 include），<code>test_edge_oled_proto</code> 把它和 Step 9 的 <code>ssd1306.h</code> 逐 byte 比對：driver 送的就是 Step 9 在實機驗證過的那一串。</li>
       </ul>
-      <div class="callout"><p><b class="hl-bad">這個設計的盲點</b>：driver 只有在「傳輸失敗」時才知道要重新 init。如果 OLED 在兩次寫入<b>之間</b>斷電又接回、中間沒有人寫，下一次寫入會成功 ACK，但只送了畫面，螢幕會一直是黑的（依 reset 狀態推論，<b>沒有實測</b>）。Step 10-c 要長時間週期刷新，這會變成真問題，已排進 Step 10-b 的「從 Step 10-a 帶過來的」：先寫出重現步驟，再決定是每次都送 init（約 2.5 ms）還是別的做法。</p></div>
+      <div class="callout"><p><b class="hl-bad">這個設計的盲點</b>：driver 只有在「傳輸失敗」時才知道要重新 init。如果 OLED 在兩次寫入<b>之間</b>斷電又接回、中間沒有人寫，下一次寫入會成功 ACK，但只送了畫面，螢幕會一直是黑的（依 reset 狀態推論，<b>沒有實測</b>）。Step 10-c 要長時間週期刷新，這會變成真問題，已排進 Step 10-b 的「從 Step 10-a 帶過來的」：先寫出重現步驟，再決定是每次都送 init（約 2.5 ms）還是別的做法。<b>結案</b>：Step 10-b 實測重現了（接回後寫入全部 ACK、螢幕全黑），改成每次 flush 都送設定。</p></div>
     </div>
   </section>
 
@@ -366,7 +367,7 @@ out:
     <div class="content">
       <h2>先複製，再上鎖</h2>
       <p>phase04 要求「buffer ownership 要明確」。這裡的答案是：<b>畫面屬於 driver</b>，userspace 的 buffer 只是來源。<code>write()</code> 的順序是重點：</p>
-      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:113–137 — 大小不對立刻拒絕；先複製到暫存區；送成功了才寫進 shadow frame</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:113–137 — 大小不對立刻拒絕；先複製到暫存區；送成功了才寫進 shadow frame</figcaption>
 <pre data-start="113" data-hot="120,121,122,126,127,128,130,131,132,136">static ssize_t edge_oled_write(struct file *file, const char __user *buf, size_t count,
 			       loff_t *ppos)
 {
@@ -400,7 +401,7 @@ out:
         <li><b>只收整張畫面</b>：如果讓 <code>write()</code> 照 offset 寫一部分，短寫或壞指標都會讓面板停在半張新、半張舊（10a.4）。</li>
       </ul>
       <p><code>read()</code> 直接在鎖裡 <code>simple_read_from_buffer()</code>（它會呼叫 <code>copy_to_user()</code>）。持有 <b>mutex</b> 時發生 page fault、睡一下是允許的（spinlock 才不行）；這個 driver 沒有 mmap，page fault 不會回頭要這把鎖，所以不會自己鎖死。第一版另外配一塊暫存區、解鎖後才複製，理由寫成「不該在持鎖時做」，那是說得太重了，code review 後拿掉。</p>
-      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:139–153 — 鎖裡直接複製給 userspace；unbind 之後回 -ENODEV</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:139–153 — 鎖裡直接複製給 userspace；unbind 之後回 -ENODEV</figcaption>
 <pre data-start="139" data-hot="148,149,150">static ssize_t edge_oled_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
 	struct edge_oled *oled = to_oled(file);
@@ -473,7 +474,7 @@ out:
         </svg>
         <figcaption>圖 10.2 — 綁定和每個開著的檔案各持一個 reference。unbind 只放掉綁定那一個；結構等最後一個檔案關掉才釋放，在那之前每個操作都看得到 <code>client == NULL</code>。</figcaption>
       </figure>
-      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:95–111 — misc_open 已經把 file->private_data 設成 &oled->misc；open 加一、release 減一</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:95–111 — misc_open 已經把 file->private_data 設成 &oled->misc；open 加一、release 減一</figcaption>
 <pre data-start="95" data-hot="100,103,109">static struct edge_oled *to_oled(struct file *file)
 {
 	return container_of(file-&gt;private_data, struct edge_oled, misc);
@@ -491,7 +492,7 @@ static int edge_oled_release(struct inode *inode, struct file *file)
 	kref_put(&amp;to_oled(file)-&gt;ref, edge_oled_free);
 	return 0;
 }</pre></figure>
-      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c:244–260 — 先讓新的 open 進不來，再在鎖裡關顯示、清掉 client，最後放掉綁定的 reference</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:244–260 — 先讓新的 open 進不來，再在鎖裡關顯示、清掉 client，最後放掉綁定的 reference</figcaption>
 <pre data-start="244" data-hot="249,253,255,258">static int edge_oled_remove(struct i2c_client *client)
 {
 	struct edge_oled *oled = i2c_get_clientdata(client);
@@ -721,7 +722,7 @@ PASS probe at 0x3d failed with -EREMOTEIO
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><span class="disabled">Step 10-b →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step09.html">← Step 9</a><a href="step10b.html">Step 10-b →</a></nav>
 </main>
 
 <script>
