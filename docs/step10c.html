@@ -283,8 +283,8 @@ for y in list(range(32)) + list(range(56, 64)):
     <div class="content">
       <h2>telemetry.h 決定文字，沒有 I/O、沒有時鐘</h2>
       <p>程式分成兩半。<code>apps/telemetry.h</code> 只回答「現在這些數值該顯示成什麼」：解析 sysfs 的整數、四捨五入到 0.01、判斷是否過時、排出 8 行文字。它不讀檔、不看時鐘，時間是參數傳進來的。所以 <code>tests/test_telemetry.cpp</code> 可以直接寫「1000 ms 時讀到 −555 mA、4001 ms 時還沒有新值，畫面應該是什麼」，不用真的等 3 秒。<code>apps/telemetry_display.cpp</code> 是另一半：讀檔、寫裝置、等待、訊號。</p>
-      <figure class="listing"><figcaption>apps/telemetry.h:77–104 — 一個 channel 過時就顯示 --.--，名字記進狀態行；百分比跟著電壓走</figcaption>
-<pre data-start="77" data-hot="90,91,94,95,101,102">// Eight lines for oled_text::draw_text_at (21 columns each):
+      <figure class="listing"><figcaption>apps/telemetry.h:80–107 — 一個 channel 過時就顯示 --.--，名字記進狀態行；百分比跟著電壓走</figcaption>
+<pre data-start="80" data-hot="93,94,97,98,104,105">// Eight lines for oled_text::draw_text_at (21 columns each):
 //   BAT: 81.22 % / V: 11.92 V / I: -0.56 A / P:  6.53 W / ... / status
 // A stale or missing value shows as --.-- (the percentage goes with the voltage). The status
 // line says OK, which channels are stale, or that no sensor was found, followed by a refresh
@@ -321,8 +321,8 @@ inline std::array&lt;std::string, 8&gt; screen(bool sensor, const Value &amp;v, 
     <div class="content">
       <h2>BAT %：照抄廠商範例，連它的缺點一起</h2>
       <p>原本的規劃只有 V / I / P。驗收時使用者要求加上電量百分比，「就像原本的 <code>ina219.py</code> 提供的資訊」。廠商範例（Step 6-a 原樣收在 <code>third_party/waveshare_ups_c/</code>）的算法只有兩行：<code>p = (bus_voltage - 9) / 3.6 * 100</code>，再夾在 0 到 100 之間。也就是 9.0 V 算 0 %、12.6 V 算 100 %，中間是直線。換成整數：每 36 mV 是 1 %。</p>
-      <figure class="listing"><figcaption>apps/telemetry.h:45–54 — 9000 mV 起算、36 mV 一個百分點；(x × 50 + 9) / 18 是 x × 25 / 9 取最接近的整數</figcaption>
-<pre data-start="45" data-hot="51,52">// Battery percentage the way the vendor sample computes it (third_party/waveshare_ups_c/
+      <figure class="listing"><figcaption>apps/telemetry.h:48–57 — 9000 mV 起算、36 mV 一個百分點；(x × 50 + 9) / 18 是 x × 25 / 9 取最接近的整數</figcaption>
+<pre data-start="48" data-hot="54,55">// Battery percentage the way the vendor sample computes it (third_party/waveshare_ups_c/
 // ina219.py): linear in the bus voltage from 9.0 V (0 %) to 12.6 V (100 %), clamped. It follows
 // the voltage only, so it reads high while charging (Step 6-a measured 79 % -&gt; 93 % on plugging
 // the adapter in): a display value, nothing decides anything from it.
@@ -352,8 +352,8 @@ inline std::string percent(long long mv)
         <thead><tr><th>情況</th><th>怎麼處理</th></tr></thead>
         <tbody>
           <tr><td>一個值讀不到（檔案不見、<code>ENODATA</code>、內容不是數字）</td><td>保留最後一筆好值，照樣顯示；超過 <code>--stale-ms</code>（預設 3000）才變 <code>--.--</code>，狀態行列出是哪個。stderr 只在「開始失敗」那一次寫原因。</td></tr>
-          <tr><td>sensor 不見了（rmmod、unbind）</td><td>hwmon 目錄消失 → 重新找；找不到就全部 <code>--.--</code>、狀態 <code>NO SENSOR</code>，每秒再找一次。</td></tr>
-          <tr><td>sensor 換了號碼</td><td>不寫死 <code>hwmon4</code>，每次用 <code>name</code> 檔案確認，對不上就重找（Step 8：重新綁定可能換號）。</td></tr>
+          <tr><td>sensor 不見了（rmmod、unbind）</td><td>hwmon 目錄消失 → 重新找；找不到就全部 <code>--.--</code>、狀態 <code>NO SENSOR</code>，每秒再找一次。stderr 寫一行 <code>no edge_ina219 under …</code>，並把各 channel 的「正在失敗」重設：sensor 回來後如果還是讀不到，會再報一次（code review 後加的）。</td></tr>
+          <tr><td>sensor 換了號碼</td><td>不寫死 <code>hwmon4</code>，<b>每次刷新</b>都用 <code>name</code> 檔案確認，對不上就重找（Step 8：重新綁定可能換號）。為什麼不是「讀取失敗才重找」：號碼會被重用，消失的 <code>hwmon4</code> 可能換成別的感測器，它的 <code>in1_input</code> 照樣讀得到。</td></tr>
           <tr><td>OLED 寫不進去</td><td>關掉 fd，下一秒重開重寫；也只報一次（10c.6 的節錄）。</td></tr>
         </tbody>
       </table>
@@ -385,11 +385,17 @@ inline std::string percent(long long mv)
         </svg>
         <figcaption>圖 10.2 — 偶爾一次讀取失敗不會讓畫面跳動；持續失敗超過 3 秒，舊數字才被收掉。stderr 只記「開始壞了」那一刻，不會每秒洗版。</figcaption>
       </figure>
-      <figure class="listing"><figcaption>apps/telemetry_display.cpp:133–151 — 每次先確認目錄還是 edge_ina219，不是就重找；讀不到就不更新 Value，只在連續失敗的第一次寫 stderr</figcaption>
-<pre data-start="133" data-hot="135,136,141,143,144,147,148">    for (long long seq = 1; count == 0 || seq &lt;= count; ++seq) {
+      <figure class="listing"><figcaption>apps/telemetry_display.cpp:147–171 — 每次先確認目錄還是 edge_ina219，不是就重找；找不到時寫一行並重設失敗狀態；讀不到就不更新 Value，只在連續失敗的第一次寫 stderr</figcaption>
+<pre data-start="147" data-hot="149,150,151,152,153,154,161,163,164,167,168">    for (long long seq = 1; count == 0 || seq &lt;= count; ++seq) {
         long long t = now_ms();
         if (dir.empty() || !is_sensor(dir))
             dir = find_sensor(root);
+        if (dir.empty() &amp;&amp; !lost) {
+            std::fprintf(stderr, "telemetry_display: no edge_ina219 under %s\n", root.c_str());
+            for (bool &amp;f : failing)
+                f = false;        // a new failure after it comes back is reported again
+        }
+        lost = dir.empty();
         std::string shown[3] = {"-", "-", "-"};
         for (int c = 0; c &lt; 3 &amp;&amp; !dir.empty(); ++c) {
             std::string path = dir + "/" + kChannels[c], text;
@@ -436,10 +442,10 @@ exit 0
     <div class="rail"><span class="no">10c.6</span><b>收尾</b>寫入失敗與訊號</div>
     <div class="content">
       <h2>寫不進去就重開；被要求結束就清空畫面</h2>
-      <figure class="listing"><figcaption>apps/telemetry_display.cpp:158–183 — fd 失敗就關掉、下一次重開；等待本身就是 sigtimedwait</figcaption>
-<pre data-start="158" data-hot="158,159,160,165,166,167,175,179,180,181">        if (fd &lt; 0)
+      <figure class="listing"><figcaption>apps/telemetry_display.cpp:178–205 — 寫入失敗就關掉 fd、下一次重開；落後時從現在重新排程；等待本身就是 sigtimedwait</figcaption>
+<pre data-start="178" data-hot="178,179,180,185,186,187,195,196,197,198,202,203,204">        if (fd &lt; 0)
             fd = open(dev.c_str(), O_WRONLY);
-        rc = fd &gt;= 0 &amp;&amp; write(fd, f.data(), f.size()) == static_cast&lt;ssize_t&gt;(f.size()) ? 0 : 1;
+        rc = fd &gt;= 0 &amp;&amp; write_frame(fd, f) ? 0 : 1;
         int err = errno;
         if (rc &amp;&amp; !oled_failing)
             std::fprintf(stderr, "telemetry_display: %s: %s\n", dev.c_str(), std::strerror(err));
@@ -454,17 +460,20 @@ exit 0
 
         if (count &amp;&amp; seq == count)
             break;
+        long long now = now_ms();
         next += interval;
-        long long wait = next - now_ms();
+        if (next &lt;= now)          // stopped or stalled: start again from now, do not catch up
+            next = now + interval;
+        long long wait = next - now;
         timespec ts{static_cast&lt;time_t&gt;(wait &gt; 0 ? wait / 1000 : 0),
                     static_cast&lt;long&gt;(wait &gt; 0 ? wait % 1000 * 1000000 : 0)};
         if (sigtimedwait(&amp;stop_set, nullptr, &amp;ts) &gt; 0) {
             stopped = true;
             break;
-        }
-    }</pre></figure>
+        }</pre></figure>
       <p><b>為什麼寫入失敗要關掉 fd</b>：Step 10-a 的 driver 被 unbind 之後，已經開著的 fd 永遠回 <code>ENODEV</code>，即使 driver 又綁回來；只有重新 <code>open()</code> 才會拿到新的那一個。OLED 只是拔線（driver 還在）時，同一個 fd 本來就能繼續用，關掉重開也無妨。</p>
-      <p><b>為什麼用 <code>sigtimedwait()</code> 而不是 signal handler + <code>sleep()</code></b>。常見的寫法是 handler 設一個旗標，主迴圈每次 <code>sleep()</code> 醒來檢查。它有一個縫：訊號剛好在「檢查旗標」之後、「開始 sleep」之前到，handler 設了旗標，程式卻照樣睡滿一整秒才發現。這裡的做法是先把 SIGINT / SIGTERM 擋住（block），訊號到了只會被記成 pending；等下一秒的那個呼叫就是 <code>sigtimedwait()</code>，pending 的訊號會讓它立刻回來。訊號什麼時候到都一樣，沒有縫，也不需要 handler。</p>
+      <p><b>為什麼落後時要重新排程</b>：第一版是 <code>next += interval</code>，沒有上限。程式被 Ctrl-Z 停住 60 秒、或某次寫入卡了幾秒，<code>next</code> 就落在過去，之後每次等待都是 0，一口氣補刷 60 次（code review 找到；測試用 SIGSTOP 停 1 秒再 SIGCONT 重現）。現在只要落後就從「現在」重新起算。</p>
+      <p><b>為什麼用 <code>sigtimedwait()</code> 而不是 signal handler + <code>sleep()</code></b>。常見的寫法是 handler 設一個旗標，主迴圈每次 <code>sleep()</code> 醒來檢查。它有一個縫：訊號剛好在「檢查旗標」之後、「開始 sleep」之前到，handler 設了旗標，程式卻照樣睡滿一整秒才發現。這裡的做法是先把 SIGINT / SIGTERM / SIGHUP 擋住（block），訊號到了只會被記成 pending；等下一秒的那個呼叫就是 <code>sigtimedwait()</code>，pending 的訊號會讓它立刻回來。訊號什麼時候到都一樣，沒有縫，也不需要 handler。</p>
       <figure class="figure">
         <svg viewBox="0 0 720 200" role="img" aria-label="上面一條：handler 加 sleep。主迴圈檢查旗標，旗標是 0；接著訊號到達，handler 把旗標設成 1；然後程式進入 sleep，睡滿一秒才醒來發現旗標。下面一條：先 block 訊號再 sigtimedwait。訊號在任何時刻到達都只是變成 pending，sigtimedwait 一進去就看到 pending 的訊號，立刻回來。">
           <text class="s-mono" x="20" y="26">HANDLER + SLEEP</text>
@@ -484,7 +493,7 @@ exit 0
         </svg>
         <figcaption>圖 10.3 — 同一個時機到達的訊號。上面是推論出的縫（這個程式沒有這樣寫過）；測試把「先 sleep 再看訊號」做成變異，SIGTERM 與 SIGINT 兩個「0.5 秒內結束」的檢查都紅了。</figcaption>
       </figure>
-      <p>收到訊號後，程式寫一張<b>全黑的畫面</b>才結束：一個停住的程式留下一張看起來正常的數字畫面，比黑屏更誤導人。試試看（接著上面的指令；第一行先清空檔案，讓「最後 1024 byte」就是這個程序寫的）：</p>
+      <p>收到訊號後，程式寫一張<b>全黑的畫面</b>才結束：一個停住的程式留下一張看起來正常的數字畫面，比黑屏更誤導人。所以 SIGHUP（SSH 斷線時前景程式收到的）也照這樣處理，SIGPIPE 則忽略：stdout 接到 <code>| head</code> 之類、讀的那端先關掉時，程式照樣顯示，不會被殺掉而留下舊數字（兩者都是 code review 後加的）。試試看（接著上面的指令；第一行先清空檔案，讓「最後 1024 byte」就是這個程序寫的）：</p>
 <pre class="cmd">: &gt; build/oled.bin
 build/telemetry_display --hwmon-root build/fake --dev build/oled.bin 2&gt;/dev/null &amp; sleep 1.5; kill -TERM $!; wait $!; echo "exit $?"
 python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(len(d) // 1024, 'frames, last one blank:', not any(d[-1024:]))" build/oled.bin</pre>
@@ -502,20 +511,20 @@ exit 0
     <div class="content">
       <h2>測試：期望畫面由 10-b 的工具畫</h2>
       <ul>
-        <li><b><code>tests/test_telemetry.cpp</code></b>：8 組向量。sysfs 整數解析（拒絕空字串、<code>12a</code>、兩行）、0.01 四捨五入與沒有 <code>-0.00</code>、新鮮的畫面、讀取失敗保留舊值到剛好過時（3000 ms 還算新、3001 ms 過時）、過時的 channel、沒有 sensor、計數器與 21 欄、百分比對廠商公式的 12 個值。</li>
-        <li><b><code>tests/test_telemetry_display.py</code></b>：<span data-tests="tests/test_telemetry_display.py">17</span> 個，不需要硬體。app 在假 hwmon 目錄上跑 7 個情境：用 <code>name</code> 選對 hwmon（前面放一個 <code>pwmfan</code> 當干擾）、沒有 sensor、一個 channel 過時、hwmon 換號、OLED 寫入失敗（結束碼 1、錯誤只報一次）、SIGTERM 與 SIGINT（0.5 秒內結束、最後一張全黑）、用法錯誤。另有範圍檢查 1 個、驗收腳本 8 個。</li>
+        <li><b><code>tests/test_telemetry.cpp</code></b>：8 組向量。sysfs 整數解析（拒絕空字串、<code>12a</code>、兩行、超出 <code>long long</code> 的值）、0.01 四捨五入與沒有 <code>-0.00</code>、新鮮的畫面、讀取失敗保留舊值到剛好過時（3000 ms 還算新、3001 ms 過時）、過時的 channel、沒有 sensor、計數器與 21 欄、百分比對廠商公式的 12 個值。</li>
+        <li><b><code>tests/test_telemetry_display.py</code></b>：<span data-tests="tests/test_telemetry_display.py">23</span> 個，不需要硬體。app 在假 hwmon 目錄上跑 11 個情境：用 <code>name</code> 選對 hwmon（前面放一個 <code>pwmfan</code> 當干擾）、沒有 sensor、一個 channel 過時、hwmon 換號、OLED 寫入失敗（結束碼 1、錯誤只報一次）、SIGTERM / SIGINT / SIGHUP（0.5 秒內結束、最後一張全黑）、用法錯誤，以及 code review 後加的 4 個：停住再繼續不會連續補刷、stdout 被關掉不會死、sensor 消失會記錄並重設失敗狀態、只有一條寫入路徑且 short write 有原因。另有範圍檢查 1 個、驗收腳本 10 個。</li>
       </ul>
       <p>關鍵的一點：app 寫出的畫面要和 <b>Step 10-b 的 <code>edge_oled_ctl text</code> 畫出的</b>逐 byte 相同。期望值來自另一支已經在面板上驗過的工具，不是由 app 自己的程式碼產生，所以 app 的排版錯了測試會發現，而不是跟著錯。</p>
       <p>實作前：<code>AppTest</code> 的 7 個被建置失敗蓋住，總共 7 個 fail、3 個 error。之後的三次改動都先紅：發問前清掉終端機輸入（10c.8）、<code>--watch-seconds</code>、百分比。變異：stale 用 <code>&gt;=</code>、截斷代替四捨五入、負零、失敗時丟掉舊值、不重找 hwmon、每次失敗都報、收到訊號不清空畫面、先 sleep 再看訊號，每一種都讓至少一條測試紅。百分比的上限 3600 改成 3700 <b class="hl-bad">第一次沒抓到</b>：12.6 V 時兩種寫法都是 100.00。補了 12.65 V（廠商公式 101.39，夾成 100.00）之後才紅。</p>
 <pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_telemetry &gt;/dev/null &amp;&amp; build/test_telemetry
 python3 -m unittest discover -s tests -p test_telemetry_display.py</pre>
 <pre class="out">OK (0 failure(s))
-.................
+.......................
 ----------------------------------------------------------------------
-Ran 17 tests in 1.630s
+Ran 23 tests in 4.526s
 
 OK</pre>
-      <p>秒數會不同。第二行在背景跑 app、送訊號，大約 2 秒；不需要 root，也不需要硬體。</p>
+      <p>秒數會不同。第二行在背景跑 app、送訊號、停住再繼續，大約 5 秒；不需要 root，也不需要硬體。</p>
     </div>
   </section>
 
@@ -610,9 +619,9 @@ PASS dmesg free of Oops/BUG/WARNING
       <ul class="checks">
         <li class="y"><code>telemetry_display</code>：每秒讀 <code>edge_ina219</code> 的 hwmon，顯示 <code>BAT %</code> / V / I / P 與狀態行；兩個 driver 都沒改。</li>
         <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：OLED 持續顯示 BAT / Voltage / Current / Power，數值和 hwmon 一致。驗收 <b class="hl-ok">0 failure</b>。</li>
-        <li class="y">讀不到、過時、sensor 消失與換號、OLED 寫入失敗都不會讓程式結束；SIGINT / SIGTERM 立刻停、清空畫面。</li>
+        <li class="y">讀不到、過時、sensor 消失與換號、OLED 寫入失敗、stdout 被關掉都不會讓程式結束；SIGINT / SIGTERM / SIGHUP 立刻停、清空畫面；停住之後不會連續補刷。</li>
         <li class="y">Step 10-b 帶過來的：每次重送設定，人眼看 3 分鐘與 30 秒都沒有閃爍，不改 driver。</li>
-        <li class="y">測試：8 組 C++ 向量、<span data-tests="tests/test_telemetry_display.py">17</span> 個 Python 測試，app 的期望畫面由 10-b 的工具產生。</li>
+        <li class="y">測試：8 組 C++ 向量、<span data-tests="tests/test_telemetry_display.py">23</span> 個 Python 測試，app 的期望畫面由 10-b 的工具產生。</li>
         <li class="n">沒有實測：實機 hwmon 換號、長時間執行、app 端的 <code>ENODATA</code>。規模 798 行，貼著 800 行上限。</li>
       </ul>
       <p>Phase 4 到這裡結束：從 userspace 送 byte（Step 9）、driver 骨架（10-a）、字型（10-b），到一支實際有用的程式（10-c）。Step 11 換到另一端：在 STM32F103 上寫一個 I2C slave，讓 Jetson 這邊的 driver 有一個<b>自己設計的</b>周邊可以對話。</p>

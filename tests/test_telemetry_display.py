@@ -154,7 +154,7 @@ class AppTest(unittest.TestCase):
     def test_signal_stops_cleanly_and_blanks_the_panel(self):
         hwmon(self.root, 4, "edge_ina219", in1_input=11924, curr1_input=-555,
               power1_input=6530000)
-        for sig in (signal.SIGTERM, signal.SIGINT):
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             with self.subTest(sig=sig.name):
                 self.dev.write_bytes(b"")
                 p = subprocess.Popen([str(APP), "--hwmon-root", str(self.root), "--dev",
@@ -169,6 +169,75 @@ class AppTest(unittest.TestCase):
                 self.assertLess(time.monotonic() - t0, 0.5)    # not waiting out the 1 s tick
                 self.assertEqual(p.returncode, 0, err)
                 self.assertEqual(self.last_frame(), bytes(FRAME))  # blank: nothing stale stays
+
+    def start(self, *args, stdout=subprocess.PIPE):
+        return subprocess.Popen([str(APP), "--hwmon-root", str(self.root), "--dev", str(self.dev),
+                                 *args], stdout=stdout, stderr=subprocess.PIPE, text=True)
+
+    def test_no_burst_of_refreshes_after_a_stop(self):
+        # PR #16 review: after SIGSTOP / a stalled write the schedule was behind, and every
+        # missed refresh ran at once. It must restart from now instead.
+        hwmon(self.root, 4, "edge_ina219", in1_input=11924, curr1_input=-555,
+              power1_input=6530000)
+        out = Path(self.tmp.name) / "out"
+        with open(out, "w") as f:
+            p = self.start("--interval-ms", "100", stdout=f)
+            time.sleep(0.35)
+            p.send_signal(signal.SIGSTOP)
+            time.sleep(1.0)
+            before = len(out.read_text().splitlines())
+            p.send_signal(signal.SIGCONT)
+            time.sleep(0.15)
+            after = len(out.read_text().splitlines())
+            p.terminate()
+            p.communicate(timeout=5)
+        self.assertLessEqual(after - before, 2, f"{after - before} refreshes in 0.15 s")
+
+    def test_sighup_also_blanks_and_a_closed_stdout_is_not_fatal(self):
+        # PR #16 review: SSH logout (SIGHUP) or `| head` (SIGPIPE) killed it with the old
+        # numbers left on the panel, looking live.
+        hwmon(self.root, 4, "edge_ina219", in1_input=11924, curr1_input=-555,
+              power1_input=6530000)
+        p = self.start("--interval-ms", "50")
+        time.sleep(0.2)
+        p.send_signal(signal.SIGHUP)
+        p.communicate(timeout=5)
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(self.last_frame(), bytes(FRAME))
+
+        self.dev.write_bytes(b"")
+        p = self.start("--interval-ms", "50")
+        p.stdout.close()                                       # the reader went away
+        time.sleep(0.4)
+        self.assertIsNone(p.poll(), "died when stdout closed")
+        p.terminate()
+        p.wait(timeout=5)
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(self.last_frame(), bytes(FRAME))
+        p.stderr.close()
+
+    def test_lost_sensor_is_logged_and_resets_the_failure_streaks(self):
+        # PR #16 review: NO SENSOR left nothing on stderr, and a channel that was failing
+        # before the sensor went away was not reported again when it came back still failing.
+        d = hwmon(self.root, 4, "edge_ina219", in1_input=11924, power1_input=6530000)
+        p = self.start("--interval-ms", "50", "--count", "16")
+        time.sleep(0.2)
+        d.rename(self.root / "gone")
+        time.sleep(0.25)
+        (self.root / "gone").rename(self.root / "hwmon5")
+        out, err = p.communicate(timeout=10)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(err.count("curr1_input"), 2, err)
+        self.assertEqual(err.count("no edge_ina219"), 1, err)
+
+    def test_one_write_path_and_short_writes_have_a_reason(self):
+        # PR #16 review: the loop and the final blank frame had their own write code, and a
+        # short write reported a stale errno.
+        src = (REPO / "apps" / "telemetry_display.cpp").read_text()
+        self.assertEqual(src.count("write(fd, "), 1)
+        body = re.search(r"bool write_frame\(.*?\n\}", src, re.S).group(0)
+        self.assertIn("errno = EIO", body)
+        self.assertGreaterEqual(src.count("write_frame("), 3)
 
     def test_usage(self):
         for args in (["--interval-ms", "0"], ["--interval-ms", "x"], ["--count", "-1"],
@@ -241,6 +310,20 @@ class VerifyScriptTest(unittest.TestCase):
         drain = re.search(r"drain_tty\(\) \{(.*?)\}", self.text, re.S)
         self.assertIsNotNone(drain)
         self.assertRegex(drain.group(1), r"read -r -t 0")
+
+    def test_sigterm_wait_cannot_hang(self):
+        # PR #16 review: `wait "$PID"` with no timeout hung the script exactly when the app
+        # ignored SIGTERM, so its FAIL was never printed.
+        sec = self.text[self.text.index("== SIGTERM"):]
+        wait = sec.index('wait "$PID"')
+        self.assertRegex(sec[:wait], r'kill -0 "\$PID"[^\n]*\n[^\n]*kill -KILL')
+
+    def test_unplug_check_tolerates_several_errors_but_needs_recovery(self):
+        # PR #16 review: wires reconnected one by one can give other errnos or more than one
+        # failure streak; what matters is an error was reported and the last refresh is ok.
+        sec = self.text[self.text.index("== OLED off"):self.text.index("SKIP OLED unplug")]
+        self.assertNotIn("-eq 1", sec)
+        self.assertIn("oled=ok", sec)
 
     def test_oled_unplug_is_optional(self):
         self.assertIn("--no-unplug", self.text)

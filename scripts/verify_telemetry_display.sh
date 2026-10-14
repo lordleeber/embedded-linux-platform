@@ -148,7 +148,13 @@ if ((UNPLUG)); then
     UNPLUGGED=0
     sleep 3
     if kill -0 "$PID" 2>/dev/null; then pass "app still running"; else fail "app exited during the unplug"; fi
-    if [[ $(grep -c "edge_oled: Remote I/O error" "$tmpdir/err") -eq 1 ]]; then pass "write error reported once: $(grep edge_oled "$tmpdir/err")"; else fail "stderr: $(cat "$tmpdir/err")"; fi
+    # Wires go back one at a time: other errnos or a second failure streak are fine; an error
+    # must have been reported and the last refresh must have got through.
+    if grep -q "/dev/edge_oled: " "$tmpdir/err" && [[ "$(last)" == *"oled=ok" ]]; then
+        pass "write error reported ($(grep -c /dev/edge_oled: "$tmpdir/err") line(s)), last refresh ok"
+    else
+        fail "stderr: $(cat "$tmpdir/err"); last: $(last)"
+    fi
     check_ask "OLED: the values are back by themselves (nothing restarted)?"
 else
     echo "SKIP OLED unplug (--no-unplug)"
@@ -172,6 +178,9 @@ fi
 echo "== SIGTERM to the process group"
 kill -TERM -- -"$PID"
 for _ in $(seq 20); do kill -0 "$PID" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$PID" 2>/dev/null; then
+    kill -KILL -- -"$PID"; fail "still running 2 s after SIGTERM (killed)"
+fi
 wait "$PID"; rc=$?
 PID=""
 if [[ $rc -eq 0 ]]; then pass "exit 0 within 2 s"; else fail "exit status $rc (or still running)"; fi

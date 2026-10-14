@@ -39,6 +39,12 @@ void test_parse_sysfs_integers()
     check(!telemetry::parse_value("12a\n", v), "trailing garbage");
     check(!telemetry::parse_value("-\n", v), "a lone minus");
     check(!telemetry::parse_value("1\n2\n", v), "two lines");
+    // PR #16 review: strtoll clamps out-of-range input to LLONG_MIN / MAX (and hundredths()
+    // negating LLONG_MIN is undefined). Reject it instead.
+    check(telemetry::parse_value("9223372036854775807\n", v) && v == 9223372036854775807LL,
+          "LLONG_MAX");
+    check(!telemetry::parse_value("9223372036854775808\n", v), "LLONG_MAX + 1");
+    check(!telemetry::parse_value("-9223372036854775809\n", v), "LLONG_MIN - 1");
 }
 
 void test_hundredths_round_half_away_from_zero()

@@ -462,3 +462,14 @@
 - 原本以為 `pgrep -x telemetry_display` 找得到程式；kernel 的 `comm` 只留 15 個字元，要用 `telemetry_displ`（寫進腳本的 `COMM`）。
 - 原本以為百分比算 low-battery policy，範圍測試一開始禁止 `percent` 這個字；使用者要求像廠商範例一樣顯示。phase04 排除的是「依電量採取動作」，只顯示不算，範圍測試改成禁止門檻、警報、通知。
 - 原本以為 `setsid app &` 會再 fork 一層、`$!` 不是 app；非互動 bash 的背景子程序不是 process group leader，`setsid` 直接 exec，`$!` 就是 app 也是新 group 的 id（用 `ps -o pid,pgid` 確認）。
+- code review（PR #16，medium）找出 10 項：9 項修正、1 項不改。原本都以為沒事：
+  - 原本以為 `next += interval` 就是固定間隔；程式被停住（Ctrl-Z）或某次寫入卡住後，`next` 落在過去，之後每次等待都是 0，一口氣補刷所有錯過的次數。落後就從現在重新起算。測試：`--interval-ms 100`、SIGSTOP 1 秒再 SIGCONT，修正前 0.15 秒內補刷多次（紅），修正後 ≤ 2 次。
+  - 原本以為處理 SIGINT / SIGTERM 就涵蓋「被要求結束」；SSH 斷線送 SIGHUP、stdout 接 `| head` 被關掉時 SIGPIPE，都會直接殺掉程式、舊數字留在面板上。SIGHUP 一起處理（清空畫面），SIGPIPE 忽略。
+  - 原本以為 `write()` 失敗就有 errno；short write 不設 errno，印出的原因是舊的。抽成 `write_frame()`（short write 當 EIO），迴圈和結束時的空白畫面共用，結束時那次失敗也會報。`edge_oled` 只會整張成功或回錯誤，實機不會發生 short write。
+  - 原本以為「每個 channel 失敗只報一次」夠了；sensor 消失時 stderr 沒有任何紀錄，而且 sensor 回來後同一個 channel 還在失敗時不會再報。sensor 找不到時寫一行 `no edge_ina219 under …`，並重設各 channel 的失敗狀態。
+  - 原本以為 sysfs 的整數不會超出 `long long`；`strtoll` 會把超界的值默默截成 `LLONG_MIN`，`hundredths()` 再取負號是未定義行為。`parse_value` 遇到 `ERANGE` 就拒絕，補 `LLONG_MAX` 與兩個超界向量。
+  - 驗收腳本：SIGTERM 之後的 `wait` 沒有逾時，程式不理 SIGTERM 時腳本會卡死，FAIL 印不出來；2 秒後還在就 FAIL 並 `kill -KILL`。拔線檢查原本要求 stderr 剛好一行 `Remote I/O error`，線一條條接回時可能出現別的 errno 或兩段失敗；改成「至少一行 OLED 錯誤、最後一次刷新 `oled=ok`」。
+  - CLAUDE.md 寫成「兩個 module 都已載入時結束碼 2」，實際是任一個；改文件。
+  - 不改：`is_sensor()` 每秒多讀一次 `name`。hwmon 號碼會被重用，消失的 `hwmonN` 可能變成別的感測器、檔案照樣讀得到；只在讀取失敗時重找會讀到別人的值。程式裡補了註解。
+  - 修正前新增的測試都紅過：C++ 向量 2 個 CHECK、`test_telemetry_display.py` 新增 6 個加 SIGHUP 子測試（8 個失敗）。`test_telemetry_display.py` 17 → 23 個；全套 344 個，`OK (skipped=65)`。規模 798 → 916 行（超過 800 行上限，多出的 118 行有 75 行是測試）。
+- 修正後重跑（2026-10-14，`--no-unplug --watch-seconds 0`）`=== 0 failure(s)`：app `#3 V=12348 I=1 P=15244`，hwmon `12344 mV / 1 mA / 15244 uW`（電壓差 4 mV，兩次讀取不是同一次轉換；電流 1 mA：充電器沒在充、也沒在放），廠商公式 `BAT 92.89 %`，人確認畫面；unbind 時 `V=- I=- P=-` 與 `NO SENSOR`，bind 回來（仍是 `hwmon4`）不重啟就恢復；SIGTERM 2 秒內結束、無殘留、畫面全黑；dmesg 無 Oops。拔線與刷新觀察沒有重跑（正常路徑沒變）。

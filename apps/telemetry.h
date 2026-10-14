@@ -7,13 +7,15 @@
 #pragma once
 
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 
 namespace telemetry {
 
-// A whole sysfs value: optional '-', digits, optional one '\n', nothing else.
+// A whole sysfs value: optional '-', digits, optional one '\n', nothing else, within long long
+// (strtoll would clamp anything larger, and hundredths() cannot negate LLONG_MIN).
 inline bool parse_value(const std::string &text, long long &out)
 {
     std::string s = text;
@@ -25,8 +27,9 @@ inline bool parse_value(const std::string &text, long long &out)
     for (std::size_t j = i; j < s.size(); ++j)
         if (s[j] < '0' || s[j] > '9')
             return false;
+    errno = 0;
     out = std::strtoll(s.c_str(), nullptr, 10);
-    return true;
+    return errno != ERANGE;
 }
 
 // value / unit with two decimals, rounded half away from zero, right-aligned to 5 characters

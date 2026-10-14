@@ -9,7 +9,8 @@
 // cannot be read is shown until it is older than --stale-ms and then as --.--, an OLED write
 // that fails is retried at the next refresh. The hwmon directory is looked up by name
 // (edge_ina219) and again whenever it disappears: unbind / bind gives it a new number.
-// SIGINT / SIGTERM: write a blank frame (no old numbers left on the panel), exit.
+// SIGINT / SIGTERM / SIGHUP: write a blank frame (no old numbers left on the panel), exit.
+// SIGPIPE is ignored: a closed stdout (`| head`) must not kill the display.
 //
 // Usage: telemetry_display [--hwmon-root DIR] [--dev PATH] [--interval-ms N] [--stale-ms N]
 //                          [--count N]
@@ -75,6 +76,17 @@ bool read_file(const std::string &path, std::string &out)
     return true;
 }
 
+// One whole frame, or false with errno set (a short write counts as EIO).
+bool write_frame(int fd, const ssd1306::Frame &f)
+{
+    ssize_t n = write(fd, f.data(), f.size());
+    if (n >= 0 && n != static_cast<ssize_t>(f.size()))
+        errno = EIO;
+    return n == static_cast<ssize_t>(f.size());
+}
+
+// The name is read on every refresh, not only after a failed read: hwmon numbers are reused,
+// so a vanished hwmonN may come back as some other sensor whose files read fine.
 bool is_sensor(const std::string &dir)
 {
     std::string name;
@@ -123,17 +135,25 @@ int main(int argc, char **argv)
     sigemptyset(&stop_set);
     sigaddset(&stop_set, SIGINT);
     sigaddset(&stop_set, SIGTERM);
+    sigaddset(&stop_set, SIGHUP);
     sigprocmask(SIG_BLOCK, &stop_set, nullptr);
+    signal(SIGPIPE, SIG_IGN);
 
     std::string dir;
     telemetry::Value values[3];
-    bool failing[3] = {}, oled_failing = false, stopped = false;
+    bool failing[3] = {}, lost = false, oled_failing = false, stopped = false;
     int fd = -1, rc = 0;
     long long next = now_ms();
     for (long long seq = 1; count == 0 || seq <= count; ++seq) {
         long long t = now_ms();
         if (dir.empty() || !is_sensor(dir))
             dir = find_sensor(root);
+        if (dir.empty() && !lost) {
+            std::fprintf(stderr, "telemetry_display: no edge_ina219 under %s\n", root.c_str());
+            for (bool &f : failing)
+                f = false;        // a new failure after it comes back is reported again
+        }
+        lost = dir.empty();
         std::string shown[3] = {"-", "-", "-"};
         for (int c = 0; c < 3 && !dir.empty(); ++c) {
             std::string path = dir + "/" + kChannels[c], text;
@@ -157,7 +177,7 @@ int main(int argc, char **argv)
             oled_text::draw_text_at(f, n, 0, lines[n].c_str());
         if (fd < 0)
             fd = open(dev.c_str(), O_WRONLY);
-        rc = fd >= 0 && write(fd, f.data(), f.size()) == static_cast<ssize_t>(f.size()) ? 0 : 1;
+        rc = fd >= 0 && write_frame(fd, f) ? 0 : 1;
         int err = errno;
         if (rc && !oled_failing)
             std::fprintf(stderr, "telemetry_display: %s: %s\n", dev.c_str(), std::strerror(err));
@@ -172,8 +192,11 @@ int main(int argc, char **argv)
 
         if (count && seq == count)
             break;
+        long long now = now_ms();
         next += interval;
-        long long wait = next - now_ms();
+        if (next <= now)          // stopped or stalled: start again from now, do not catch up
+            next = now + interval;
+        long long wait = next - now;
         timespec ts{static_cast<time_t>(wait > 0 ? wait / 1000 : 0),
                     static_cast<long>(wait > 0 ? wait % 1000 * 1000000 : 0)};
         if (sigtimedwait(&stop_set, nullptr, &ts) > 0) {
@@ -186,8 +209,10 @@ int main(int argc, char **argv)
         ssd1306::Frame blank{};
         if (fd < 0)
             fd = open(dev.c_str(), O_WRONLY);
-        rc = fd >= 0 && write(fd, blank.data(), blank.size()) ==
-                            static_cast<ssize_t>(blank.size()) ? 0 : 1;
+        rc = fd >= 0 && write_frame(fd, blank) ? 0 : 1;
+        if (rc)
+            std::fprintf(stderr, "telemetry_display: %s: blank frame: %s\n", dev.c_str(),
+                         std::strerror(errno));
     }
     if (fd >= 0)
         close(fd);
