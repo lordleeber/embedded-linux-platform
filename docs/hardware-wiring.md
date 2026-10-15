@@ -1,6 +1,6 @@
 # 硬體接線與 pin mapping
 
-狀態：UPS Power Module (C)（INA219，i2c-7 位址 0x41）在 Step 6-a 依官方說明接上並供電給 Jetson；按鍵在 Step 5-b 接線、Step 5-a 驗收後拆除（2026-10-10；Step 19 修 `ppoll()` 時要照下表原樣接回）；LED 在 Step 4-a 接線、Step 5-b 驗收前因材料不夠拆除（拆除前 Step 4-b 回歸測試 0 failure，人眼確認慢閃 5 下、最後熄滅），重跑 Step 4 驗收要先接回；OLED 在 Step 9 接到 pin 17/20/27/28（`i2c-1`，0x3C）；其餘**尚未接線**。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
+狀態：UPS Power Module (C)（INA219，i2c-7 位址 0x41）在 Step 6-a 依官方說明接上並供電給 Jetson；按鍵在 Step 5-b 接線、Step 5-a 驗收後拆除（2026-10-10；Step 19 修 `ppoll()` 時要照下表原樣接回）；LED 在 Step 4-a 接線、Step 5-b 驗收前因材料不夠拆除（拆除前 Step 4-b 回歸測試 0 failure，人眼確認慢閃 5 下、最後熄滅），重跑 Step 4 驗收要先接回；OLED 在 Step 9 接到 pin 17/20/27/28（`i2c-1`，0x3C），Step 11 驗收時拔掉；STM32F103（Blue Pill）在 Step 11 接到 pin 27/28 與 GND（`i2c-1`，0x42）；其餘**尚未接線**。下表是每個預計使用的訊號的登錄欄位；`待確認` 不是接線指示。實際接線後，先從板卡及模組的原廠 pinout、schematic 核對實體 header 位置和電壓，再記錄 Linux controller / bus 名稱與實測結果。不要把 header pin 號當成 Linux GPIO 編號。
 
 | 元件 / 訊號 | Jetson 40-pin header 實體 pin | Linux controller / bus | 電壓 | 對端 pin | 狀態 / 驗證 |
 |---|---|---|---|---|---|
@@ -16,8 +16,9 @@
 | Button signal（已拆除） | 33（GPIO13） | `gpiochip0` line 43 = PH.00；pad `soc_gpio21_ph0`；DT cell `TEGRA234_MAIN_GPIO(H, 0)` = 56；載板上經 TI TXB0108 電平轉換（規格書 SP-11324-001 Table 3-3 Note 3） | 3.3 V | 按鍵一腳；同一點經 330 Ω 上拉到 pin 1 | 已接線，active-low。只靠 SoC 內部上拉時恆讀 0（TXB0108 的 ~4 kΩ buffer 保持電位）；加 330 Ω 上拉後，Step 5-b / 5-a 的驗收都通過（按一下 pressed + released、長按、快速連按）。確認接線請用 `build/edge_gpio_button 4` 按兩下，**不要用單次 `gpioget`**：請求 line 後約 20 ms 內 pin 一律讀到 0（Step 5-a 實測），放開時也可能讀到 0；開機預設 pad 是 `pull=1`（下拉）`tristate=1 enable-input=1`，外接上拉蓋過下拉 |
 | Button 上拉電源 | 1（3.3 V） | 電源，非 bus | 3.3 V | 330 Ω → pin 33 | 已拆除（Step 5-a 後） |
 | Button GND | 34 | GND，非 bus | 0 V | 按鍵另一腳（四腳按鍵用對角兩腳） | 已拆除（Step 5-a 後） |
-| STM32F103 GND | 待確認 | GND，非 bus | 0 V | STM32 GND | 未接線 |
-| STM32F103 I2C SDA/SCL | 待確認 | I2C controller 待確認 | 待確認 | STM32 SDA/SCL 待確認 | 未接線 |
+| STM32F103 GND | 20 或 25（GND） | GND，非 bus | 0 V | Blue Pill GND（麵包板） | 已接線（2026-10-14，Step 11）。Blue Pill 由 ST-Link V2 的 3.3 V 供電，ST-Link 的 USB 插 Jetson |
+| STM32F103 I2C SDA | 27（與 OLED 共用，Step 11 驗收時 OLED 拔掉） | `i2c-1`（`c240000.i2c`，100 kHz），載板上拉 | 3.3 V | Blue Pill **PB7**（I2C1 SDA） | 已接線。Step 11：0x42 回應，`verify_stm32_i2c.sh` 0 failure。**B6 那一排曾在麵包板上誤接 GND**：整條 i2c-1 `I2C transfer timed out`，連板載 ina3221 也讀不到；接 STM32 前後都用 `i2cget -y 1 0x40 0xfe w` 看到 `0x4954` 確認 bus 正常 |
+| STM32F103 I2C SCL | 28 | 同上 | 3.3 V | Blue Pill **PB6**（I2C1 SCL） | 已接線，同上 |
 | STM32F103 SPI CLK/MOSI/MISO/CS | 待確認 | SPI controller 待確認 | 待確認 | STM32 SPI pins 待確認 | 未接線 |
 | STM32F103 UART TX/RX | 待確認 | UART controller 待確認 | 待確認 | STM32 RX/TX 待確認 | 未接線 |
 | STM32N657 訊號 | 待確認 | controller 待確認 | 待確認 | 對端 pin 待確認 | 未接線 |

@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 11　STM32F103：自己寫一顆 I2C 周邊 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step10c). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* No ligatures in code (Step 10-b: JetBrains Mono drew <=> as one arrow) */
+pre, code { font-variant-ligatures: none; }
+
+/* Step 11: register-protocol simulator (a JavaScript copy of i2c_target.c, not the board) */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; margin-bottom: 0.7rem; font-size: 0.9rem; color: var(--muted); }
+.sim-ctl button { font-family: var(--font-mono); font-size: 0.8rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.65rem; cursor: pointer; }
+.sim-ctl button:hover { border-color: var(--accent); }
+.sim-ctl input { font-family: var(--font-mono); font-size: 0.85rem; width: 4.2rem; background: var(--term-bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.4rem; }
+.sim-state { display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; font-family: var(--font-mono); font-size: 0.9rem; margin-bottom: 0.5rem; }
+.sim-state b { color: var(--drv); font-weight: 600; }
+.sim-log { font-family: var(--font-mono); font-size: 0.8rem; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.6rem 0.9rem; height: 9.5rem; overflow-y: auto; white-space: pre-wrap; margin: 0; }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 11 · STM32F103 I2C target</div>
+    <h1>STM32F103：自己寫一顆 I2C 周邊</h1>
+    <p class="lede">前十步都在操作別人做好的晶片：INA219、SSD1306 的暫存器是廠商定的，我們只照著 datasheet 讀寫。這一步換邊站：在一塊 Blue Pill（STM32F103C8T6）上寫 firmware，讓它變成 Jetson I2C bus 上 <code>0x42</code> 的一顆周邊，有我們<b class="hl-key">自己設計的 register map</b>：裝置 ID、版本號、一個控制板上 LED 的 register。Jetson 這邊只用 <code>i2cget</code> / <code>i2cset</code>，不寫 driver。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">firmware/stm32f103/</span>（<span class="new">platformio.ini</span>、<span class="new">Core/Src/main.c</span>、<span class="new">Core/Src/i2c_target.c</span>、<span class="new">Core/Inc/i2c_target.h</span>、<span class="new">Core/Inc/stm32f10x_conf.h</span>、<span class="new">docs/register-map.md</span>、<span class="new">README.md</span>、<span class="new">vendor.sha256</span> 與原樣複製的 vendor 檔）、<span class="new">tests/test_i2c_target.cpp</span>、<span class="new">tests/test_stm32_i2c_target.py</span>、<span class="new">scripts/verify_stm32_i2c.sh</span>、<span class="new">.gitattributes</span>、<span class="new">docs/step11.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase05.md、docs/{baseline.md, hardware-wiring.md, step10c.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式（i2c-tools）</span>
+      <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver / firmware（這一章是 STM32 上的 firmware）</span>
+      <span style="--c: var(--hw)">硬體（Tegra I2C controller、STM32 的 I2C1 周邊、LED）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">11.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>從「讀別人的晶片」到「設計自己的晶片」</h2>
+      <p>Phase 5 的目標是一條完全自己寫的路：Jetson 上的 Linux driver（Step 13）對話的那顆周邊，firmware 也是自己寫的。要先有周邊，driver 才有對象，所以這一步只做 MCU 那一端，用 Jetson 的 userspace 工具證明 protocol 通了。好處是之後 driver 出問題時，可以先用同一組 <code>i2cget</code> 指令確認周邊本身沒壞。</p>
+      <p><b>互動雙方</b>：Jetson 的 <code>i2c-1</code>（<code>c240000.i2c</code>，header pin 27 / 28，100 kHz）是 <b>controller</b>（舊稱 master），每次 transaction 都由它開始；Blue Pill 的 I2C1 周邊（PB7 = SDA、PB6 = SCL）是 <b>target</b>（舊稱 slave），只會回應，不會自己往 bus 上送東西。這條 bus 就是 Step 9 起 OLED 用的那條，板子上還有兩顆板載晶片 fusb301（0x25）與 ina3221（0x40）。<b>這一步不做</b>：ADC、watchdog、SPI、DMA、Jetson kernel driver。</p>
+      <dl class="terms">
+        <dt>Blue Pill</dt><dd>一塊便宜的 STM32F103C8T6 最小系統板：Cortex-M3 72 MHz、64 KB flash、20 KB RAM、8 MHz 晶振，板上一顆接在 PC13 的 LED（低電位亮）。BOOT0 / BOOT1 是兩個 jumper，決定 reset 後從 flash 還是從晶片內建的 bootloader 開機。</dd>
+        <dt>SPL</dt><dd>Standard Peripheral Library，ST 在 HAL 之前提供的周邊函式庫（這裡用 V3.5.0，2011）。一個函式大致對應一組暫存器操作，例如 <code>I2C_ReceiveData(I2C1)</code> 就是讀 <code>I2C1-&gt;DR</code>。</dd>
+        <dt>ST-Link / SWD</dt><dd>ST-Link V2 是燒錄器兼除錯器，經 SWD（兩條線：SWDIO、SWCLK）存取 MCU 的除錯介面，可以燒 flash、停住 CPU、直接讀寫任何暫存器。11.8 會用它來除錯。</dd>
+        <dt>register pointer</dt><dd>target 記住的「目前選中的 register 位址」。I2C 本身只有「寫一串 byte」和「讀一串 byte」，哪個 byte 代表位址、哪個代表資料，是我們自己的 protocol 規定的。</dd>
+        <dt>ACK / NACK</dt><dd>每個 byte 之後的第 9 個 clock，接收方把 SDA 拉低表示收到（ACK）。controller 讀取時，最後一個 byte 回 NACK（不拉低），告訴 target「夠了，別再送」。</dd>
+        <dt>clock stretching</dt><dd>target 還沒準備好時把 SCL 拉住在低電位，controller 就會等。F103 在等 firmware 讀走或填入資料時會自動這樣做。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">11.2</span><b>全景</b>一次讀取</div>
+    <div class="content">
+      <h2>一次 <code>i2cget -y 1 0x42 0x20</code> 在 bus 上發生了什麼</h2>
+      <p>讀一個 register 要兩段：先「寫」一個 byte 告訴 target 要哪個 register，然後 <b>repeated START</b>（不放掉 bus、直接再開始）改成「讀」。Linux 的 <code>i2cget</code>（byte data 模式）就是這樣送的。target 這端，每一個 bus 事件都會讓 I2C1 周邊在狀態暫存器 <code>SR1</code> 設一個旗標、觸發中斷，firmware 在中斷裡處理：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 440" role="img" aria-label="時序圖，四欄：Jetson、bus 上的訊號、STM32 的 I2C1 硬體旗標、我們的 firmware。第一列 Jetson 送 START 與 0x42 加寫入位元，硬體設 ADDR 且 TRA 為 0，firmware 呼叫 write_start，狀態變成 WANT_REG。第二列 Jetson 送 0x20，硬體設 RXNE，firmware 呼叫 rx，pointer 變成 0x20。第三列 Jetson 送 repeated START 與 0x42 加讀取位元，硬體設 ADDR 且 TRA 為 1。第四列硬體設 TXE，firmware 呼叫 tx，把 LED_CONTROL 的值 0x01 放進 DR，送回 Jetson。第五列 Jetson 回 NACK，硬體在錯誤中斷設 AF，firmware 呼叫 stop。第六列 Jetson 送 STOP。">
+          <defs>
+            <marker id="m11R" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect class="s-box" x="10" y="14" width="160" height="50" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="90" y="36" text-anchor="middle">Jetson i2cget</text>
+          <text class="s-sm" x="90" y="54" text-anchor="middle">→ i2c-dev → i2c-tegra</text>
+          <text class="s-mono" x="300" y="44" text-anchor="middle">BUS (SDA / SCL)</text>
+          <rect class="s-box" x="420" y="14" width="130" height="50" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="485" y="36" text-anchor="middle">I2C1 硬體</text>
+          <text class="s-sm" x="485" y="54" text-anchor="middle">SR1 / SR2 旗標</text>
+          <a href="#irq"><rect class="s-box" x="570" y="14" width="140" height="50" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="640" y="36" text-anchor="middle">firmware</text>
+          <text class="s-sm" x="640" y="54" text-anchor="middle">中斷 → i2c_target</text></a>
+          <line x1="90" y1="70" x2="90" y2="425" style="stroke: var(--line); stroke-width: 2"/>
+          <line x1="485" y1="70" x2="485" y2="425" style="stroke: var(--line); stroke-width: 2"/>
+          <line x1="640" y1="70" x2="640" y2="425" style="stroke: var(--line); stroke-width: 2"/>
+
+          <text class="s-mono" x="14" y="100">寫</text>
+          <line class="sv-down" x1="95" y1="104" x2="478" y2="104" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="96" text-anchor="middle">START · 0x42 + W</text>
+          <text class="s-key" x="485" y="124" text-anchor="middle">ADDR, TRA=0</text>
+          <text class="s-sm" x="640" y="100" text-anchor="middle">write_start()</text>
+          <text class="s-sm" x="640" y="118" text-anchor="middle">→ WANT_REG</text>
+
+          <line class="sv-down" x1="95" y1="164" x2="478" y2="164" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="156" text-anchor="middle">0x20（register 位址）· ACK</text>
+          <text class="s-key" x="485" y="184" text-anchor="middle">RXNE</text>
+          <text class="s-sm" x="640" y="160" text-anchor="middle">rx(0x20)</text>
+          <text class="s-sm" x="640" y="178" text-anchor="middle">→ ptr = 0x20</text>
+
+          <text class="s-mono" x="14" y="220">讀</text>
+          <line class="sv-down" x1="95" y1="224" x2="478" y2="224" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="216" text-anchor="middle">repeated START · 0x42 + R</text>
+          <text class="s-key" x="485" y="244" text-anchor="middle">ADDR, TRA=1</text>
+          <text class="s-sm" x="640" y="232" text-anchor="middle">（讀取：等 TXE）</text>
+
+          <line class="sv-down" x1="478" y1="290" x2="97" y2="290" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="282" text-anchor="middle">0x01（LED_CONTROL 的值）</text>
+          <text class="s-key" x="485" y="310" text-anchor="middle">TXE</text>
+          <text class="s-sm" x="640" y="286" text-anchor="middle">tx() = 0x01</text>
+          <text class="s-sm" x="640" y="304" text-anchor="middle">→ 寫進 DR</text>
+
+          <line class="sv-down" x1="95" y1="350" x2="478" y2="350" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="342" text-anchor="middle">NACK（不要了）</text>
+          <text class="s-key" x="485" y="370" text-anchor="middle">AF（錯誤中斷）</text>
+          <text class="s-sm" x="640" y="346" text-anchor="middle">stop()</text>
+          <text class="s-sm" x="640" y="364" text-anchor="middle">→ IDLE</text>
+
+          <line class="sv-down" x1="95" y1="404" x2="478" y2="404" marker-end="url(#m11R)"/>
+          <text class="s-lbl" x="300" y="396" text-anchor="middle">STOP</text>
+          <text class="s-sm" x="485" y="420" text-anchor="middle">（讀取已在 AF 結束）</text>
+        </svg>
+        <figcaption>圖 11.1 — 讀一個 register 是「寫 pointer + repeated START + 讀」。每個 bus 事件在 STM32 端都是一個旗標加一次中斷，firmware 只把旗標翻譯成四個呼叫：<code>write_start</code>、<code>rx</code>、<code>tx</code>、<code>stop</code>。讀取的結束是 controller 的 NACK（AF），不是 STOP。</figcaption>
+      </figure>
+      <p>這張圖的右兩欄就是這一章的兩半：11.4 是右欄「收到這些呼叫之後怎麼辦」（不碰硬體的 protocol），11.5 是中間兩欄「怎麼從旗標變成呼叫」（SPL 與中斷）。</p>
+    </div>
+  </section>
+
+  <section id="regmap">
+    <div class="rail"><span class="no">11.3</span><b>契約</b>register map</div>
+    <div class="content">
+      <h2>四個 register，加上「不合法時怎麼辦」</h2>
+      <p>位址 <code>0x42</code> 是這個專案自己挑的（bus 上沒人用）。register 都是 1 byte：</p>
+      <table>
+        <thead><tr><th>位址 · 名稱</th><th>存取 · 值</th></tr></thead>
+        <tbody>
+          <tr><td><code>0x00</code> DEVICE_ID</td><td>RO，固定 <code>0xED</code>：確認接上的是這份 firmware</td></tr>
+          <tr><td><code>0x01</code> FW_MAJOR · <code>0x02</code> FW_MINOR</td><td>RO，<code>0x00</code> · <code>0x01</code>（版本 0.1）</td></tr>
+          <tr><td><code>0x20</code> LED_CONTROL</td><td>RW，reset 後 <code>0x00</code>：0 = LED 滅、1 = 亮</td></tr>
+        </tbody>
+      </table>
+      <p>規格裡最容易漏的是不合法的存取。phase05 只說「其他值不要任意解讀」，這一步把它定死：</p>
+      <ul>
+        <li>寫 RO register、寫沒定義的 register、LED_CONTROL 寫 0 / 1 以外的值：<b>bus 上照樣 ACK，然後丟掉</b>。</li>
+        <li>讀沒定義的 register：回 <code>0xFF</code>。</li>
+        <li>讀取<b>不 auto-increment</b>：一次讀 3 個 byte，3 個都是同一個 register。多 byte 的 register（ADC）在 Step 12 才出現，到時候再定義順序。</li>
+      </ul>
+      <p>為什麼不用 NACK 拒絕不合法的值？F103 的 I2C1 在 <code>ACK</code> 位元打開時，收到 byte 就由硬體自動回 ACK，firmware 在中斷裡看到這個 byte 時，ACK 早就送出去了。所以 Jetson 要確認寫入有沒有生效，得把 register 讀回來看；Step 12 會加一個 STATUS register 回報錯誤。這份規格有兩份拷貝：人看的 <code>firmware/stm32f103/docs/register-map.md</code>，和程式用的 header：</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h:26–36 — 位址、register 與值；register-map.md 是它的文字版，一條測試逐欄比對兩者</figcaption>
+<pre data-start="26" data-hot="26,31,33">#define I2C_TARGET_ADDR 0x42 /* 7-bit address, the project's choice */
+
+#define REG_DEVICE_ID 0x00   /* RO */
+#define REG_FW_MAJOR 0x01    /* RO */
+#define REG_FW_MINOR 0x02    /* RO */
+#define REG_LED_CONTROL 0x20 /* RW: 0 = off, 1 = on, reset 0 */
+
+#define DEVICE_ID_VALUE 0xED
+#define FW_VERSION_MAJOR 0
+#define FW_VERSION_MINOR 1
+#define REG_UNMAPPED_VALUE 0xFF</pre>
+      </figure>
+    </div>
+  </section>
+
+  <section id="core">
+    <div class="rail"><span class="no">11.4</span><b>protocol</b>state machine</div>
+    <div class="content">
+      <h2>i2c_target.c：一個不碰硬體的 state machine</h2>
+      <p>target 要記住兩件事：目前的 pointer，以及「下一個收到的 byte 是什麼」。寫入的第一個 byte 是 pointer，第二個是資料，再後面的丟掉。這需要四個狀態：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 230" role="img" aria-label="狀態轉移圖。四個狀態由左到右：IDLE、WANT_REG、WANT_DATA、DISCARD。write_start 從任何狀態進入 WANT_REG。在 WANT_REG 收到 byte，pointer 等於該 byte，進入 WANT_DATA。在 WANT_DATA 收到 byte，呼叫 write_reg，進入 DISCARD。在 DISCARD 或 IDLE 收到 byte 就丟掉，留在原狀態。stop 從任何狀態回到 IDLE。tx 不改變狀態，只看 pointer。">
+          <defs>
+            <marker id="m11S" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect class="s-box" x="20" y="70" width="130" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="85" y="94" text-anchor="middle">IDLE</text>
+          <text class="s-sm" x="85" y="114" text-anchor="middle">byte → 丟掉</text>
+          <rect class="s-box" x="200" y="70" width="140" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="270" y="94" text-anchor="middle">WANT_REG</text>
+          <text class="s-sm" x="270" y="114" text-anchor="middle">等 pointer</text>
+          <rect class="s-box" x="390" y="70" width="140" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="460" y="94" text-anchor="middle">WANT_DATA</text>
+          <text class="s-sm" x="460" y="114" text-anchor="middle">等資料</text>
+          <rect class="s-box" x="580" y="70" width="125" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="642" y="94" text-anchor="middle">DISCARD</text>
+          <text class="s-sm" x="642" y="114" text-anchor="middle">byte → 丟掉</text>
+          <line class="sv-down" x1="150" y1="98" x2="196" y2="98" marker-end="url(#m11S)"/>
+          <text class="s-sm" x="173" y="60" text-anchor="middle">write_start</text>
+          <line class="sv-down" x1="340" y1="98" x2="386" y2="98" marker-end="url(#m11S)"/>
+          <text class="s-sm" x="363" y="50" text-anchor="middle">rx(b)</text>
+          <text class="s-sm" x="363" y="64" text-anchor="middle">ptr = b</text>
+          <line class="sv-down" x1="530" y1="98" x2="576" y2="98" marker-end="url(#m11S)"/>
+          <text class="s-sm" x="553" y="50" text-anchor="middle">rx(b)</text>
+          <text class="s-sm" x="553" y="64" text-anchor="middle">write_reg</text>
+          <path class="sv-down" d="M642,126 L642,170 L85,170 L85,130" marker-end="url(#m11S)"/>
+          <text class="s-lbl" x="363" y="190" text-anchor="middle">stop()：STOP、NACK（AF）或 bus 錯誤，從任何狀態回 IDLE</text>
+          <text class="s-sm" x="363" y="212" text-anchor="middle">write_start() 從任何狀態進 WANT_REG（repeated START 再寫一次 = 新的 pointer）；tx() 只看 ptr，不改狀態</text>
+        </svg>
+        <figcaption>圖 11.2 — 寫入的 state machine。IDLE 和 DISCARD 都會丟掉 byte，但意義不同：DISCARD 是「這次寫入的資料已經收到了」，IDLE 是「根本不在寫入中」，例如 bus 錯誤中途結束了 transaction。</figcaption>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:16–38 — 只有 LED_CONTROL 可寫、只收 0 / 1；收到的 byte 依狀態決定是 pointer、資料還是丟掉</figcaption>
+<pre data-start="16" data-hot="19,20,27,28,31,32">static void write_reg(struct i2c_target *t, uint8_t reg, uint8_t value)
+{
+    /* Only LED_CONTROL is writable, and only with 0 or 1; anything else is dropped. */
+    if (reg == REG_LED_CONTROL &amp;&amp; value &lt;= 1)
+        t-&gt;led = value;
+}
+
+void i2c_target_rx(struct i2c_target *t, uint8_t byte)
+{
+    switch (t-&gt;state) {
+    case I2C_TARGET_WANT_REG:
+        t-&gt;ptr = byte;
+        t-&gt;state = I2C_TARGET_WANT_DATA;
+        break;
+    case I2C_TARGET_WANT_DATA:
+        write_reg(t, t-&gt;ptr, byte);
+        t-&gt;state = I2C_TARGET_DISCARD;
+        break;
+    case I2C_TARGET_IDLE:
+    case I2C_TARGET_DISCARD:
+        break;
+    }
+}</pre>
+      </figure>
+      <p>這個檔案沒有 <code>#include "stm32f10x.h"</code>，也沒有任何暫存器。這是刻意的：同一份 <code>i2c_target.c</code> 用 Jetson 的 <code>gcc</code> 11.4 編進 host 端測試 <code>build/test_i2c_target</code>，用 PlatformIO 帶的 <code>arm-none-eabi-gcc</code> 12.3.1 編進 firmware。protocol 的每一條規則都可以在 Jetson 上跑測試，不用燒錄、不用接線。下面的模擬器是同一套規則的 JavaScript 版，可以自己點一次「寫 LED、讀回來」：</p>
+      <div class="sim" aria-label="模擬器">
+        <div class="sim-label">模擬：瀏覽器裡的 i2c_target.c（JavaScript 改寫），不是實機</div>
+        <div class="sim-ctl">
+          <button type="button" id="simWs">START + 寫</button>
+          <label>byte <input id="simByte" value="0x20" aria-label="要送的 byte"></label>
+          <button type="button" id="simRx">送出 byte</button>
+          <button type="button" id="simRd">（repeated）START + 讀 1 byte</button>
+          <button type="button" id="simStop">STOP</button>
+          <button type="button" id="simReset">reset</button>
+        </div>
+        <div class="sim-state">state <b id="simState">IDLE</b> ptr <b id="simPtr">0x00</b> LED <b id="simLed">0（滅）</b></div>
+        <pre class="sim-log" id="simLog" aria-live="polite"></pre>
+      </div>
+      <p>試試：<code>START + 寫</code> → 送 <code>0x20</code> → 送 <code>0x01</code> → <code>STOP</code>，LED 亮；同樣的四步再做一次、資料改成 <code>0x02</code>，LED 不會變；最後按「讀 1 byte」，讀回 <code>0x01</code>。<code>i2cset -y 1 0x42 0x20 1</code> 在 bus 上就是第一串。</p>
+    </div>
+  </section>
+
+  <section id="irq">
+    <div class="rail"><span class="no">11.5</span><b>firmware</b>SPL 與中斷</div>
+    <div class="content">
+      <h2>main.c：把 I2C1 的旗標翻譯成四個呼叫</h2>
+      <p>初始化做三件事：PB6 / PB7 設成 <b>alternate function open drain</b>（交給 I2C1 周邊驅動，而且只能拉低、不能推高，高電位由 Jetson 載板的上拉電阻提供）、設定自己的位址並打開 ACK、打開中斷。</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:39–64 — 開時脈、腳位交給 I2C1、0x42、ACK、兩個中斷向量</figcaption>
+<pre data-start="39" data-hot="44,49,50,64">    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1, ENABLE);
+    /* Open drain: the Jetson's carrier board has the pull-ups on pins 27 / 28. */
+    gpio.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio.GPIO_Mode = GPIO_Mode_AF_OD;
+    GPIO_Init(GPIOB, &amp;gpio);
+
+    I2C_StructInit(&amp;i2c);
+    i2c.I2C_Mode = I2C_Mode_I2C;
+    i2c.I2C_OwnAddress1 = I2C_TARGET_ADDR &lt;&lt; 1; /* OAR1 holds the address in bits 7:1 */
+    i2c.I2C_Ack = I2C_Ack_Enable;
+    i2c.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+    i2c.I2C_ClockSpeed = 100000; /* only used as a controller; I2C_Init requires a value */
+    I2C_Init(I2C1, &amp;i2c);
+
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+    nvic.NVIC_IRQChannelPreemptionPriority = 1;
+    nvic.NVIC_IRQChannelSubPriority = 0;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    nvic.NVIC_IRQChannel = I2C1_EV_IRQn;
+    NVIC_Init(&amp;nvic);
+    nvic.NVIC_IRQChannel = I2C1_ER_IRQn;
+    NVIC_Init(&amp;nvic);
+
+    I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE);</pre>
+      </figure>
+      <p><code>I2C_OwnAddress1</code> 要左移一位：OAR1 暫存器的 bit 0 在 7-bit 模式不用，位址放在 bit 7:1。<code>I2C_ClockSpeed</code> 只有當 controller 時才用到，但 SPL 的 <code>I2C_Init()</code> 一定會拿它算時脈分頻，所以還是要填。三種中斷：<code>EVT</code>（ADDR、STOPF 這類事件）、<code>BUF</code>（RXNE / TXE：資料暫存器滿了 / 空了）、<code>ERR</code>（AF、bus 錯誤）。事件與錯誤是 <b>兩個不同的中斷向量</b>：</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:67–98 — 一次讀出 SR1 與 SR2，先收下 DR 裡的資料再看 ADDR；錯誤中斷（含讀取結束的 AF）清旗標並結束 transaction</figcaption>
+<pre data-start="67" data-hot="70,71,75,76,79,85,87,96,97">void I2C1_EV_IRQHandler(void)
+{
+    /* Reads SR1 then SR2, which also clears ADDR; SR2 sits in the upper 16 bits. */
+    uint32_t ev = I2C_GetLastEvent(I2C1);
+    int reading = (ev &amp; ((uint32_t)I2C_SR2_TRA &lt;&lt; 16)) != 0;
+
+    /* A data byte still in DR belongs to the transaction before a repeated START in the same
+     * snapshot: take it before ADDR starts a new write, or it would become the pointer. */
+    if (ev &amp; I2C_SR1_RXNE) {
+        i2c_target_rx(&amp;target, I2C_ReceiveData(I2C1));
+        led_apply();
+    }
+    if ((ev &amp; I2C_SR1_ADDR) &amp;&amp; !reading)
+        i2c_target_write_start(&amp;target);
+    /* TXE: DR is empty. TXE also loads one byte ahead of the controller's NACK; that byte is the
+     * same register, and pointer and value only change through a write, whose received bytes
+     * go through the same DR. Measured in Step 11: no read ever returned an older byte. */
+    if (reading &amp;&amp; (ev &amp; I2C_SR1_TXE))
+        I2C_SendData(I2C1, i2c_target_tx(&amp;target));
+    if (ev &amp; I2C_SR1_STOPF) {
+        I2C_Cmd(I2C1, ENABLE); /* a CR1 write after the SR1 read clears STOPF */
+        i2c_target_stop(&amp;target);
+    }
+}
+
+void I2C1_ER_IRQHandler(void)
+{
+    /* AF is the controller's NACK after the last byte of a read: the normal end of a read
+     * (RM0008: a slave transmitter gets AF, not STOPF). BERR / ARLO / OVR also end it. */
+    I2C_ClearITPendingBit(I2C1, I2C_IT_AF | I2C_IT_BERR | I2C_IT_ARLO | I2C_IT_OVR);
+    i2c_target_stop(&amp;target);
+}</pre>
+      </figure>
+      <p>幾個不看 reference manual（RM0008）就會寫錯的細節：</p>
+      <ul>
+        <li><b>清旗標的方法各不相同</b>。<code>ADDR</code> 要「讀 SR1 再讀 SR2」才會清掉，<code>I2C_GetLastEvent()</code> 正好就是這兩次讀取（還把 SR2 放在高 16 位元，所以 <code>TRA</code> 要左移 16）。<code>RXNE</code> / <code>TXE</code> 靠讀寫 <code>DR</code> 清。<code>STOPF</code> 要「讀 SR1 之後寫一次 CR1」：<code>I2C_Cmd(I2C1, ENABLE)</code> 就是把已經是 1 的 PE 位元再寫一次。哪一個沒清掉，中斷一返回就會立刻再進來，CPU 永遠出不來。</li>
+        <li><b>讀取不是以 STOP 結束的</b>。controller 讀完最後一個 byte 回 NACK，target 這端收到的是錯誤中斷裡的 <code>AF</code>（acknowledge failure），而不是 <code>STOPF</code>。只在 STOPF 收尾的話，讀取永遠不會回到 IDLE。</li>
+        <li><b>TRA 決定方向</b>。ADDR 同時有 <code>TRA = 1</code>（Jetson 要讀），就不呼叫 <code>write_start()</code>，接下來的 <code>TXE</code> 才是送 byte 的時機。</li>
+        <li><b>同一次讀到的旗標，先處理 RXNE 再處理 ADDR</b>。寫入的資料 byte 還沒被讀走、controller 就送了 repeated START 時，同一份 SR1 會同時有 RXNE 和 ADDR。第一版先呼叫 <code>write_start()</code>，那個資料 byte 就會被當成新的 pointer，LED 的寫入就這樣不見了。這是 PR #17 code review 抓到的；中斷處理這麼短，實機很難碰到，所以只用一條測試檢查原始碼裡的順序，沒有實測。</li>
+      </ul>
+      <div class="callout"><p><b>原本以為要防的 bug，實測沒有發生</b>：BUF 中斷開著時，硬體把一個 byte 搬去送的同時 <code>TXE</code> 就又亮了，firmware 會在 Jetson 回 NACK <b>之前</b>先放好下一個 byte。我讀 RM0008 推論：這個預先放好的 byte 會留在 <code>DR</code>，在<b>下一次</b>讀取時先被送出去，讀 0x20 會拿到上一次讀的 0x00 的值。所以第一版在讀取時關掉 BUF、改用 BTF 補 byte。實機上試了兩種沒有防護的寫法，「交替讀 400 次」<b class="hl-ok">都全對</b>，所以改回最簡單的 TXE 寫法。code review 時又問到：值在兩次讀取之間改變的話呢？想清楚就知道不會出事：預先放的永遠是同一個 register 的值，而 pointer 和值只會被<b>寫入</b>改變，寫入收到的 byte 也經過同一個 <code>DR</code>，會把預先放的那個蓋掉。實機上 LED 切換 20 次、每次分別用 <code>i2cget</code> 和不寫 pointer 的 <code>i2ctransfer r1</code> 讀回，<b class="hl-ok">全部正確</b>，這條也加進了硬體測試。硬體本身怎麼處理那個沒送出去的 byte，沒有查證。11.7 會說明怎麼確認這些測試真的抓得到這種錯。</p></div>
+      <p><code>main()</code> 本身什麼都不做，所有事情都在中斷裡發生。主迴圈原本寫成 <code>for (;;) __WFI();</code>（睡到下一個中斷），後來改成空迴圈，原因在 11.8。</p>
+    </div>
+  </section>
+
+  <section id="build">
+    <div class="rail"><span class="no">11.6</span><b>建置</b>PlatformIO</div>
+    <div class="content">
+      <h2>PlatformIO，但不用它的 SPL</h2>
+      <p>PlatformIO 是建置工具：負責下載 toolchain、編譯、連結、呼叫 OpenOCD 燒錄。它的設定可以寫 <code>framework = spl</code>，讓它提供 SPL，但 PlatformIO 的 <code>framework-spl</code> 套件<b class="hl-bad">沒有 STM32F1</b>（只有 F0 / F3 / F4 / L1），Blue Pill 會得到 <code>This board doesn't support spl framework</code>。所以照這個專案作者自己的 SPL 課程（VS Code + PlatformIO）的做法：<b class="hl-key">不指定 framework</b>，CMSIS 與 SPL 原始檔放在專案目錄裡，PlatformIO 只負責編譯它們。</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/platformio.ini:14–48 — 沒有 framework；toolchain 釘在有 aarch64 版的 GCC 12.3.1；warning 一律當錯誤；只編四個用到的 SPL 驅動</figcaption>
+<pre data-start="14" data-hot="15,21,32,33,34,40,41,42">[platformio]
+src_dir = .
+
+[env:bluepill]
+platform = ststm32@20.0.0
+board = genericSTM32F103C8
+platform_packages =
+    platformio/toolchain-gccarmnoneeabi@1.120301.0
+    platformio/tool-openocd@3.1200.7
+
+board_build.ldscript = ldscript/STM32F103C8_FLASH.ld
+
+build_flags =
+    -D STM32F10X_MD
+    -D USE_STDPERIPH_DRIVER
+    -I Core/Inc
+    -I Start
+    -I Library
+    -specs=nano.specs
+    -specs=nosys.specs
+    -Wall
+    -Wextra
+    -Werror
+
+; Only the SPL drivers this firmware calls. Start/core_cm3.c is left out: its old inline asm
+; (__STREXB / __STREXH) does not assemble with newer GNU as, and core_cm3.h inlines what we use.
+build_src_filter =
+    -&lt;*&gt;
+    +&lt;Core/Src/&gt;
+    +&lt;Library/misc.c&gt;
+    +&lt;Library/stm32f10x_gpio.c&gt;
+    +&lt;Library/stm32f10x_i2c.c&gt;
+    +&lt;Library/stm32f10x_rcc.c&gt;
+    +&lt;Start/system_stm32f10x.c&gt;
+    +&lt;startup/&gt;</pre>
+      </figure>
+      <p>和課程原本的設定差三處。前兩處是因為這次在 Jetson（aarch64）上建置：課程用的 <code>toolchain-gccarmnoneeabi@1.70201.0</code>（GCC 7.2.1）沒有 aarch64 版，換成 12.3.1；而 GCC 12 的 assembler 不接受 <code>build_type = debug</code> 傳給 <code>.s</code> 檔的 <code>-g2</code>，所以拿掉 debug 建置。第三處是 <code>-Wall -Wextra -Werror</code>：host 端的 CMake 只編 <code>i2c_target.c</code>，<code>main.c</code> 只有這裡會編到；實測連 SPL 的檔案在這組旗標下也沒有任何 warning。<code>Start/</code>、<code>Library/</code>、<code>startup/</code>、<code>ldscript/</code> 的 14 個檔從課程原樣複製，SHA-256 記在 <code>vendor.sha256</code>，有一條測試逐檔比對；<code>.gitattributes</code> 把它們設成 <code>-text</code>，git 不會改動 CRLF 換行。</p>
+      <h3>自己建置一次</h3>
+      <p>起點：repo 根目錄、Jetson 或任何 Linux，有 Python 3。第一次要裝 PlatformIO Core（裝到 VS Code 擴充套件也用的 <code>~/.platformio/penv</code>）：</p>
+<pre class="cmd">python3 -m venv ~/.platformio/penv &amp;&amp; ~/.platformio/penv/bin/pip install platformio==6.1.19</pre>
+<pre class="cmd">~/.platformio/penv/bin/pio run -d firmware/stm32f103</pre>
+      <p>第一次會先下載 ststm32 平台、GCC 12.3.1 和 OpenOCD，要多等一段時間；之後只要幾秒。最後幾行應該像這樣（2026-10-14，Jetson 上）：</p>
+<pre class="out">Linking .pio/build/bluepill/firmware.elf
+/home/nvidia/.platformio/packages/toolchain-gccarmnoneeabi/bin/../lib/gcc/arm-none-eabi/12.3.1/../../../../arm-none-eabi/bin/ld: warning: .pio/build/bluepill/firmware.elf has a LOAD segment with RWX permissions
+Checking size .pio/build/bluepill/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [          ]   2.3% (used 464 bytes from 20480 bytes)
+Flash: [          ]   2.9% (used 1912 bytes from 65536 bytes)
+Building .pio/build/bluepill/firmware.bin
+========================= [SUCCESS] Took 1.10 seconds =========================</pre>
+      <p>那行 <code>RWX permissions</code> 的 warning 來自課程的 linker script（新版 ld 才會檢查），不影響執行。整個 firmware 不到 2 KB（code review 修正前是 1960 byte）；換了 toolchain 版本的話，大小差幾十 byte 是正常的。不想裝 PlatformIO 也能驗 protocol，host 端測試只需要 CMake：</p>
+<pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target test_i2c_target &amp;&amp; build/test_i2c_target</pre>
+<pre class="out">all i2c_target vectors passed</pre>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">11.7</span><b>測試</b>先紅再綠</div>
+    <div class="content">
+      <h2>測試：protocol 在 host、接線在板子、測試本身也要被測</h2>
+      <ul>
+        <li><b><code>tests/test_i2c_target.cpp</code></b>：11 組向量，從 header 的規格寫，不是從實作抄：ID / 版本、reset 狀態、LED 開關、不合法的 LED 值（從 0 和從 1 出發各 3 個值）、RO、7 個沒定義的位址、不 auto-increment、pointer 跨 transaction、多餘的資料 byte、repeated START 再寫、transaction 外的 byte。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個。register-map.md 的表格對 header 的值；<code>i2c_target.c</code> 不准出現任何暫存器；<code>main.c</code> 用 I2C1、PB6 / PB7、<code>0x42 &lt;&lt; 1</code>、PC13 低電位亮；AF 會結束 transaction；RXNE 在 ADDR 之前處理；主迴圈沒有 WFI；ini 有 <code>-Wall -Wextra -Werror</code>；範圍檢查（沒有 ADC、IWDG、SPI、DMA，沒有 <code>kernel/edge_ctrl</code>）；vendor 檔的 SHA-256。PlatformIO 和釘住的 toolchain（1.120301.0）都已經裝好時，真的建置 firmware，再用那個 toolchain 的 <code>arm-none-eabi-nm</code> 確認兩個中斷 handler 是我們的強符號；沒裝就 skip，不會在跑測試時上網下載。硬體測試 6 個（<code>EDGE_STM32_HW=1</code>），其餘不需要板子。</li>
+      </ul>
+      <p>中斷 handler 那條是 firmware 特有的陷阱：startup 檔把每個中斷向量都先定成 <b>weak</b> 的 <code>Default_Handler</code>。handler 名字拼錯（例如寫成 <code>I2C1_ERR_IRQHandler</code>）照樣編譯、照樣連結，只是錯誤中斷發生時跳進 <code>Default_Handler</code> 的無窮迴圈。故意改錯名字，這條測試就紅。</p>
+      <h3>測試有沒有紅過</h3>
+      <p>實作前跑一次：7 failures、9 errors、5 個硬體 skip。先就會過的 3 個是守門測試（register map 對 header、vendor 檔雜湊），它們在 header 和 vendor 檔放進去時就成立。接著故意把 <code>i2c_target.c</code> 改錯 7 種（接受 LED 值 2、多餘的資料 byte 也寫、repeated START 不重設、沒定義的讀成 0……），每一種都讓向量失敗。其中「IDLE 時收到的 byte 改到 pointer」<b class="hl-bad">第一次沒被抓到</b>：測試只檢查 LED 沒變，沒檢查 pointer。補上「之後讀回的仍是原 register」才紅。</p>
+      <p>11.5 那個交替讀的測試比較麻煩：真的 firmware 不會出錯，兩種推論會出錯的寫法實測也沒出錯，它從頭到尾沒紅過。沒紅過的測試，不知道它守不守得住。所以另外燒一個<b>故意</b>出錯的 firmware：每次送出「上一次算出來的 byte」，模擬 DR 裡留著舊 byte 的情況：</p>
+<pre class="out">FAIL FW_MAJOR: reg 0x01 = '0xed', want 0x00
+FAIL FW_MINOR: reg 0x02 = '0x00', want 0x01
+...
+== 25 rounds of alternating reads (0x00 0x01 0x02 0x20, LED on)
+FAIL 75 of 100 reads wrong</pre>
+      <p>每次都拿到上一個 register 的值；100 次裡剩下的 25 次「對」，是因為 0x02 之後接 0x20，兩個剛好都是 <code>0x01</code>。code review 後加的「LED 切換後讀回」測試在同一個變異版上也紅了（第一輪就讀到 <code>0xED</code>，要的是 0）。燒回正確的 firmware 之後全對。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">11.8</span><b>驗收</b>實機與除錯</div>
+    <div class="content">
+      <h2>實測：接線、燒錄、一條拉住整條 bus 的線</h2>
+      <table>
+        <thead><tr><th>Blue Pill</th><th>接到</th></tr></thead>
+        <tbody>
+          <tr><td>PB7（SDA）</td><td>Jetson header pin 27</td></tr>
+          <tr><td>PB6（SCL）</td><td>pin 28</td></tr>
+          <tr><td>GND</td><td>pin 20 或 25（任何一支 GND 都相通）</td></tr>
+          <tr><td>SWDIO、SWCLK、GND、3.3V</td><td>ST-Link V2 的同名腳；Blue Pill 由 ST-Link 供電，ST-Link 的 USB 插 Jetson</td></tr>
+        </tbody>
+      </table>
+      <p>上拉電阻不用另外加，Jetson 載板上已經有了。一支 header pin 只插得下一條杜邦線，pin 27 / 28 原本是 OLED 的，這一步先把 OLED 拔掉（腳本看到 0x3c 時會檢查它還在，沒看到就 SKIP）。ST-Link 第一次插 Jetson 時，USB 節點是 <code>root:root 0664</code>，OpenOCD 會報 <code>LIBUSB_ERROR_ACCESS</code>，要先裝 PlatformIO 的 udev 規則（指令在 <code>firmware/stm32f103/README.md</code>，要 sudo）。之後在 repo 根目錄：</p>
+<pre class="cmd">~/.platformio/penv/bin/pio run -d firmware/stm32f103 -t upload</pre>
+<pre class="out">** Programming Started **
+Info : device id = 0x20036410
+Info : flash size = 64 KiB
+...
+** Programming Finished **
+** Verify Started **
+** Verified OK **
+** Resetting Target **
+shutdown command invoked
+========================= [SUCCESS] Took 1.70 seconds =========================</pre>
+      <h3>第一次：0x42 不在，連板載晶片都不見了</h3>
+      <p>燒錄成功，但掃描在 0x42 是空的，<code>i2cget</code> 全部 <code>Read failed</code>，<code>i2ctransfer</code> 是 <code>Connection timed out</code>。同一條 bus 上的板載 ina3221 也讀不到，kernel log 每 104 ms 一行（一共 764 行）：</p>
+<pre class="out">[25924.492663] usb 1-2.1: new full-speed USB device number 4 using tegra-xusb
+[25948.136014] tegra-i2c c240000.i2c: I2C transfer timed out
+[26680.509972] tegra-i2c c240000.i2c: I2C transfer timed out
+...</pre>
+      <p>「timeout」代表 transaction 沒辦法往前走：SCL 被誰拉住了。嫌疑最大的是 STM32 的 clock stretching，所以用 ST-Link 停住 CPU，直接讀 I2C1 的暫存器（<code>0x40005400</code> 起是 CR1、CR2、OAR1、OAR2、DR、SR1、SR2、CCR）和 GPIOB 的輸入暫存器 IDR（<code>0x40010C08</code>）：</p>
+<pre class="out">0x40005400: 00000401 00000724 00004084 00000000 00000000 00000000 00000002 000000b4 «1»
+0x40010c08: 0000ffb3 «2»
+--- 關掉 I2C1（PE = 0）、PB6 改成浮接輸入之後 ---
+0x40010c08: 00000090 «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>設定都對：CR1 = <code>0x401</code>（PE、ACK）、CR2 = <code>0x724</code>（36 MHz、三種中斷都開）、OAR1 = <code>0x4084</code>（<code>0x84 &gt;&gt; 1</code> = 0x42）。SR2 的 BUSY = 1，SR1 卻是 0：周邊沒有卡在任何事件上，<b>不是 STM32 在 stretching</b>。</span></li>
+        <li><span class="mk">2</span><span>bit 7（PB7，SDA）= 1，bit 6（PB6，SCL）= 0：SCL 真的是低的。</span></li>
+        <li><span class="mk">3</span><span>STM32 已經完全不驅動 PB6，它還是 0，Jetson 那邊也還是 timeout：<b>拉低 SCL 的不是 STM32 的程式</b>。</span></li>
+      </ol>
+      <p>接下來逐條拔線（從麵包板那一頭）：只要接到 B6 的那條線還連著 Jetson，那條 bus 線就是低的；線一離開 B6，bus 就恢復，ina3221 回 <code>0x4954</code>。結果是 <b class="hl-bad">B6 那一排在麵包板上接到了 GND</b>。一條接地的線讓整條 bus 上的每一顆晶片都不能用，包括跟這一步毫無關係的板載晶片。第一次接線時 SDA / SCL 很可能也接反了：當時是拔掉 pin 27 那條線才恢復的。</p>
+      <h3>第二次：SWD 也接不上了</h3>
+      <p>排除短路的過程中重插過 ST-Link，Blue Pill 斷電又上電，接著 OpenOCD 就讀不到 MCU：</p>
+<pre class="out">Info : SWD DPIDR 0x1ba01477
+Error: Failed to read memory at 0xe000ed04
+Error: [stm32f1x.cpu] Examination failed</pre>
+      <p>DP 有回應（<code>DPIDR</code> 讀得到），記憶體卻讀不到。原因在我寫的 <code>for (;;) __WFI();</code>：DBGMCU_CR 的 <code>DBG_SLEEP</code> 是 0 時，Sleep mode 下 HCLK 會關掉（RM0008 DBGMCU_CR），除錯器經 AHB 就讀不到記憶體。之前接得上，是因為燒錄時 OpenOCD 設了 <code>DBG_SLEEP</code>，這個設定一直留到斷電。救法是讓 MCU 不跑這份 firmware：<b>BOOT0 jumper 移到 1、按 RESET</b>，CPU 從內建 bootloader 開機（OpenOCD 看到 PC = <code>0x1ffff1ec</code>，在 system memory 裡），燒錄新版，BOOT0 移回 0、再按 RESET。主迴圈從此是空迴圈，並先加了一條「沒有 <code>__WFI</code>」的測試看它紅。</p>
+      <h3>驗收</h3>
+      <p>接線正確、新 firmware 燒好之後，在板子旁的終端機（要回答 y/n）跑：</p>
+<pre class="cmd">bash scripts/verify_stm32_i2c.sh</pre>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>找 bus 號碼</td><td>腳本用 controller 名稱 <code>c240000.i2c</code> 從 <code>i2cdetect -l</code> 找出來（這台是 1）。</td></tr>
+          <tr><td>對每個 register 下 <code>i2cget</code> 比對</td><td>腳本逐一比對 ID、版本、RO 寫入、沒定義的 register、LED 讀回、不合法的值、3 byte 讀取，再交替讀 100 輪。</td></tr>
+          <tr><td>跑完記得把 LED 關掉</td><td><code>trap … EXIT</code> 在任何結束方式下都寫 <code>0x20 0</code>。</td></tr>
+          <tr><td>另外跑硬體 unit test</td><td>腳本最後以 <code>EDGE_STM32_HW=1</code> 跑 <code>test_stm32_i2c_target.py</code>。</td></tr>
+        </tbody>
+      </table>
+      <p>2026-10-14 的完整輸出：</p>
+<pre class="out" data-marks>PASS c240000.i2c is i2c-1
+== bus scan (i2cdetect -y -r 1)
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- --
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+20: -- -- -- -- -- 25 -- -- -- -- -- -- -- -- -- --
+30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+40: 40 -- 42 -- -- -- -- -- -- -- -- -- -- -- -- -- «1»
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+70: -- -- -- -- -- -- -- --
+PASS STM32 answers at 0x42
+SKIP OLED not on i2c-1 (not needed for Step 11)
+== identification
+PASS DEVICE_ID: reg 0x00 = 0xed «2»
+PASS FW_MAJOR: reg 0x01 = 0x00
+PASS FW_MINOR: reg 0x02 = 0x01
+== writes the firmware must drop
+PASS DEVICE_ID after writing 0x55: reg 0x00 = 0xed «3»
+PASS unmapped register: reg 0x10 = 0xff
+== LED_CONTROL
+PASS LED_CONTROL = 1: reg 0x20 = 0x01
+&gt;&gt;&gt; Is the Blue Pill's green LED (PC13) ON [y/n] y «4»
+PASS Is the Blue Pill's green LED (PC13) ON
+PASS LED_CONTROL after the invalid value 2: reg 0x20 = 0x01
+PASS LED_CONTROL = 0: reg 0x20 = 0x00
+&gt;&gt;&gt; Is the LED OFF now [y/n] y
+PASS Is the LED OFF now
+== 3-byte read of FW_MINOR (no auto-increment)
+PASS i2ctransfer: 0x01 0x01 0x01 «5»
+== 100 rounds of alternating reads (0x00 0x01 0x02 0x20, LED on)
+PASS 400 reads in 1.1 s, all correct «6»
+== unit tests against the board
+PASS test_stm32_i2c_target.py (OK)
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>0x42 和板載的 0x25、0x40 並列。那兩顆在這裡顯示成位址而不是 <code>UU</code>，是因為除錯過程中 unbind / bind 過 controller，它們的 driver 沒有重新綁上（推論：重開機後會再綁上，還沒試）。</span></li>
+        <li><span class="mk">2</span><span><b class="hl-ok">phase05 的驗收條件</b>：Jetson userspace 讀到 Device ID 與 firmware 版本。</span></li>
+        <li><span class="mk">3</span><span>寫 RO 被丟掉、沒定義的 register 回 <code>0xFF</code>：11.3 那條「不合法時怎麼辦」的規格。</span></li>
+        <li><span class="mk">4</span><span><b class="hl-ok">phase05 的驗收條件</b>：寫 LED_CONTROL，人看到板上 LED 亮、滅；寫 2 之後讀回仍是 1。</span></li>
+        <li><span class="mk">5</span><span>一次讀 3 byte，3 個都是 FW_MINOR：不 auto-increment。</span></li>
+        <li><span class="mk">6</span><span>四個 register 輪流讀 100 輪，沒有一次拿到上一個 register 的值。每次 <code>i2cget</code> 都是一個新 process，約 3 ms 一次。</span></li>
+      </ol>
+      <p>這份輸出是 code review 修正之前跑的。修正後（RXNE / ADDR 順序、<code>-Werror</code>）重燒，再在板子旁跑一次完整的腳本，<b class="hl-ok">0 failure</b>：LED 亮、滅都確認了，400 次交替讀 1.2 s，板上 unit test 多了「LED 切換後讀回」那一條。遠端時不能看 LED，就加 <code>--no-look</code>（不問 y/n，其餘照跑）。你的板子沒接 OLED 時那行同樣是 SKIP；接著 OLED 時會多一行 PASS。手動試的話：</p>
+<pre class="cmd">i2cget -y 1 0x42 0x00 &amp;&amp; i2cset -y 1 0x42 0x20 1 &amp;&amp; i2cget -y 1 0x42 0x20</pre>
+<pre class="out">0xed
+0x01</pre>
+      <p>LED 應該亮著；<code>i2cset -y 1 0x42 0x20 0</code> 關掉。<code>i2cget</code> 回 <code>Read failed</code>、而且 <code>i2cget -y 1 0x40 0xfe w</code>（板載 ina3221）也失敗時，先找有沒有線把 SDA / SCL 拉到 GND，不是 firmware 的問題。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：OLED 和 STM32 同時掛在 bus 上；按 Blue Pill 的 RESET 之後 LED_CONTROL 回到 0（只在 host 向量裡驗）；400 kHz；長時間連續存取；新 firmware 斷電後 SWD 照樣接得上（推論）；F1 errata 裡 I2C analog filter 讓 BUSY 卡住的問題（沒遇到）。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">11.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 framework = spl 就能用</h4><dl><dt>症狀</dt><dd><code>Error: This board doesn't support spl framework!</code></dd><dt>後果</dt><dd>差點改用 LL；PlatformIO 的 <code>framework-spl</code> 只剩 F1 的 linker script，沒有原始碼。</dd><dt>正解</dt><dd class="fix">不指定 framework，SPL 和 CMSIS 放進專案自己編（作者的課程早就這樣做）。</dd></dl></div>
+        <div class="pit"><h4>照搬 x86 的 platformio.ini</h4><dl><dt>症狀</dt><dd>找不到 toolchain 套件；換新版之後 <code>Fatal error: unknown option '-g2'</code>。</dd><dt>後果</dt><dd>Jetson 上建不起來。</dd><dt>正解</dt><dd class="fix">釘 GCC 12.3.1（有 aarch64 版），拿掉 <code>build_type = debug</code>。</dd></dl></div>
+        <div class="pit"><h4>一條線接到 GND</h4><dl><dt>症狀</dt><dd>0x42 找不到，連板載 ina3221 都 <code>Connection timed out</code>；dmesg 每 104 ms 一行 <code>I2C transfer timed out</code>。</dd><dt>後果</dt><dd>整條 bus 都不能用，看起來像 firmware 或 Jetson 壞了。</dd><dt>正解</dt><dd class="fix">用 SWD 停住 MCU 讀 SR1 / IDR，排除 firmware；逐條拔線，找出接地的那一排。</dd></dl></div>
+        <div class="pit"><h4>主迴圈用 WFI</h4><dl><dt>症狀</dt><dd>斷電重開後 <code>Failed to read memory</code> / <code>Examination failed</code>，燒不進去。</dd><dt>後果</dt><dd>板子看起來像燒壞了。</dd><dt>正解</dt><dd class="fix">BOOT0 = 1 + RESET 進 bootloader 再燒；主迴圈不用 WFI（或設 DBGMCU_CR.DBG_SLEEP）。</dd></dl></div>
+        <div class="pit"><h4>照推論加防護</h4><dl><dt>症狀</dt><dd>讀 RM0008 推論「預先放的 byte 會留到下一次讀取」，讀取時關 BUF 改用 BTF。</dd><dt>後果</dt><dd>多了一套沒被證明需要的程式和註解。</dd><dt>正解</dt><dd class="fix">燒變異版實測：沒防護也全對，改回簡單寫法；另燒一個故意出錯的版本，確認測試抓得到。</dd></dl></div>
+        <div class="pit"><h4>測試只看 LED</h4><dl><dt>症狀</dt><dd>「IDLE 時收到的 byte 改到 pointer」這個變異，向量照樣全過。</dd><dt>後果</dt><dd>bus 錯誤中斷後的雜訊 byte 可能改掉 pointer，沒有測試發現。</dd><dt>正解</dt><dd class="fix">每個「byte 被丟掉」的情境，同時檢查 LED 和讀回的 register。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">11.10</span><b>收尾</b>下一步</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">Blue Pill 在 Jetson 的 <code>i2c-1</code> 上以 0x42 回應：DEVICE_ID、版本、LED_CONTROL，不合法的存取有明確定義。</li>
+        <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：Jetson userspace 讀得到 Device ID 與版本，寫 LED_CONTROL 讓 LED 亮、滅。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">protocol 和硬體分開：<code>i2c_target.c</code> 在 Jetson 上跑 11 組向量，<code>main.c</code> 只翻譯 I2C1 的旗標。</li>
+        <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個 Python 測試；故意出錯的 firmware 證明交替讀、LED 切換後讀回兩條測試抓得到舊 byte。</li>
+        <li class="n">沒有實測：OLED 同時在 bus 上、reset 後的預設值、400 kHz、長時間存取。規模：非空白 796 行（不含 vendor 檔），含 code review 的修正。</li>
+      </ul>
+      <p>Step 12 把這四個 register 擴充成正式的 register map：分區（識別 / 輸入 / 輸出 / 健康狀態）、ADC 這種超過 1 byte 的值（要定義 auto-increment 與 byte 順序）、STATUS register 回報不合法的寫入，以及 protocol 版本規則。那時候「預先放好的 byte」就不再無害：多讀一個 byte 會讓 pointer 多前進一格，要重新驗證。</p>
+      <details class="quiz"><summary>1. 為什麼讀 register 要先「寫」一個 byte？</summary><p>I2C 只有「寫一串 byte」與「讀一串 byte」。target 要知道該回哪個 register，controller 只能先寫一個 byte 當 pointer，再用 repeated START 改成讀。這個「第一個 byte 是 pointer」是我們自己的 protocol 規定的，I2C 本身沒有。</p></details>
+      <details class="quiz"><summary>2. LED_CONTROL 寫 2，Jetson 怎麼知道失敗了？</summary><p>bus 上看不出來：F103 收到 byte 時硬體就自動回 ACK 了。只能讀回 LED_CONTROL，發現還是原來的值。Step 12 會加 STATUS register 直接回報。</p></details>
+      <details class="quiz"><summary>3. 只在 STOPF 時呼叫 <code>i2c_target_stop()</code>，會出什麼事？</summary><p>寫入沒事，但讀取以 controller 的 NACK 結束，target 收到的是錯誤中斷裡的 AF，不是 STOPF。不處理 AF 的話旗標清不掉，錯誤中斷會一直進來；狀態也回不到 IDLE。</p></details>
+      <details class="quiz"><summary>4. 整條 bus 都 timeout，怎麼判斷是不是 STM32 在拉住 SCL？</summary><p>用 SWD 停住 CPU，讀 I2C1 的 SR1 / SR2：SR1 是 0 就表示周邊沒卡在任何事件上。再關掉 I2C1、把 PB6 改成輸入，讀 GPIOB 的 IDR：還是 0，就是外部拉低的。這一章的答案是麵包板上一條接到 GND 的線。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12 →</span></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A simulation of firmware/stm32f103/Core/Src/i2c_target.c in the browser, not the board.
+  var NAMES = ['IDLE', 'WANT_REG', 'WANT_DATA', 'DISCARD'];
+  var t = { ptr: 0, led: 0, state: 0 };
+  var $ = function (id) { return document.getElementById(id); };
+  var hex = function (b) { return '0x' + ('0' + b.toString(16)).slice(-2); };
+  function tx() {
+    switch (t.ptr) {
+      case 0x00: return 0xED;
+      case 0x01: return 0x00;
+      case 0x02: return 0x01;
+      case 0x20: return t.led;
+      default: return 0xFF;
+    }
+  }
+  function log(s) { var l = $('simLog'); l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
+  function show() {
+    $('simState').textContent = NAMES[t.state];
+    $('simPtr').textContent = hex(t.ptr);
+    $('simLed').textContent = t.led ? '1（亮）' : '0（滅）';
+  }
+  $('simWs').addEventListener('click', function () { t.state = 1; log('START + 0x42 W  → write_start(): WANT_REG'); show(); });
+  $('simRx').addEventListener('click', function () {
+    var b = parseInt($('simByte').value, 16);
+    if (isNaN(b) || b < 0 || b > 255) { log('（byte 要是 00–ff 的十六進位）'); return; }
+    var before = NAMES[t.state];
+    if (t.state === 1) { t.ptr = b; t.state = 2; log('rx(' + hex(b) + ')  ' + before + ' → ptr = ' + hex(b)); }
+    else if (t.state === 2) {
+      var ok = t.ptr === 0x20 && b <= 1;
+      if (ok) t.led = b;
+      t.state = 3;
+      log('rx(' + hex(b) + ')  WANT_DATA → write_reg(' + hex(t.ptr) + ', ' + hex(b) + ')' + (ok ? '' : '：丟掉'));
+    } else log('rx(' + hex(b) + ')  ' + before + '：丟掉');
+    show();
+  });
+  $('simRd').addEventListener('click', function () { log('START + 0x42 R, TXE → tx() = ' + hex(tx()) + '，NACK → AF → stop(): IDLE'); t.state = 0; show(); });
+  $('simStop').addEventListener('click', function () { t.state = 0; log('STOP  → stop(): IDLE'); show(); });
+  $('simReset').addEventListener('click', function () { t = { ptr: 0, led: 0, state: 0 }; $('simLog').textContent = ''; log('reset：i2c_target_init()'); show(); });
+  log('reset：i2c_target_init()');
+  show();
+})();
+</script>
+</body>
+</html>

@@ -473,3 +473,35 @@
   - 不改：`is_sensor()` 每秒多讀一次 `name`。hwmon 號碼會被重用，消失的 `hwmonN` 可能變成別的感測器、檔案照樣讀得到；只在讀取失敗時重找會讀到別人的值。程式裡補了註解。
   - 修正前新增的測試都紅過：C++ 向量 2 個 CHECK、`test_telemetry_display.py` 新增 6 個加 SIGHUP 子測試（8 個失敗）。`test_telemetry_display.py` 17 → 23 個；全套 344 個，`OK (skipped=65)`。規模 798 → 916 行（超過 800 行上限，多出的 118 行有 75 行是測試）。
 - 修正後重跑（2026-10-14，`--no-unplug --watch-seconds 0`）`=== 0 failure(s)`：app `#3 V=12348 I=1 P=15244`，hwmon `12344 mV / 1 mA / 15244 uW`（電壓差 4 mV，兩次讀取不是同一次轉換；電流 1 mA：充電器沒在充、也沒在放），廠商公式 `BAT 92.89 %`，人確認畫面；unbind 時 `V=- I=- P=-` 與 `NO SENSOR`，bind 回來（仍是 `hwmon4`）不重啟就恢復；SIGTERM 2 秒內結束、無殘留、畫面全黑；dmesg 無 Oops。拔線與刷新觀察沒有重跑（正常路徑沒變）。
+
+## Step 11：STM32F103 I2C target firmware（Blue Pill，SPL，0x42）
+
+- 驗收主機與接線：Jetson `i2c-1`（`c240000.i2c`，100 kHz）pin 27 → Blue Pill PB7（SDA）、pin 28 → PB6（SCL）、GND（pin 20 或 25）→ Blue Pill GND；Blue Pill 由 ST-Link V2（`0483:3748`，韌體 V2J48S7，插 Jetson USB）的 3.3 V 供電，target voltage 3.24 V。OLED 拔掉（不是 Step 11 的對象）。載板的 I2C 上拉，Blue Pill 端沒有另外加。
+- 對照方法：新增 `bash scripts/verify_stm32_i2c.sh`（不需 root）。沒有前一步的數值可以對照；這一步的數字就是 Step 12–13 的基線。Jetson 端的不回歸：同 bus 上的板載 fusb301（0x25）、ina3221（0x40）照樣在掃描裡出現，ina3221 的 manufacturer ID 讀到 `0x4954`（`i2cget` 的 word 是 LSB 先送，對調後 = "TI"）。
+- 結果（2026-10-14）`=== 0 failure(s)`：0x42 出現在掃描裡；DEVICE_ID `0xed`、FW `0x00` / `0x01`；寫 DEVICE_ID 0x55 後仍是 `0xed`；0x10 讀到 `0xff`；LED_CONTROL 寫 1 讀回 `0x01`、人確認 PC13 亮，寫 2 後仍是 `0x01`，寫 0 讀回 `0x00`、人確認滅；`i2ctransfer w1@0x42 0x02 r3@0x42` = `0x01 0x01 0x01`；交替讀（0x00 / 0x01 / 0x02 / 0x20）**400 次 1.1–1.2 s、全部正確**（每次 `i2cget` 一個 process，≈ 3 ms / 次）；板上 unit test 5 個通過。
+- 燒錄：`pio run -d firmware/stm32f103 -t upload` 約 1.7 s（`Verified OK`）；flash 1960 byte、RAM 464 byte（`main.c` 簡化前 1968 byte）。
+- 容差：沒有數值容差，register 值逐字比對；LED 是 y/n。
+- **未實測**：OLED 和 STM32 同時在 bus 上（腳本看得到 0x3c 時會檢查它還在）；Blue Pill reset 後 LED 回到 0（reset 預設值只在 host 向量裡驗）；400 kHz；長時間連續存取；F1 errata 的 BUSY 卡住（沒遇到）。
+- 自動測試：`tests/test_i2c_target.cpp` 11 組向量（ID / 版本、reset 狀態、LED 開關、不合法 LED 值、RO、沒定義的 register、不 auto-increment、pointer 跨 transaction、多餘的資料 byte、repeated START 再寫、transaction 外的 byte）；`tests/test_stm32_i2c_target.py` 26 個（向量 1、register map 對 header 2、firmware 原始碼 8、vendor 2、PlatformIO 建置與 IRQ handler 不是 weak default 2（沒裝 PlatformIO 時 skip）、硬體 5（`EDGE_STM32_HW=1`）、驗收腳本 6）。全套 370 個，`OK (skipped=70)`。
+- 紅燈紀錄：實作前 `test_stm32_i2c_target.py` 7 failures、9 errors（5 個硬體 skip），先過的 3 個是守門測試（register map 對 header、vendor SHA-256）；第一次實作後還紅 2 個：CMake 少 include 路徑、測試對 ini 全文找 `core_cm3.c` 找到註解（改成只看 `+<...>`）。變異：接受 LED 值 2、多餘的資料 byte 也寫、repeated START 不重設、沒定義的讀成 0、reset 時 pointer 不在 0x00、STOP 不回 IDLE、IDLE 收到的 byte 改到 pointer，7 種都讓向量失敗；最後一種**第一次沒抓到**（只看 LED，沒看 pointer），補檢查後紅。硬體：把 `I2C1_ER_IRQHandler` 改名，`nm` 測試抓到 handler 退回 `Default_Handler`；故意送「上一次的 byte」的 firmware，交替讀 100 次錯 75 次（0x02 → 0x20 剛好都是 0x01，所以不是 100 %）。
+- 規模（code review 後見下）：`git diff f8728e8`（不含 vendor 檔、docs 與 .md）新增 882 行、**非空白 754**：產品碼 278、測試 372、驗收腳本 104。800 行上限照 Step 10-b / 10-c 的算法看非空白行。PR 開出時寫的「739」是漏算 CMake、`.gitattributes`、`vendor.sha256` 的錯數字，各類別又混用了含空白與非空白（code review 指出）。phase05 沒有給估計；動工前估約 730（產品碼約 280、測試約 350、驗收腳本約 150）。
+
+### 踩坑
+
+- 原本以為 PlatformIO 有 `framework = spl` 就能用 SPL 寫 F103。`framework-spl` 只有 F0 / F3 / F4 / L1，套件裡只留著 F1 的 linker script；ststm32 6.1.1 到 20.0.0 的 `bluepill_f103c8` 都不列 spl。使用者的 `STM32_StdPeriph` 課程早就用「不指定 framework、自己帶 SPL」解決，照抄。（中間我一度說「PlatformIO 的 SPL 只有一個版本、不支援 F1」就要改用 LL，使用者覺得說法怪，查證後補上「以前有、後來拿掉」與課程的做法。）
+- 原本以為課程的 `platformio.ini` 在 Jetson 上照樣能用。GCC 7.2.1 沒有 aarch64 套件，換 GCC 12.3.1 之後，`build_type = debug` 會讓 PlatformIO 把 `-g2` 傳給 `as`，`Fatal error: unknown option '-g2'`。
+- 原本以為 `pio run -t upload` 就能燒錄。ST-Link 的 USB 節點是 `root:root 0664`，OpenOCD `LIBUSB_ERROR_ACCESS`；要先裝 PlatformIO 的 udev 規則（`0483` → 0666）。
+- **B6 在麵包板上誤接 GND**：Jetson 的 i2c-1 每 ~104 ms 一行 `tegra-i2c c240000.i2c: I2C transfer timed out`（共 764 行），同 bus 的 ina3221 hwmon `Connection timed out`、`i2cdetect` 全是 `--`，0x42 自然也找不到。原本以為是 firmware 在 clock stretching 拉住 SCL；用 OpenOCD 停住 MCU 讀暫存器才排除：`I2C1->SR2` BUSY = 1 但 `SR1` = 0（周邊沒有卡在任何事件上），把 I2C 關掉（PE = 0）、PB6 改浮接輸入後 `GPIOB->IDR` 的 bit 6 還是 0，而且「PB6 接到哪條線，哪條線就被拉低」（第一次 SDA / SCL 疑似也接反，拔掉 pin 27 那條才恢復）。之後一度拿掉短路、bus 還是不通，PB6 仍讀到 0：短路還在，使用者重新調整接線後 PB6 / PB7 都讀到 1、bus 恢復。兩次都是線一放開 bus 就自己恢復，中間那次 unbind / bind `c240000.i2c` 沒有效果（短路還在）。
+- 原本以為使用者說「拔掉 pin 28」是拔 Jetson 那頭；其實都是拔麵包板（Blue Pill）那頭。判斷 bus 有沒有被拉住時兩頭等價；要分辨「腳壞」和「線碰到 GND」時才不同。
+- 原本以為主迴圈 `for (;;) __WFI();` 無害。使用者重插 ST-Link（Blue Pill 斷電）之後，OpenOCD `SWD DPIDR 0x1ba01477` 讀得到、`Failed to read memory at 0xe000ed04` / `Examination failed`，`reset halt` 也是 `AP write error`。之前接得上，是因為燒錄時 OpenOCD 設了 DBGMCU_CR 的 DBG_SLEEP，斷電才清掉；DBG_SLEEP = 0 時 Sleep mode 下 HCLK 關掉，除錯器經 AHB 讀不到記憶體（RM0008 DBGMCU_CR）。救回：BOOT0 jumper 移到 1、按 RESET（PC 停在 system memory `0x1ffff1ec`）→ 燒新版 → BOOT0 回 0、RESET。改成空迴圈，先寫 `test_main_loop_does_not_sleep` 看它紅。斷電後 SWD 照樣接得上這點：BOOT0 回 0 之後沒有再斷電試（推論）。
+- 原本以為（讀 RM0008 推論）BUF 中斷開著時，TXE 會在對方 ACK 前就把下一個 byte 放進 DR，對方 NACK 後那個 byte 留在 DR、在下一次讀取先送出去，所以第一版讀取時關 BUF、改在 BTF 補 byte。燒了兩個變異版實測：(1) BUF 一直開、ADDR 時寫 DR、之後 TXE 補；(2) ADDR 時不寫、完全靠 TXE。兩個都 0 failure、交替讀全對。推論不成立，firmware 改成 (2) 的寫法（SPL 標準的 TXE 驅動），註解只寫實測結果，原本要求 `I2C_IT_BUF, DISABLE` 的靜態測試改成「沒有切換 BUF」。DR 裡的舊 byte 為什麼沒送出去（硬體在 AF / STOP 時清掉，或被 ADDR 後的新寫入蓋掉）沒有查證。
+- code review（PR #17，medium）找出 9 項：6 項修正、1 項排到 Step 12、2 項不改。原本都以為沒事：
+  - 原本以為 EV 中斷裡先看 ADDR、再看 RXNE 沒差。寫入的資料 byte 還沒被讀走時 controller 送 repeated START 再寫，同一份 SR1 會同時有 RXNE 與 ADDR，`write_start()` 先跑，那個資料 byte 就變成 pointer、LED 的寫入不見。改成先收 RXNE。只用原始碼順序的測試守住，**沒有實測**（中斷處理很短，實機很難碰到）。
+  - 原本以為 TXE 預先放的 byte「不會錯」的理由是「每個 byte 都是同一個 register」。reviewer 舉「LED=1 讀 0x20 → 寫 0 → 再讀」說可能讀回舊的 0x01：實測讀回 `0x00`，LED 切換 50 次、每次讀回都對，`i2ctransfer r1`（不寫 pointer）也對。真正的理由是 pointer 與值只會被寫入改變，寫入收到的 byte 經過同一個 DR，會蓋掉預先放的那個；註解改寫成這個理由，並新增硬體測試 `test_read_after_the_value_changed`（20 輪，`i2cget` 與純讀取各一次）。這條測試在「送上一次 byte」的變異版上紅（第一輪讀到 0xED）。
+  - 原本以為 firmware 的 warning 有 host 端的 `-Werror` 管；host 只編 `i2c_target.c`。`platformio.ini` 加 `-Wall -Wextra -Werror`：SPL 的檔案也沒有任何 warning，故意加一個沒用到的變數就建置失敗。
+  - 原本以為 `pio run` 放在一般的 `unittest discover` 裡無妨；第一次會下載 toolchain、離線時失敗而不是 skip。改成 PlatformIO 與釘住的 toolchain（`package.json` 版本 1.120301.0，依 `PLATFORMIO_CORE_DIR` 找、目錄名可以帶 `@版本`）都已經裝好才跑，timeout 900 → 300 s；`nm` 從同一個 toolchain 找。不採用 reviewer 建議的環境變數開關：那樣平常沒人會跑，handler 名稱拼錯就沒人發現。用空的 `PLATFORMIO_CORE_DIR` 確認兩個建置測試是 skip。
+  - 行數：見上面的「規模」。
+  - 排到 Step 12（寫進 phase05）：錯誤後沒有 SWRST / 重新初始化，BUSY 卡住（ES096）時只能按 RESET。現在沒有重現方法，改了也驗不了。
+  - 不改：`test_i2c_target.cpp` 用相對路徑 include header（repo 的測試都這樣寫，如 `../apps/telemetry.h`）。
+  - 修正前新增的測試：靜態 2 個（RXNE 在 ADDR 之前、ini 的 warning 旗標）在改之前紅；硬體 1 個在變異版上紅。`test_stm32_i2c_target.py` 26 → 29 個；全套 373 個，`OK (skipped=71)`。規模 754 → 796 行（非空白）。
+- 修正後重燒（flash 1960 → **1912 byte**，沒有逐項追查是哪個改動造成的）並重跑 `bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`：400 次交替讀 1.2 s 全對，板上 unit test 6 個通過；ina3221 仍是 `0x4954`。之後使用者在板子旁重跑完整的 `bash scripts/verify_stm32_i2c.sh` `=== 0 failure(s)`：人確認 PC13 亮、滅，400 次交替讀 1.2 s 全對。

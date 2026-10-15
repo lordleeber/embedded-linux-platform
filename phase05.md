@@ -250,6 +250,35 @@ write 0x20 = 1 → STM32 板上 LED 亮
 write 0x20 = 0 → LED 滅
 ```
 
+### 實作決策（Step 11 落地時裁決）
+
+- 誰和誰互動：Jetson（controller，`i2c-1` = `c240000.i2c`，header pin 27 SDA / 28 SCL，100 kHz）→ Blue Pill STM32F103C8T6 的 I2C1（target，PB7 SDA / PB6 SCL，7-bit 0x42）→ 板載 LED PC13（低電位亮）。Jetson 端只用 i2c-tools（`i2cget` / `i2cset` / `i2ctransfer`），沒有新的 C++ tool。bus 和 OLED 共用；Step 11 驗收時 OLED 拔掉（一支 header pin 只插得下一條線），驗收腳本看到 0x3c 就檢查它還在，沒看到就 SKIP
+- 建置：照使用者 `STM32_StdPeriph` 課程（VS Code + PlatformIO）的做法，**不指定 `framework`**：PlatformIO 的 `framework-spl`（registry 上只有 2.10201.0）只有 F0 / F3 / F4 / L1，`framework = spl` 對 `bluepill_f103c8` 會報 `This board doesn't support spl framework`（ststm32 6.1.1 到 20.0.0 的 bluepill 板子設定都沒有 spl）。SPL V3.5.0 驅動（只收用到的 misc / gpio / i2c / rcc）、CMSIS、GCC startup 與 linker script 從課程 `31_Led_Blink`（`eadc71c`）原樣複製進 `firmware/stm32f103/`，SHA-256 在 `vendor.sha256`，`.gitattributes` 設 `-text` 保住 CRLF。放在 firmware 目錄裡而不是 `third_party/`：PlatformIO 專案要能整個目錄用 VS Code 打開
+- Jetson 是 aarch64：課程用的 `toolchain-gccarmnoneeabi@1.70201.0`（GCC 7.2.1）沒有 linux_aarch64 套件，改釘 `1.120301.0`（GCC 12.3.1）；GCC 12 的 assembler 不收 `build_type = debug` 傳給 `.s` 的 `-g2`，所以是 release build。OpenOCD 釘 `tool-openocd@3.1200.7`，燒錄指令照課程（`transport select swd`）。ST-Link 插 Jetson，要先裝 PlatformIO 的 udev 規則
+- 分層：`Core/Src/i2c_target.c` 是沒有任何 SPL 呼叫的 register state machine（`write_start` / `rx` / `tx` / `stop` 四個事件），host 端用 CMake 編進 `build/test_i2c_target`；`Core/Src/main.c` 只做 SPL 初始化與兩個中斷（EV：ADDR、RXNE、TXE、STOPF；ER：AF = 讀取結束的 NACK、BERR、ARLO、OVR）
+- protocol：寫入的第 1 個 byte 是 pointer、第 2 個是資料、之後丟掉；讀取不 auto-increment（每個 byte 都是同一個 register）；pointer 保留到下次寫入。RO / 沒定義的 register 與 LED 值不是 0 / 1 的寫入：bus 上照樣 ACK，然後丟掉；沒定義的 register 讀到 0xFF。DEVICE_ID 0xED、版本 0.1
+- 主迴圈不用 `__WFI()`：DBGMCU_CR.DBG_SLEEP 被斷電清掉之後，睡在 WFI 的 F1 讓 SWD 讀不到記憶體，無法再燒錄（見 baseline 踩坑）
+- 規模（非空白行，和 Step 10-b / 10-c 同一種算法；不含 vendor 檔與文件）：PR 開出時 754 行，code review 修正後 **796 行**：產品碼 285（`main.c` 96、`i2c_target.c` 53、`i2c_target.h` 55、`stm32f10x_conf.h` 10、`platformio.ini` 47，其餘是 CMake、`.gitattributes`、`.gitignore`、`vendor.sha256`）、測試 407（C++ 172、Python 235）、驗收腳本 104。動工前估約 730
+- 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；若 BUSY 卡住（ES096），0x42 不會再 ACK，只能按 RESET。排進 Step 12，和 STATUS register 一起做（先能觀測錯誤，再處理復原）
+
+### 從 Step 11 帶到後面的
+
+- Step 12：多 byte 讀取（ADC_LOW / HIGH）需要定義 auto-increment；Step 11 實測 F103 在 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取（變異測試見 baseline），auto-increment 時要重新驗證：預先放的那個 byte 會讓 pointer 多前進一格
+- Step 12：寫入失敗沒有回報管道（F103 硬體先 ACK），STATUS register 補上
+- Step 13：target 把 SDA / SCL 拉住時（Step 11 實測：B6 在麵包板上誤接 GND），Tegra controller 一直 `I2C transfer timed out`，同 bus 的 ina3221 / fusb301 一起讀不到；線放開之後 bus 自己恢復（第二次沒有 unbind / bind `c240000.i2c` 也恢復了）。driver 的錯誤路徑要考慮「整條 bus 都 timeout」：那不是這顆晶片的錯
+- 未處理：F1 errata（ES096）的 I2C analog filter 讓 BUSY 卡住；Step 11 沒遇到
+
+### 預期檔案（Step 11 實際）
+
+```text
+firmware/stm32f103/
+├── platformio.ini、vendor.sha256、README.md、docs/register-map.md
+├── Core/Src/main.c、Core/Src/i2c_target.c、Core/Inc/i2c_target.h、Core/Inc/stm32f10x_conf.h
+└── Start/、Library/、startup/、ldscript/（vendor，原樣）
+tests/test_i2c_target.cpp、tests/test_stm32_i2c_target.py
+scripts/verify_stm32_i2c.sh
+```
+
 ### 這一步不做
 
 - 不做 ADC
