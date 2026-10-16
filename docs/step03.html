@@ -412,7 +412,7 @@ std::optional&lt;__u32&gt; parse_u32(const std::string &amp;s)
     close(fd);
     return rc;</pre></figure>
       <p>結束碼有固定的意思：<b>0</b> 成功、<b>1</b> 裝置打不開或 ioctl 失敗（錯誤訊息帶裝置路徑和 <code>strerror</code>）、<b>2</b> 用法錯誤（同時印 usage）。腳本可以靠結束碼分辨「我打錯指令」和「裝置有問題」。這套慣例和 Step 1 的 <code>check_host_env.sh</code> 一致。</p>
-      <figure class="listing"><figcaption>CMakeLists.txt@f8728e8:1–16 — userspace 的建置（Step 11 改了第 2 行，見下方說明）</figcaption>
+      <figure class="listing"><figcaption>CMakeLists.txt@f8728e8:1–16 — userspace 的建置（Step 11 改了第 <span data-ref="CMakeLists.txt@f8728e8:2" data-expect="project(embedded_linux_platform CXX)">2</span> 行，見下方說明）</figcaption>
 <pre data-start="1" data-hot="12,15">cmake_minimum_required(VERSION 3.16)
 project(embedded_linux_platform CXX)
 

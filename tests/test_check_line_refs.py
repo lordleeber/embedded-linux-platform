@@ -123,6 +123,50 @@ class CheckLineRefsTest(unittest.TestCase):
         self.page("第 " + ref("src/run.sh", "x", "1") + " 行")
         self.assertExit(1, self.run_check())
 
+    def test_line_zero_and_reversed_ranges_fail(self):
+        # line 0 would read lines[-1] (the last line); 6-2 would read nothing
+        self.page("第 " + ref("src/run.sh:0", "grep", "0") + " 行")
+        self.assertExit(1, self.run_check())
+        self.page("第 " + ref("src/run.sh:6-2", "grep…trap", "6–2") + " 行")
+        self.assertExit(1, self.run_check())
+
+    def test_empty_head_or_tail_fails(self):
+        for expect in ("…", "…EXIT", "trap…", ""):
+            with self.subTest(expect=expect):
+                self.page("第 " + ref("src/run.sh:2", expect, "2") + " 行")
+                self.assertExit(1, self.run_check())
+
+    def test_escaped_pipe_is_part_of_the_text(self):
+        (self.root / "src/p.sh").write_text("ls | wc -l\n")
+        self.page("第 " + ref("src/p.sh:1", "ls &#124; wc", "1") + " 行")
+        self.assertExit(0, self.run_check())
+
+    def test_attribute_order_and_nested_markup(self):
+        self.page('第 <span class="x" data-expect="trap" data-ref="src/run.sh:2"><b>2</b></span> 行')
+        self.assertExit(0, self.run_check())
+        self.page('第 <span data-expect="trap" data-ref="src/run.sh:3"><b>3</b></span> 行')
+        self.assertExit(1, self.run_check())
+
+    def test_unmarked_reference_behind_markup_or_entities_fails(self):
+        for text in ("第 <code>91</code> 行", "第&nbsp;91&nbsp;行", "第 91 至 93 行", "第 91 到 93 行",
+                     "第 91～93 行", "第 4 和 9 行", "<code>meta/x.bb:12</code>", "<code>conf/local.conf:3</code>",
+                     "<code>x.dtsi:7</code>", "<code>Kconfig:4</code>"):
+            with self.subTest(text=text):
+                self.page(text)
+                self.assertExit(1, self.run_check())
+
+    def test_plain_numbers_are_not_line_references(self):
+        self.page("時間 14:25、比例 1.5:1、位址 0x41、i2c-7、第 3 章")
+        self.assertExit(0, self.run_check())
+
+    def test_figcaption_text_is_prose_but_the_listing_range_is_not(self):
+        cap = ('</p><figure class="listing"><figcaption>src/run.sh:1–2 — Step 9 改了第 2 行</figcaption>'
+               '<pre data-start="1">set -e</pre></figure><p>')
+        self.page(cap)
+        self.assertExit(1, self.run_check())
+        self.page(cap.replace("第 2 行", "第 " + ref("src/run.sh:2", "trap", "2") + " 行"))
+        self.assertExit(0, self.run_check())
+
     def git(self, *args):
         return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
                               cwd=self.root, text=True, capture_output=True, check=True).stdout.strip()
