@@ -37,7 +37,7 @@ Build / test 指令會隨各 Step 落地而出現；新增時請回來更新本�
 
 | 項目 | 本 repo 的規定 |
 |---|---|
-| 教學章 | `docs/stepNN.html`，編號補零成兩位數（`step01.html`、`step23.html`），拆分的 Step 加上字尾（`step10a.html`）。artifact 風格的完整單檔 HTML：CSS/JS inline、只做暗色主題，以桌面瀏覽器閱讀為準（不要求手機寬度），頁面寬度統一 1080px（最外層 `max-width: 67.5rem`，和 Step 1、2 的章一致），外部資源只用 Google Fonts。頂部和底部各放一組導覽（↑ 目錄、← 前章、後章 →），`check_book.py` 靠它驗章節鏈 |
+| 教學章 | `docs/stepNN.html`，編號補零成兩位數（`step01.html`、`step23.html`），拆分的 Step 加上字尾（`step10a.html`）。不屬於任何 Step 的補充章（只有教材、沒有 code）用描述性檔名，例如插在 Step 3 與 4-a 之間的 `devicetree.html`（Device Tree 入門），一樣要進 `index.html` 與章節導覽鏈。artifact 風格的完整單檔 HTML：CSS/JS inline、只做暗色主題，以桌面瀏覽器閱讀為準（不要求手機寬度），頁面寬度統一 1080px（最外層 `max-width: 67.5rem`，和 Step 1、2 的章一致），外部資源只用 Google Fonts。頂部和底部各放一組導覽（↑ 目錄、← 前章、後章 →），`check_book.py` 靠它驗章節鏈 |
 | 教材目錄 | `docs/index.html`，卡片順序要和章節順序一致 |
 | 新章上線 | 在前一章頂部和底部的 pagenav 都補上 next 連結，並在 `index.html` 加卡片，再跑 `python3 scripts/check_book.py docs`（這份是從 skill 複製進 repo 的；skill 版本更新時要同步過來） |
 | 基線與踩坑紀錄 | `docs/baseline.md`：每個 Step 追加驗收數字、對照方法與容差，以及踩到的坑（坑要寫出「原本以為」什麼）。下一個 Step 開工前要先讀它 |

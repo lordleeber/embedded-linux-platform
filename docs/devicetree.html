@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Device Tree 入門 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step04a). Layout: a 1080px column with a left rail per section. Dark only.
+   This interlude chapter drops 4-a's register-bit and port-table styles and adds the cell decoder (.cells-*). */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 70ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure svg a:hover .s-box { fill: var(--surface-2); }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-side { stroke: var(--user); stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 30%; }
+
+.cells { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.2rem; }
+.cells-head { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 0.6rem; }
+.cells-row { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; margin-bottom: 0.7rem; font-size: 0.9rem; }
+.cells textarea { width: 100%; min-height: 3.4rem; font-family: var(--font-mono); font-size: 0.85rem; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.7rem; resize: vertical; }
+.cells select, .cells button { font-family: var(--font-mono); font-size: 0.82rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.6rem; }
+.cells button { cursor: pointer; }
+.cells button:hover { border-color: var(--accent); color: var(--accent); }
+.cells table { margin: 0.4rem 0 0; }
+.cells td, .cells th { font-family: var(--font-mono); font-size: 0.85rem; width: auto; }
+.cells td:first-child { width: 4rem; }
+.cells .err { color: var(--bad); font-size: 0.88rem; margin: 0.4rem 0 0; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04a.html">Step 4-a →</a></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · 補充章 · Linux Device Tree</div>
+    <h1>Device Tree 入門：kernel 怎麼知道板子上有什麼</h1>
+    <p class="lede">Step 2、3 的 <code>edge_test</code> 不碰任何硬體，所以不需要問「裝置在哪裡」。從 Step 4 開始，每個 driver 都要知道暫存器在哪個位址、用哪根 GPIO、接哪條中斷、掛在哪條 I2C bus 的哪個位址。在 ARM 板子上，這些資訊不是 driver 自己找出來的，而是寫在一份叫 <b class="hl-key">Device Tree</b> 的資料結構裡，開機時交給 kernel。這一章不寫任何 code，只在板子上讀現成的 Device Tree，把之後每一章都會用到的語法和機制先講清楚：節點與屬性、<code>reg</code> 和位址 cell、<code>phandle</code>、<code>compatible</code> 配對，以及一個節點怎麼變成 <code>/sys</code> 底下的一個 device。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html}。不新增 code，所有指令只讀不寫、不需要 root</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（OF core、platform bus、i2c core）</span>
+      <span style="--c: var(--drv)">driver</span>
+      <span style="--c: var(--hw)">硬體（SoC、板子、外接晶片）</span>
+      <span style="--c: var(--accent)">資料與資料流向（DT 本身、開機韌體交接的資料）</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">DT.1</span><b>起點</b>為什麼需要</div>
+    <div class="content">
+      <h2>SoC 上的硬體不會自己報名</h2>
+      <p>PC 上插一張 PCIe 網卡或一支 USB 隨身碟，kernel 不需要事先知道它存在：PCI 和 USB 是<b>可列舉</b>的 bus，裝置插上去後會回報自己的廠商 ID 和型號，kernel 拿這組 ID 找 driver。</p>
+      <p>Jetson 的 Orin SoC 不是這樣。GPIO controller、pinmux、I2C controller 都是晶片裡固定的電路區塊，對 CPU 來說只是一段位址：GPIO 在 <code>0x02200000</code>、pinmux 在 <code>0x02430000</code>、header pin 3/5 用的 I2C controller 在 <code>0x0c250000</code>。去讀這些位址不會得到「我是 I2C controller」這種回答。板子上外接的晶片更是如此：UPS 模組上的 INA219 只是 I2C bus 上位址 0x41 的一個晶片，不問它就不知道它在那裡。</p>
+      <p>早期的 ARM Linux 把這些資訊寫死在每塊板子的 C 檔案裡（<code>arch/arm/mach-*</code> 底下的 board file），換一塊板子就要改 kernel、重新編譯。Device Tree 把它改成<b>資料</b>：一份描述「這塊板子有哪些硬體、各自接在哪裡」的樹，由 bootloader 在開機時交給 kernel。同一個 kernel image 拿到不同的樹，就能在不同的板子上開機；driver 只說「我認得哪一種硬體」，不寫「它在哪裡」。</p>
+      <p>Step 4-a 會用 <code>/dev/mem</code> 直接寫 pinmux 暫存器，那個基底位址 <code>0x02430000</code> 就是從 Device Tree 的 <code>pinmux@2430000</code> 節點讀來的（DT.5）；4-b 起，我們自己的每一個裝置（LED、按鍵、INA219、OLED）都會寫成 Device Tree 的節點。所以先在這一章把樹讀懂。</p>
+      <p><b>互動雙方</b>：寫入方是開機韌體（JP6 上是 UEFI），它把樹放進記憶體交給 kernel；讀取方是 kernel 的 OF core（<code>of_</code> 開頭的那一組 API，名稱來自 Device Tree 的前身 Open Firmware）、各個 bus（platform bus、i2c core）和 driver。userspace 只能透過 <code>/proc/device-tree</code> 唯讀地看。<b>這一章不做</b>：不寫 overlay、不改開機設定、不寫 driver，那些是 4-b 的事。</p>
+      <dl class="terms">
+        <dt>Device Tree（DT）</dt><dd>描述硬體的一棵樹。每個<b>節點</b>描述一個硬體區塊或一條 bus，節點上的<b>屬性</b>寫它的資源：位址、中斷、GPIO、時脈。</dd>
+        <dt>.dts / .dtb</dt><dd>人寫的文字原始檔（device tree source）／編譯好的二進位檔（device tree blob，也叫 FDT，flattened device tree）。kernel 吃的是 <code>.dtb</code>。補丁用的 <code>.dtbo</code>（overlay）在 4-b 介紹。</dd>
+        <dt>dtc</dt><dd>Device Tree Compiler。<code>.dts</code> 和 <code>.dtb</code> 雙向轉換都用它，也能把開機後的樹（<code>/proc/device-tree</code>）倒回成文字。</dd>
+        <dt>compatible</dt><dd>節點上的字串屬性，說「這是哪一種硬體」，格式是「廠商,型號」，例如 <code>"nvidia,tegra234-gpio"</code>。driver 靠它認領節點（DT.7）。</dd>
+        <dt>binding</dt><dd>每一種 <code>compatible</code> 的「屬性規格書」：必須有哪些屬性、每個屬性的格式。DT 的作者和 driver 的作者靠它對齊（DT.8）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="journey">
+    <div class="rail"><span class="no">DT.2</span><b>全景</b>原始碼 → probe()</div>
+    <div class="content">
+      <h2>一棵樹從原始碼走到 driver 的 probe()</h2>
+      <p>同一份硬體描述會經過三個階段：在建置主機上編譯、開機時由韌體交給 kernel、kernel 把它展開成記憶體裡的節點，再依節點建立 device。下圖每個方框都可以點，會跳到講那一站的小節。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 560" role="img" aria-label="NVIDIA 的 dts 原始碼經 cpp 與 dtc 編成 /boot/dtb 下的 dtb；UEFI 依 extlinux.conf 載入 dtb、疊上 overlay 後交給 kernel；kernel 用 unflatten_device_tree 展開成 device_node，並在 /proc/device-tree 開放給 userspace；of_platform_populate 為根節點與 simple-bus 的子節點建立 platform device，i2c core 為 I2C controller 的子節點建立 i2c client；bus 用 compatible 配對 driver 後呼叫 probe">
+          <defs>
+            <marker id="mDtDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+            <marker id="mDtSide" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--user)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">BUILD</text>
+          <a href="#binding"><rect class="s-box" x="130" y="20" width="300" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="280" y="45" text-anchor="middle">NVIDIA 的 .dts 原始碼</text>
+          <text class="s-sm" x="280" y="66" text-anchor="middle">cpp 展開 #include 與巨集，dtc 編譯</text></a>
+          <rect class="s-box" x="470" y="20" width="270" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="605" y="45" text-anchor="middle">/boot/dtb/…-nv-super.dtb</text>
+          <text class="s-sm" x="605" y="66" text-anchor="middle">249353 bytes 的二進位</text>
+          <text class="s-mono" x="14" y="142">BOOT</text>
+          <rect class="s-box" x="130" y="110" width="610" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="435" y="135" text-anchor="middle">UEFI 讀 extlinux.conf 的 FDT 與 OVERLAYS 行</text>
+          <text class="s-sm" x="435" y="156" text-anchor="middle">載入 dtb、疊上 overlay，連同 /chosen 的 bootargs 放進記憶體交給 kernel</text>
+          <line class="sv-edge" x1="10" y1="182" x2="750" y2="182"/>
+          <text class="s-sm edge-lbl" x="750" y="198" text-anchor="end">韌體 ↕ kernel 交接</text>
+          <text class="s-mono" x="14" y="232">KERNEL</text>
+          <a href="#tree"><rect class="s-box" x="130" y="202" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="280" y="227" text-anchor="middle">unflatten_device_tree()</text>
+          <text class="s-sm" x="280" y="248" text-anchor="middle">blob → 1749 個 device_node</text></a>
+          <a href="#tree"><rect class="s-box" x="470" y="202" width="270" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="605" y="227" text-anchor="middle">/proc/device-tree</text>
+          <text class="s-sm" x="605" y="248" text-anchor="middle">唯讀：目錄 = 節點、檔案 = 屬性</text></a>
+          <a href="#device"><rect class="s-box" x="130" y="292" width="300" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="280" y="317" text-anchor="middle">of_platform_populate()</text>
+          <text class="s-sm" x="280" y="338" text-anchor="middle">/ 與 simple-bus 的子節點 → platform device</text></a>
+          <a href="#device"><rect class="s-box" x="470" y="292" width="270" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="605" y="317" text-anchor="middle">i2c core</text>
+          <text class="s-sm" x="605" y="338" text-anchor="middle">controller 的子節點 → i2c client</text></a>
+          <a href="#device"><rect class="s-box" x="130" y="382" width="610" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="435" y="407" text-anchor="middle">bus 比對 compatible ↔ driver 的 of_match_table</text>
+          <text class="s-sm" x="435" y="428" text-anchor="middle">字串一樣才配對；沒有 driver 的 device 照樣存在，只是沒人認領</text></a>
+          <a href="#phandle"><rect class="s-box" x="130" y="472" width="610" height="58" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="435" y="497" text-anchor="middle">driver 的 probe()：讀 reg、gpios、interrupts</text>
+          <text class="s-sm" x="435" y="518" text-anchor="middle">位址、GPIO、IRQ 都從自己的節點拿，C code 裡不寫死；4-b 起由我們來寫</text></a>
+          <line class="sv-down" x1="431" y1="49" x2="466" y2="49" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="605" y1="79" x2="605" y2="106" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="280" y1="169" x2="280" y2="198" marker-end="url(#mDtDown)"/>
+          <line class="sv-side" x1="431" y1="231" x2="466" y2="231" marker-end="url(#mDtSide)"/>
+          <line class="sv-down" x1="280" y1="261" x2="280" y2="288" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="431" y1="321" x2="466" y2="321" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="280" y1="351" x2="280" y2="378" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="605" y1="351" x2="605" y2="378" marker-end="url(#mDtDown)"/>
+          <line class="sv-down" x1="435" y1="441" x2="435" y2="468" marker-end="url(#mDtDown)"/>
+        </svg>
+        <figcaption>圖 0.1 — kernel 不會去讀 <code>/boot</code> 裡的 <code>.dtb</code> 檔，它看到的是 UEFI 在記憶體裡交給它的那一份（已疊上 overlay）。之後誰替哪個節點建 device，看的是<b>父節點</b>：根節點和 <code>simple-bus</code> 底下歸 platform bus，I2C controller 底下歸 i2c core。</figcaption>
+      </figure>
+      <p>這台板子的 extlinux.conf 用的 label 叫 <code>JetsonIO</code>，它的 <code>FDT</code> 行指向 <code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code>，<code>OVERLAYS</code> 行列出要疊上去的 <code>.dtbo</code>。「疊上去」的細節（overlay 怎麼找到要改的節點）放在 4-b。這台的原廠 <code>.dts</code> 原始碼不在板子上，只有編好的 <code>.dtb</code>；要看它的內容，就從開機後的樹倒回來（DT.4）。</p>
+    </div>
+  </section>
+
+  <section id="tree">
+    <div class="rail"><span class="no">DT.3</span><b>結構</b>節點與屬性</div>
+    <div class="content">
+      <h2>/proc/device-tree：目錄是節點、檔案是屬性</h2>
+      <p>kernel 展開後的樹開放在 <code>/sys/firmware/devicetree/base</code>，<code>/proc/device-tree</code> 是指向它的 symlink。每個節點是一個目錄，每個屬性是一個檔案，內容就是屬性的原始 byte。在 repo 根目錄（任何目錄都可以；這一章的指令都不需要 root）執行：</p>
+<pre class="cmd">tr '\0' '\n' &lt; /proc/device-tree/compatible
+find /proc/device-tree/ -type d | wc -l
+ls /proc/device-tree/bus@0/i2c@c250000/</pre>
+      <p>2026-10-16 的實測輸出：</p>
+<pre class="out" data-marks><span class="prompt">$</span> tr '\0' '\n' &lt; /proc/device-tree/compatible
+nvidia,p3768-0000+p3767-0005-super «1»
+nvidia,p3767-0005
+nvidia,tegra234
+<span class="prompt">$</span> find /proc/device-tree/ -type d | wc -l
+1749 «2»
+<span class="prompt">$</span> ls /proc/device-tree/bus@0/i2c@c250000/
+#address-cells
+assigned-clock-parents
+assigned-clocks
+clock-frequency
+clock-names
+clocks
+compatible
+dma-coherent
+dma-names
+dmas
+ina219@41 «3»
+interrupts
+iommus
+name
+nvidia,hw-instance-id
+phandle
+prod-settings
+reg
+reset-names
+resets
+#size-cells
+status</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>根節點的 <code>compatible</code> 描述整塊板子，從最具體排到最通用：載板＋模組的 Super 版、模組、SoC。字串之間用 <code>\0</code> 分隔，所以要先用 <code>tr</code> 換成換行才好讀。4-b 的 overlay 頂層也會寫這個字串，宣告「只適用這種板子」。</span></li>
+        <li><span class="mk">2</span><span>整棵樹有 1749 個節點（含根節點）。這台已經裝了 4-b 起的 overlay，多出 <code>edge-led</code>、<code>edge-button</code>、<code>ina219@41</code> 等節點；還沒裝 overlay 時數字會少一些，原廠 DT 版本不同也會不一樣。</span></li>
+        <li><span class="mk">3</span><span>子節點和屬性在同一層：<code>ina219@41</code> 是目錄（子節點，Step 7 的 overlay 加的），其餘都是檔案。<code>name</code> 是 kernel 補上的屬性，內容是節點名稱 <code>@</code> 前面那段。</span></li>
+      </ol>
+      <p>節點名稱的格式是 <code>名稱@unit-address</code>。<code>@</code> 前面是通用的類別名（<code>i2c</code>、<code>gpio</code>、<code>pinmux</code>），後面是這個節點在父 bus 上的位址，<b>必須</b>和它的 <code>reg</code> 屬性第一個位址一致：<code>i2c@c250000</code> 的暫存器在 <code>0xc250000</code>，<code>ina219@41</code> 的 I2C 位址是 0x41。所以同一種硬體有好幾個時，名稱不會撞，看名字就知道它在哪裡。從根節點一路寫下來的完整名稱（<code>/bus@0/i2c@c250000/ina219@41</code>）叫 <b>path</b>，是節點在整棵樹裡唯一的名字。</p>
+    </div>
+  </section>
+
+  <section id="values">
+    <div class="rail"><span class="no">DT.4</span><b>屬性值</b>bytes 與 cell</div>
+    <div class="content">
+      <h2>屬性的值只是一串 byte</h2>
+      <p>blob 裡的屬性沒有型別標記，只有名稱和一串 byte。怎麼解讀由 binding 規定，常見的有四種寫法：</p>
+      <table>
+        <thead><tr><th>.dts 寫法</th><th>blob 裡的 byte</th><th>例子</th></tr></thead>
+        <tbody>
+          <tr><td>字串 <code>"a", "b"</code></td><td>每個字串以 <code>\0</code> 結尾，接在一起</td><td><code>compatible</code>、<code>status</code></td></tr>
+          <tr><td>cell <code>&lt;0x2430000 0x19100&gt;</code></td><td>每個 cell 是 32-bit、<b>big-endian</b>（高位 byte 在前）</td><td><code>reg</code>、<code>interrupts</code>、<code>gpios</code></td></tr>
+          <tr><td>byte 陣列 <code>[33 37 36]</code></td><td>原樣的 byte</td><td><code>/chosen</code> 的 <code>ids</code></td></tr>
+          <tr><td>空屬性 <code>gpio-controller;</code></td><td>長度 0，「存在」就是值</td><td><code>gpio-controller</code>、<code>interrupt-controller</code></td></tr>
+        </tbody>
+      </table>
+      <p>用 <code>od</code> 直接看檔案裡的 byte（<code>cat</code> 會把 cell 印成亂碼）：</p>
+<pre class="cmd">od -An -c /proc/device-tree/bus@0/i2c@c250000/compatible
+od -An -tx1 /proc/device-tree/bus@0/pinmux@2430000/reg
+ls -l /proc/device-tree/bus@0/gpio@2200000/gpio-controller</pre>
+<pre class="out" data-marks><span class="prompt">$</span> od -An -c /proc/device-tree/bus@0/i2c@c250000/compatible
+   n   v   i   d   i   a   ,   t   e   g   r   a   1   9   4   -
+   i   2   c  \0 «1»
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/pinmux@2430000/reg
+ 00 00 00 00 02 43 00 00 00 00 00 00 00 01 91 00 «2»
+<span class="prompt">$</span> ls -l /proc/device-tree/bus@0/gpio@2200000/gpio-controller
+-r--r--r-- 1 root root 0 Oct 16 14:25 /proc/device-tree/bus@0/gpio@2200000/gpio-controller «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>Orin（tegra234）的 I2C controller 寫的是 <code>tegra194-i2c</code>：<code>compatible</code> 描述的是「這塊電路的程式介面跟哪一型相同」，不是「它在哪顆晶片上」。和上一代相同的區塊就沿用舊名，讓舊 driver 直接認得。</span></li>
+        <li><span class="mk">2</span><span>16 byte = 4 個 cell：<code>0x00000000 0x02430000 0x00000000 0x00019100</code>。怎麼切成「位址」和「長度」，要看父節點的 <code>#address-cells</code>／<code>#size-cells</code>，下一節講。</span></li>
+        <li><span class="mk">3</span><span>大小 0 的檔案：空屬性。<code>gpio-controller</code> 存在，就代表「這個節點是 GPIO controller，別的節點可以向它要 GPIO」。日期時間是 sysfs 建立檔案的時刻，你看到的會不一樣。</span></li>
+      </ol>
+      <p>一個一個屬性用 <code>od</code> 看太慢。<code>dtc</code> 可以把整棵開機後的樹倒回成 <code>.dts</code> 文字（<code>-I fs</code> 表示輸入是 <code>/proc/device-tree</code> 這種目錄樹）：</p>
+<pre class="cmd">dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | wc -l
+dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | grep -A6 '^\t\tpinmux@2430000 {' | head -5</pre>
+<pre class="out" data-marks><span class="prompt">$</span> dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | wc -l
+11925 «1»
+<span class="prompt">$</span> dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | grep -A6 '^\t\tpinmux@2430000 {' | head -5
+		pinmux@2430000 {
+			compatible = "nvidia,tegra234-pinmux";
+			status = "okay";
+			reg = &lt;0x00 0x2430000 0x00 0x19100&gt;; «2»
+			phandle = &lt;0x02&gt;; «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>整棵樹倒回來將近一萬兩千行。<code>2&gt;/dev/null</code> 丟掉的是一千多行 warning：dtc 用嚴格的格式檢查原廠樹（例如「節點名有 <code>@</code> 卻沒有 <code>reg</code>」），不影響輸出。</span></li>
+        <li><span class="mk">2</span><span>和上面 <code>od</code> 看到的 16 byte 是同一個值，dtc 幫忙切成 cell、用十六進位印出。</span></li>
+        <li><span class="mk">3</span><span><code>phandle</code> 是這個節點的編號，別的節點用這個數字指向它（DT.6）。</span></li>
+      </ol>
+      <div class="callout"><p>倒回來的文字和 NVIDIA 原本寫的 <code>.dts</code> 不一樣：屬性順序不同、巨集都變成數字、<code>&amp;gpio</code> 這種名稱引用都變成 phandle 數字。它是「kernel 實際拿到的內容」，適合查值；要看「作者的意思」得看原始碼和 binding。</p></div>
+    </div>
+  </section>
+
+  <section id="addr">
+    <div class="rail"><span class="no">DT.5</span><b>位址</b><span class="dot" style="background: var(--hw)"></span>reg 與 cells</div>
+    <div class="content">
+      <h2>reg 要靠父節點才讀得懂</h2>
+      <p><code>reg</code> 是一串 <code>(位址, 長度)</code> 配對，但一個位址用幾個 cell、長度用幾個 cell，不寫在 <code>reg</code> 自己身上，而是由<b>父節點</b>的 <code>#address-cells</code> 和 <code>#size-cells</code> 決定。因為「位址」的意思取決於這個節點掛在哪種 bus 上：記憶體 bus 上是 64-bit 實體位址加長度，I2C bus 上是 7-bit 的裝置位址、根本沒有長度。</p>
+<pre class="cmd">od -An -tx1 /proc/device-tree/bus@0/'#address-cells' /proc/device-tree/bus@0/'#size-cells'
+od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/'#address-cells' /proc/device-tree/bus@0/i2c@c250000/'#size-cells'
+od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/reg</pre>
+<pre class="out" data-marks><span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/'#address-cells' /proc/device-tree/bus@0/'#size-cells'
+ 00 00 00 02 00 00 00 02 «1»
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/'#address-cells' /proc/device-tree/bus@0/i2c@c250000/'#size-cells'
+ 00 00 00 01 00 00 00 00 «2»
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/reg
+ 00 00 00 00 0c 25 00 00 00 00 00 00 00 00 01 00 «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>bus@0</code> 底下的子節點：位址 2 個 cell、長度 2 個 cell，都是 64-bit。</span></li>
+        <li><span class="mk">2</span><span><code>i2c@c250000</code> 底下的子節點：位址 1 個 cell、長度 0 個。</span></li>
+        <li><span class="mk">3</span><span>I2C controller 自己掛在 <code>bus@0</code> 底下，所以照 2 + 2 切：位址 <code>0x0c250000</code>、長度 <code>0x100</code>（256 byte 的暫存器區）。</span></li>
+      </ol>
+      <figure class="figure">
+        <svg viewBox="0 0 760 360" role="img" aria-label="根節點的 address-cells 與 size-cells 都是 2；bus@0 是 simple-bus，cells 也是 2 和 2，ranges 一比一對應到 CPU 位址；pinmux@2430000 的 reg 四個 cell 切成位址 0x02430000、長度 0x19100；i2c@c250000 的 reg 切成 0x0c250000 和 0x100，它自己的 address-cells 是 1、size-cells 是 0；所以子節點 ina219@41 的 reg 只有一個 cell，是 I2C 位址 0x41">
+          <defs>
+            <marker id="mDtTree" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect class="s-box" x="250" y="14" width="260" height="52" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="380" y="36" text-anchor="middle">/</text>
+          <text class="s-sm" x="380" y="56" text-anchor="middle">#address-cells = 2、#size-cells = 2</text>
+          <rect class="s-box" x="200" y="96" width="360" height="52" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="380" y="118" text-anchor="middle">bus@0 · "simple-bus"</text>
+          <text class="s-sm" x="380" y="138" text-anchor="middle">子節點用 2 / 2 個 cell；ranges：位址一比一</text>
+          <rect class="s-box" x="20" y="190" width="340" height="64" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="190" y="212" text-anchor="middle">pinmux@2430000</text>
+          <text class="s-sm" x="190" y="230" text-anchor="middle">reg = &lt;0x0 0x2430000 | 0x0 0x19100&gt;</text>
+          <text class="s-sm" x="190" y="246" text-anchor="middle">位址 0x02430000、長度 0x19100</text>
+          <rect class="s-box" x="400" y="190" width="340" height="64" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="570" y="212" text-anchor="middle">i2c@c250000</text>
+          <text class="s-sm" x="570" y="230" text-anchor="middle">reg = &lt;0x0 0xc250000 | 0x0 0x100&gt;</text>
+          <text class="s-sm" x="570" y="246" text-anchor="middle">自己的子節點：#address-cells = 1、#size-cells = 0</text>
+          <rect class="s-box" x="440" y="290" width="260" height="52" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="570" y="312" text-anchor="middle">ina219@41</text>
+          <text class="s-sm" x="570" y="332" text-anchor="middle">reg = &lt;0x41&gt;：I2C 位址，沒有長度</text>
+          <line class="sv-down" x1="380" y1="67" x2="380" y2="92" marker-end="url(#mDtTree)"/>
+          <path class="sv-down" d="M300,149 L300,170 L190,170 L190,186" marker-end="url(#mDtTree)"/>
+          <path class="sv-down" d="M460,149 L460,170 L570,170 L570,186" marker-end="url(#mDtTree)"/>
+          <line class="sv-down" x1="570" y1="255" x2="570" y2="286" marker-end="url(#mDtTree)"/>
+          <text class="s-sm" x="20" y="290">「|」是依父節點的 cells 切開的地方</text>
+          <text class="s-sm" x="20" y="310">（圖上的 | 是說明用，不是 .dts 語法）</text>
+        </svg>
+        <figcaption>圖 0.2 — 同樣是 <code>reg</code>，在 <code>bus@0</code> 底下是 64-bit 實體位址加長度，在 I2C controller 底下只是一個 I2C 位址。讀任何節點的 <code>reg</code> 之前，先看它的父節點。</figcaption>
+      </figure>
+      <p><code>bus@0</code> 還有一個 <code>ranges</code> 屬性，說明子節點的位址怎麼換算成父節點（最後是 CPU）的位址。這裡的值是「子位址 0 對應父位址 0，長度 <code>0x100_0000_0000</code>」，也就是一比一：<code>pinmux@2430000</code> 的位址就是 CPU 看到的實體位址 <code>0x02430000</code>。4-a 的 <code>pad_pin29.py</code> 就是把 <code>/dev/mem</code> 從這個位址 mmap 進來。I2C controller 沒有 <code>ranges</code>：I2C 位址不在 CPU 的位址空間裡，要經過 I2C controller 收發才碰得到。</p>
+      <div class="cells" id="decoder">
+        <div class="cells-head">reg 解碼計算機（在瀏覽器裡計算，不讀板子）</div>
+        <p style="font-size: 0.9rem; margin-bottom: 0.6rem">把 <code>od -An -tx1 …/reg</code> 的輸出貼進來，選父節點的 cells 數。下面的按鈕會填入本章出現過的實測值。</p>
+        <div class="cells-row">
+          <button type="button" data-bytes="00 00 00 00 02 43 00 00 00 00 00 00 00 01 91 00" data-ac="2" data-sc="2">pinmux@2430000</button>
+          <button type="button" data-bytes="00 00 00 00 02 20 00 00 00 00 00 00 00 01 00 00 00 00 00 00 02 21 00 00 00 00 00 00 00 01 00 00" data-ac="2" data-sc="2">gpio@2200000（兩段）</button>
+          <button type="button" data-bytes="00 00 00 41" data-ac="1" data-sc="0">ina219@41</button>
+        </div>
+        <textarea id="dec-bytes" aria-label="reg 屬性的 byte（十六進位，空白分隔）" spellcheck="false">00 00 00 00 02 43 00 00 00 00 00 00 00 01 91 00</textarea>
+        <div class="cells-row">
+          <label>#address-cells <select id="dec-ac"><option>1</option><option selected>2</option><option>3</option></select></label>
+          <label>#size-cells <select id="dec-sc"><option>0</option><option>1</option><option selected>2</option></select></label>
+        </div>
+        <div id="dec-out" aria-live="polite"></div>
+      </div>
+      <p><code>gpio@2200000</code> 的 <code>reg</code> 有兩段（32 byte），另一個屬性 <code>reg-names = "security", "gpio"</code> 依序替它們命名，driver 可以用名字要其中一段。一個 <code>reg</code> 放幾段、各段代表什麼，也是 binding 規定的。</p>
+    </div>
+  </section>
+
+  <section id="phandle">
+    <div class="rail"><span class="no">DT.6</span><b>引用</b><span class="dot" style="background: var(--accent)"></span>phandle</div>
+    <div class="content">
+      <h2>phandle：一個節點怎麼指向另一個節點</h2>
+      <p>樹狀結構只能表達「誰在誰底下」。可是硬體之間還有別的關係：一顆按鍵在 <code>gpio-keys</code> 底下，但它接在 GPIO controller 的某一根腳上；I2C controller 在 <code>bus@0</code> 底下，但它的中斷接到 GIC（中斷控制器）。這種「橫向」的關係用 <b>phandle</b> 表示：被指向的節點有一個 <code>phandle</code> 屬性（一個數字），要指向它的屬性就把這個數字放進 cell 裡。</p>
+      <p>原廠樹裡有一個現成的例子：載板上的 Force Recovery 按鍵。</p>
+<pre class="cmd">dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | grep -A6 'key-force-recovery {'
+od -An -tx1 /proc/device-tree/bus@0/gpio@2200000/phandle /proc/device-tree/bus@0/gpio@2200000/'#gpio-cells'
+gpioinfo gpiochip0 | grep 'line  35:'</pre>
+<pre class="out" data-marks><span class="prompt">$</span> dtc -I fs -O dts /proc/device-tree 2&gt;/dev/null | grep -A6 'key-force-recovery {'
+		key-force-recovery {
+			label = "Force Recovery";
+			linux,input-type = &lt;0x01&gt;;
+			linux,code = &lt;0x101&gt;;
+			gpios = &lt;0xf3 0x30 0x01&gt;; «1»
+		};
+	};
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/gpio@2200000/phandle /proc/device-tree/bus@0/gpio@2200000/'#gpio-cells'
+ 00 00 00 f3 00 00 00 02 «2»
+<span class="prompt">$</span> gpioinfo gpiochip0 | grep 'line  35:'
+	line  35:      "PG.00" "Force Recovery" input active-low [used] «3»</pre>
+      <figure class="figure">
+        <svg viewBox="0 0 760 270" role="img" aria-label="gpios 屬性的三個 cell：0xf3 是 phandle，指向 gpio@2200000，該節點的 gpio-cells 是 2，所以後面還有兩格；0x30 即 48，依 binding 是 port G 乘 8 加 0，也就是 PG.00，kernel 換算成 gpiochip0 的 line 35；0x01 是 GPIO_ACTIVE_LOW">
+          <defs>
+            <marker id="mDtRef" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="20" y="44">GPIOS =</text>
+          <rect class="s-box" x="110" y="18" width="140" height="44" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="180" y="45" text-anchor="middle">0xf3</text>
+          <rect class="s-box" x="310" y="18" width="140" height="44" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="380" y="45" text-anchor="middle">0x30</text>
+          <rect class="s-box" x="510" y="18" width="140" height="44" rx="7" style="stroke: var(--accent)"/>
+          <text class="s-key" x="580" y="45" text-anchor="middle">0x01</text>
+          <rect class="s-box" x="20" y="110" width="240" height="78" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="140" y="134" text-anchor="middle">phandle 0xf3</text>
+          <text class="s-sm" x="140" y="154" text-anchor="middle">= /bus@0/gpio@2200000</text>
+          <text class="s-sm" x="140" y="172" text-anchor="middle">#gpio-cells = 2：後面還有 2 格</text>
+          <rect class="s-box" x="280" y="110" width="220" height="78" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="390" y="134" text-anchor="middle">48 = 6 × 8 + 0</text>
+          <text class="s-sm" x="390" y="154" text-anchor="middle">binding：port G（6）的第 0 支</text>
+          <text class="s-sm" x="390" y="172" text-anchor="middle">= PG.00</text>
+          <rect class="s-box" x="520" y="110" width="220" height="78" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="630" y="134" text-anchor="middle">GPIO_ACTIVE_LOW</text>
+          <text class="s-sm" x="630" y="154" text-anchor="middle">按下時腳位是 0，</text>
+          <text class="s-sm" x="630" y="172" text-anchor="middle">邏輯上算 1</text>
+          <rect class="s-box" x="280" y="214" width="220" height="44" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="390" y="241" text-anchor="middle">gpiochip0 line 35</text>
+          <line class="sv-down" x1="180" y1="63" x2="160" y2="106" marker-end="url(#mDtRef)"/>
+          <line class="sv-down" x1="380" y1="63" x2="390" y2="106" marker-end="url(#mDtRef)"/>
+          <line class="sv-down" x1="580" y1="63" x2="620" y2="106" marker-end="url(#mDtRef)"/>
+          <line class="sv-down" x1="390" y1="189" x2="390" y2="210" marker-end="url(#mDtRef)"/>
+          <text class="s-sm" x="510" y="241">GPIO driver 的換算（不是 48）</text>
+        </svg>
+        <figcaption>圖 0.3 — 一個 GPIO 引用 = phandle + 那個 controller 規定的格數。第二格的 48 是 binding 的編號，kernel 的 GPIO driver 再把它換成 gpiochip 的 line 35；兩套編號不能混用。</figcaption>
+      </figure>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>按鍵節點只寫了三個數字。第一格 <code>0xf3</code> 是 phandle。</span></li>
+        <li><span class="mk">2</span><span><code>gpio@2200000</code> 的 <code>phandle</code> 正是 <code>0xf3</code>；它的 <code>#gpio-cells = 2</code> 告訴 kernel「指向我的時候，phandle 後面再接 2 格」。這和上一節 <code>#address-cells</code> 是同一種設計：格數由被指向的那一方宣告。phandle 的數值由 dtc 編譯時分配，原廠 DT 換版本就可能不同，你看到的不一定是 <code>f3</code>，但兩處會一致。</span></li>
+        <li><span class="mk">3</span><span>kernel 解完這三格的結果：PG.00、consumer 是節點的 <code>label</code> <code>"Force Recovery"</code>、<code>active-low</code>。line 編號 35 是 gpiochip 依每個 port 實際腳數累加的（port G 從 35 開始，4-a 的表），不是 DT 的 48。</span></li>
+      </ol>
+      <p>第二格的 48 從哪裡來？binding 為 tegra234 定義了一個 header，原始 <code>.dts</code> 寫的是巨集，cpp 先展開成數字再交給 dtc。header 隨 kernel headers 安裝在板子上：</p>
+<pre class="cmd">grep -n 'PORT_G ' /lib/modules/$(uname -r)/build/include/dt-bindings/gpio/tegra234-gpio.h
+grep -n -A1 'define TEGRA234_MAIN_GPIO(' /lib/modules/$(uname -r)/build/include/dt-bindings/gpio/tegra234-gpio.h</pre>
+<pre class="out"><span class="prompt">$</span> grep -n 'PORT_G ' /lib/modules/$(uname -r)/build/include/dt-bindings/gpio/tegra234-gpio.h
+25:#define TEGRA234_MAIN_GPIO_PORT_G   6
+<span class="prompt">$</span> grep -n -A1 'define TEGRA234_MAIN_GPIO(' /lib/modules/$(uname -r)/build/include/dt-bindings/gpio/tegra234-gpio.h
+45:#define TEGRA234_MAIN_GPIO(port, offset) \
+46-	((TEGRA234_MAIN_GPIO_PORT_##port * 8) + offset)</pre>
+      <p>所以原始碼裡這一格是 <code>TEGRA234_MAIN_GPIO(G, 0)</code>，展開成 6 × 8 + 0 = 48。4-a 的 pin 29 是 <code>TEGRA234_MAIN_GPIO(Q, 5)</code> = 15 × 8 + 5 = 125，line 卻是 105，道理相同。</p>
+      <h3>原始碼裡寫的是名字，不是數字</h3>
+      <p>寫 <code>.dts</code> 的人不會手填 <code>0xf3</code>。原始碼在節點前面加一個<b>標籤</b>（<code>gpio: gpio@2200000 { … }</code>），引用時寫 <code>&amp;gpio</code>，dtc 編譯時才分配 phandle 數字、填進去。4-b 的 overlay 就是這樣寫的，先看一眼長相（細節 4-b 再講）：</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:31–41 — 4-b 的 overlay 用標籤引用原廠樹的 GPIO controller 和自己的 pinctrl 狀態</figcaption>
+<pre data-start="31" data-hot="36,38">	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			edge-led {
+				compatible = "edge,gpio-led";
+				led-gpios = &lt;&amp;gpio TEGRA234_MAIN_GPIO(Q, 5) EDGE_LED_FLAGS&gt;;
+				pinctrl-names = "default";
+				pinctrl-0 = &lt;&amp;edge_led_pins&gt;;
+			};
+		};
+	};</pre></figure>
+      <p><code>&amp;gpio</code> 指的就是上面那個 phandle <code>0xf3</code> 的節點；<code>led-gpios</code> 和 Force Recovery 的 <code>gpios</code> 格式完全一樣，只是屬性名多了 <code>led-</code> 前綴，讓 driver 可以用名字（<code>"led"</code>）要這組 GPIO。<code>&amp;edge_led_pins</code> 指向同一份 overlay 裡另一個加了標籤的節點。overlay 是單獨編譯的，編的時候不知道原廠樹的 phandle 是多少，所以原廠樹必須把標籤也一起留下來。開機後可以在 <code>__symbols__</code> 節點看到它們：</p>
+<pre class="cmd">tr -d '\0' &lt; /proc/device-tree/__symbols__/gpio; echo
+ls /proc/device-tree/__symbols__ | wc -l</pre>
+<pre class="out"><span class="prompt">$</span> tr -d '\0' &lt; /proc/device-tree/__symbols__/gpio; echo
+/bus@0/gpio@2200000
+<span class="prompt">$</span> ls /proc/device-tree/__symbols__ | wc -l
+901</pre>
+      <p>每個屬性名是一個標籤，值是它指向的節點 path。dtc 要加 <code>-@</code> 才會產生 <code>__symbols__</code>；NVIDIA 的原廠樹有加，所以我們的 overlay 能用 <code>&amp;gpio</code>、<code>&amp;pinmux</code>、<code>&amp;hdr40_i2c1</code> 這些名字。</p>
+      <h3>中斷也是同一套</h3>
+      <p><code>interrupts</code> 屬性的格數由中斷控制器的 <code>#interrupt-cells</code> 決定，中斷控制器是誰則由 <code>interrupt-parent</code>（一個 phandle，沒寫就往上層找）決定。這棵樹的根節點 <code>interrupt-parent = &lt;0x01&gt;</code> 指向 <code>interrupt-controller@f400000</code>（<code>"arm,gic-v3"</code>，<code>#interrupt-cells = 3</code>）：</p>
+<pre class="cmd">od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/interrupts
+grep c250000 /proc/interrupts</pre>
+<pre class="out" data-marks><span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/interrupts
+ 00 00 00 00 00 00 00 20 00 00 00 04 «1»
+<span class="prompt">$</span> grep c250000 /proc/interrupts
+168:       5574          0          0          0          0          0     GICv3  64 Level     c250000.i2c «2»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>三格：<code>0</code> = <code>GIC_SPI</code>（共享周邊中斷）、<code>0x20</code> = SPI 編號 32、<code>4</code> = <code>IRQ_TYPE_LEVEL_HIGH</code>。兩個巨集都在 <code>dt-bindings/interrupt-controller/</code> 底下的 header。</span></li>
+        <li><span class="mk">2</span><span>GIC 的硬體中斷號是 SPI 編號加 32（前 32 個留給每顆 CPU 私有的中斷），所以是 64，觸發方式 Level。前面的計數是開機到現在各 CPU 收到的次數，每次跑都不同。</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="device">
+    <div class="rail"><span class="no">DT.7</span><b>配對</b><span class="dot" style="background: var(--kern)"></span>節點 → device</div>
+    <div class="content">
+      <h2>節點變成 device，device 等 driver 認領</h2>
+      <p>節點只是資料。kernel 開機時走過這棵樹，為節點建立 <code>struct device</code>，掛到對應的 bus 上；之後任何時候有 driver 註冊到同一條 bus（內建的、或 <code>insmod</code> 載入的），bus 就拿 device 的 <code>compatible</code> 和 driver 的 <code>of_match_table</code> 逐一比對字串，對上了就呼叫 driver 的 <code>probe()</code>。誰負責建立 device，看父節點：</p>
+      <ul>
+        <li>根節點的子節點，和 <code>compatible</code> 含 <code>"simple-bus"</code>（及少數同類的 bus 型別）的節點底下的子節點（<code>bus@0</code> 就是 simple-bus）：由 <code>of_platform_populate()</code> 建成 <b>platform device</b>，名稱是「unit-address.節點名」，例如 <code>2200000.gpio</code>。</li>
+        <li>I2C controller 的子節點：controller 的 driver 註冊 I2C adapter 時，由 i2c core 建成 <b>i2c client</b>，名稱是「bus 編號-位址」，例如 <code>7-0041</code>。</li>
+        <li><code>status = "disabled"</code> 的節點：不建 device。沒寫 <code>status</code> 或寫 <code>"okay"</code> 才算啟用。</li>
+      </ul>
+      <p>每個 device 在 sysfs 都有一個 <code>of_node</code> symlink 指回它的節點；有 driver 認領的，還會有 <code>driver</code> symlink：</p>
+<pre class="cmd">ls -l /sys/bus/platform/devices/2200000.gpio/of_node /sys/bus/platform/devices/2200000.gpio/driver
+cat /sys/bus/platform/devices/2200000.gpio/uevent
+tr -d '\0' &lt; /proc/device-tree/bus@0/ethernet@6800000/status; echo; ls /sys/bus/platform/devices/ | grep -c 6800000
+ls /sys/bus/platform/devices/dsu-pmu0/</pre>
+<pre class="out" data-marks><span class="prompt">$</span> ls -l /sys/bus/platform/devices/2200000.gpio/of_node /sys/bus/platform/devices/2200000.gpio/driver
+lrwxrwxrwx 1 root root 0 Oct 16 14:26 /sys/bus/platform/devices/2200000.gpio/driver -&gt; ../../../../bus/platform/drivers/tegra186-gpio «1»
+lrwxrwxrwx 1 root root 0 Oct 16 14:26 /sys/bus/platform/devices/2200000.gpio/of_node -&gt; ../../../../firmware/devicetree/base/bus@0/gpio@2200000
+<span class="prompt">$</span> cat /sys/bus/platform/devices/2200000.gpio/uevent
+DRIVER=tegra186-gpio
+OF_NAME=gpio
+OF_FULLNAME=/bus@0/gpio@2200000
+OF_COMPATIBLE_0=nvidia,tegra234-gpio
+OF_COMPATIBLE_N=1
+MODALIAS=of:NgpioT(null)Cnvidia,tegra234-gpio «2»
+<span class="prompt">$</span> tr -d '\0' &lt; /proc/device-tree/bus@0/ethernet@6800000/status; echo; ls /sys/bus/platform/devices/ | grep -c 6800000
+disabled
+0 «3»
+<span class="prompt">$</span> ls /sys/bus/platform/devices/dsu-pmu0/
+driver_override
+modalias
+of_node «4»
+power
+subsystem
+uevent
+waiting_for_supplier</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>GPIO controller 由 <code>tegra186-gpio</code> 這個 driver 認領：driver 名稱是 tegra186，它的 <code>of_match_table</code> 裡也列了 <code>"nvidia,tegra234-gpio"</code>。一個 driver 支援好幾代晶片是常態。</span></li>
+        <li><span class="mk">2</span><span><code>MODALIAS</code> 由節點名（<code>N</code>）、<code>device_type</code>（<code>T</code>，這裡沒有）和 <code>compatible</code>（<code>C</code>）組成。udev 拿它去比對 module 的別名，自動載入對應的 <code>.ko</code>。我們自己的 module 用 <code>insmod</code> 手動載入，不靠這條路。</span></li>
+        <li><span class="mk">3</span><span>節點存在，但 <code>status = "disabled"</code>（這台的 MGBE 網路介面沒用到），所以沒有 platform device。原廠樹常這樣：SoC 的 <code>.dtsi</code> 把所有區塊都寫進去並預設 disabled，板子的 <code>.dts</code> 再把用到的打開。</span></li>
+        <li><span class="mk">4</span><span>反過來的情況：device 建好了（有 <code>of_node</code>），但目錄裡<b>沒有 <code>driver</code></b>，因為沒有任何已載入的 driver 認得 <code>"arm,dsu-pmu"</code>。device 會一直待在 bus 上，等某天有 driver 註冊時再比對。</span></li>
+      </ol>
+      <p>第 4 點就是 4-b 起每個 driver 的開場方式：overlay 開機後，<code>edge-led</code> 的 platform device 已經存在、沒人認領；<code>insmod edge_gpio.ko</code> 註冊 driver 的那一刻，platform bus 比對 <code>"edge,gpio-led"</code> 成功，<code>probe()</code> 就被呼叫。這台目前 180 個有 <code>of_node</code> 的 platform device 裡，有 9 個沒有 driver（包含還沒載入 module 的 <code>edge-led</code>、<code>edge-button</code>）。</p>
+      <h3>i2c-7 這個編號從哪來</h3>
+      <p>Step 6 起，header pin 3/5 的 I2C 叫 <code>i2c-7</code>。7 不是「第幾個 I2C 節點」，而是 <code>/aliases</code> 節點指定的：</p>
+<pre class="cmd">tr -d '\0' &lt; /proc/device-tree/aliases/i2c7; echo</pre>
+<pre class="out"><span class="prompt">$</span> tr -d '\0' &lt; /proc/device-tree/aliases/i2c7; echo
+/bus@0/i2c@c250000</pre>
+      <p>i2c core 建立 adapter 時，先查 aliases 裡有沒有指向這個節點的 <code>i2cN</code>，有就用 N 當 bus 編號。所以 <code>i2c@c250000</code> 是 <code>i2c-7</code>、<code>i2c@c240000</code> 是 <code>i2c-1</code>，和節點在樹裡的順序無關。原廠樹另外給這兩個節點取了標籤：pin 3/5 那個叫 <code>hdr40_i2c1</code>（「header 上的第 1 組 I2C」），pin 27/28 那個叫 <code>gen2_i2c</code>。<b class="hl-bad">三套名字（節點位址、bus 編號、標籤）裡的數字彼此無關</b>，Step 9 的紀錄特別提醒：OLED 接在 pin 27/28，Step 10-a 的節點要掛在 <code>&amp;gen2_i2c</code>，不能沿用 overlay 裡現成的 <code>&amp;hdr40_i2c1</code>。</p>
+    </div>
+  </section>
+
+  <section id="binding">
+    <div class="rail"><span class="no">DT.8</span><b>契約</b>binding</div>
+    <div class="content">
+      <h2>binding：DT 作者和 driver 作者之間的契約</h2>
+      <p>DT 的語法只規定「屬性是一串 byte」。<code>gpios</code> 有幾格、<code>reg</code> 有幾段、需不需要 <code>interrupts</code>、<code>status</code> 以外還有哪些必填屬性，都寫在每一種 <code>compatible</code> 的 <b>binding</b> 裡。上游 kernel 原始碼的 <code>Documentation/devicetree/bindings/</code> 底下有幾千份，現在大多是 YAML schema，可以用工具驗證 <code>.dts</code>；這台板子只裝了 kernel headers，沒有這些文件，要看得上 kernel 原始碼網站或 NVIDIA 的 kernel 原始碼。</p>
+      <p>binding 有兩個部分會實際出現在我們的檔案裡：</p>
+      <table>
+        <thead><tr><th>binding 的部分</th><th>在哪裡</th><th>本書用到的地方</th></tr></thead>
+        <tbody>
+          <tr><td>屬性規格（文件）</td><td>上游 <code>Documentation/devicetree/bindings/</code></td><td>driver 的 <code>probe()</code> 照它讀屬性，例如 4-b 用 <code>devm_gpiod_get(dev, "led", …)</code> 讀 <code>led-gpios</code></td></tr>
+          <tr><td>常數 header</td><td><code>/lib/modules/$(uname -r)/build/include/dt-bindings/</code></td><td><code>TEGRA234_MAIN_GPIO()</code>、<code>GPIO_ACTIVE_LOW</code>、<code>TEGRA_PIN_PULL_NONE</code>；<code>.dts</code> 用 <code>#include</code> 引入，所以要先過 cpp</td></tr>
+        </tbody>
+      </table>
+      <p>我們自己的裝置（LED、按鍵、INA219、OLED）用的是自訂的 <code>compatible</code>（<code>"edge,gpio-led"</code> 之類），沒有上游 binding。這時契約就是「overlay 寫什麼屬性，我們的 driver 就讀什麼屬性」，4-b 起每一步的靜態測試都會比對兩邊的字串，用測試代替那份文件。</p>
+      <div class="callout"><p>為什麼要先過 cpp：dtc 本身不認得 <code>#include</code> 和 <code>#define</code>。kernel 建置時先用 C 前處理器展開，再把結果交給 dtc。4-b 的 <code>dts/Makefile</code> 照這個做法寫，而且要加 <code>-undef</code>：否則 gcc 預先定義的 <code>linux</code> 巨集會把 <code>linux,code</code> 這種屬性名稱展開掉（就是上面 Force Recovery 節點裡那個屬性）。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">DT.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>容易搞混的地方</h2>
+      <p>前四格來自這個專案後面幾個 Step 的實際紀錄（<code>docs/baseline.md</code> 與 4-a、4-b 兩章），後兩格是讀 DT 時常見的誤會。</p>
+      <div class="pitfalls">
+        <div class="pit"><h4>把 DT 編號當成 line 編號</h4><dl><dt>症狀</dt><dd>DT 裡 pin 29 是 125，拿 125 去 <code>gpioset gpiochip0</code>，控制到的是另一根腳。</dd><dt>後果</dt><dd>動到錯的 GPIO，LED 沒反應。</dd><dt>正解</dt><dd class="fix">DT 用 binding 的 <code>port × 8 + pin</code>（125、48），gpiochip 用累加的 line（105、35）。用 <code>gpioinfo</code> 的名稱（<code>PQ.05</code>）對照。</dd></dl></div>
+        <div class="pit"><h4>i2c-N、節點、標籤當成同一套編號</h4><dl><dt>症狀</dt><dd>看到 <code>hdr40_i2c1</code> 就以為是 <code>i2c-1</code>。</dd><dt>後果</dt><dd>overlay 的節點掛到錯的 bus，driver 永遠找不到晶片。</dd><dt>正解</dt><dd class="fix">bus 編號看 <code>/aliases</code>；<code>hdr40_i2c1</code> 是 <code>i2c@c250000</code> = <code>i2c-7</code>。寫完用 <code>/proc/device-tree</code> 確認節點落在哪個 path。</dd></dl></div>
+        <div class="pit"><h4>改了 /boot 的檔案就以為生效</h4><dl><dt>症狀</dt><dd>換了 dtbo，<code>/proc/device-tree</code> 沒變；或重跑 jetson-io 後自己的節點不見了。</dd><dt>後果</dt><dd>拿舊的樹在 debug 新的 driver。</dd><dt>正解</dt><dd class="fix">kernel 只看開機時 UEFI 交給它的樹；這台沒有 runtime overlay，改完要重開機。jetson-io 會重寫 <code>JetsonIO</code> label。以 <code>/proc/device-tree</code> 為準。</dd></dl></div>
+        <div class="pit"><h4>直接用 dtc 編含巨集的 .dts</h4><dl><dt>症狀</dt><dd><code>dtc</code> 在 <code>#include</code> 那一行報 <code>syntax error</code>、<code>Unable to parse input tree</code>。</dd><dt>後果</dt><dd>編不出來，或改成手填數字之後失去可讀性。</dd><dt>正解</dt><dd class="fix">先 <code>cpp -nostdinc -undef -x assembler-with-cpp -I &lt;kernel&gt;/include</code>，再交給 dtc（4-b 的 <code>dts/Makefile</code>）。</dd></dl></div>
+        <div class="pit"><h4>用 cat 看 cell 屬性</h4><dl><dt>症狀</dt><dd><code>cat …/reg</code> 印出亂碼或什麼都沒有。</dd><dt>後果</dt><dd>以為屬性是空的或壞了。</dd><dt>正解</dt><dd class="fix">cell 是 big-endian 的 32-bit 二進位：用 <code>od -An -tx1</code>；字串用 <code>tr '\0' '\n'</code>；整棵看用 <code>dtc -I fs</code>。</dd></dl></div>
+        <div class="pit"><h4>把 phandle 數字寫死</h4><dl><dt>症狀</dt><dd>從 <code>dtc -I fs</code> 抄 <code>&lt;0xf3 …&gt;</code> 進自己的 overlay。</dd><dt>後果</dt><dd>原廠 DT 一更新，<code>0xf3</code> 可能變成別的節點，GPIO 指到錯的 controller。</dd><dt>正解</dt><dd class="fix">原始碼一律寫 <code>&amp;gpio</code> 這種標籤引用，讓 dtc 和開機時的合併去填數字。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">DT.10</span><b>收尾</b>DT → 4-a</div>
+    <div class="content">
+      <h2>這一章讀懂了什麼</h2>
+      <ul class="checks">
+        <li class="y">DT 是開機時交給 kernel 的資料，kernel 看的是記憶體裡合併後的那份，開放在 <code>/proc/device-tree</code>（目錄 = 節點、檔案 = 屬性）。</li>
+        <li class="y">屬性只是 byte：字串以 <code>\0</code> 分隔、cell 是 big-endian 32-bit；<code>reg</code> 怎麼切由父節點的 <code>#address-cells</code>／<code>#size-cells</code> 決定。</li>
+        <li class="y">phandle 讓節點互相引用；引用後面接幾格，由被引用的 controller 的 <code>#gpio-cells</code>／<code>#interrupt-cells</code> 決定。</li>
+        <li class="y">父節點決定誰建 device（platform bus 或 i2c core），<code>compatible</code> 決定哪個 driver 認領；device 可以存在而沒有 driver。</li>
+        <li class="n">overlay 的格式（<code>fragment</code>、<code>__fixups__</code>）、怎麼安裝、pinctrl 狀態怎麼在 <code>probe()</code> 前套用：4-b。</li>
+        <li class="n">driver 端讀屬性的 API（<code>devm_gpiod_get()</code>、<code>of_match_table</code>、I2C 的 <code>i2c_driver</code>）：4-b、5-b、7 各自介紹。</li>
+      </ul>
+      <p>下一章 4-a 會先<b>繞過</b> Device Tree：用 userspace 程式控制 pin 29，再用 <code>/dev/mem</code> 直接改 <code>pinmux@2430000</code> 裡的一個暫存器，找出 LED 不亮的原因。這兩件事都是 kernel 不知情的，所以 4-b 回頭把它們寫進 Device Tree，交給 kernel 管。</p>
+      <details class="quiz"><summary>1. 一個節點的 <code>reg</code> 是 <code>00 00 00 00 03 16 00 00 00 00 00 00 00 01 00 00</code>，它是什麼位址、多長？要先確認什麼？</summary><p>先確認父節點的 <code>#address-cells</code>／<code>#size-cells</code>。如果是 2 / 2（像 <code>bus@0</code>），位址是 <code>0x03160000</code>、長度 <code>0x10000</code>。如果父節點是 1 / 1，同一串 byte 就變成兩段：(0, 0x03160000) 和 (0, 0x10000)，意思完全不同。可以貼進 DT.5 的計算機試。</p></details>
+      <details class="quiz"><summary>2. 某按鍵節點寫 <code>gpios = &lt;0xf3 0x38 0x01&gt;</code>，在 gpiochip0 是哪一條 line？（提示：4-a 的 port 表裡 H 從 43 開始）</summary><p><code>0xf3</code> 是 <code>gpio@2200000</code> = gpiochip0。<code>0x38</code> = 56 = 7 × 8 + 0，port 7 是 H，所以是 PH.00；port H 從 line 43 開始，第 0 支就是 line 43，active-low。這正是 Step 5 按鍵用的腳（overlay 裡寫成 <code>TEGRA234_MAIN_GPIO(H, 0)</code>）。</p></details>
+      <details class="quiz"><summary>3. 板子上的 INA219 一直在那裡，為什麼 Step 6 用 <code>i2cget</code> 讀得到它，<code>/sys/bus/i2c/devices/7-0041</code> 卻要等 Step 7 的 overlay 開機後才出現？</summary><p><code>i2cget</code> 透過 <code>/dev/i2c-7</code> 直接在 bus 上送封包，不需要 kernel 知道那裡有晶片。<code>7-0041</code> 是 i2c core 依 DT 子節點建立的 client；I2C 不會自動列舉，沒有 <code>ina219@41</code> 節點就不會建立 device，driver 也就沒有東西可以認領。</p></details>
+      <details class="quiz"><summary>4. 你在 <code>/proc/device-tree</code> 找到一個節點，但 <code>/sys/bus/platform/devices/</code> 底下沒有對應的 device。列出兩個可能的原因。</summary><p>它的 <code>status</code> 是 <code>"disabled"</code>（像 <code>ethernet@6800000</code>）；或者它的父節點不是根節點也不是 simple-bus，device 由別的 bus 建立（例如 I2C controller 底下的節點會變成 i2c client，不是 platform device），或是根本沒有人替它建 device（例如 <code>prod-settings</code> 這種只給 driver 讀的設定節點）。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04a.html">Step 4-a →</a></nav>
+</main>
+
+<script>
+document.querySelectorAll('pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  pre.dataset.hot.split(',').forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  pre.innerHTML = pre.innerHTML.split('\n').map(function (line, i) {
+    return hot.has(start + i) ? '<span class="hot">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+/* reg decoder: bytes -> big-endian 32-bit cells -> (address, size) entries per the parent's cell counts */
+(function () {
+  var bytesEl = document.getElementById('dec-bytes');
+  var acEl = document.getElementById('dec-ac');
+  var scEl = document.getElementById('dec-sc');
+  var out = document.getElementById('dec-out');
+  function hex(cells) {
+    var v = BigInt(0);
+    cells.forEach(function (c) { v = (v << BigInt(32)) | BigInt(c); });
+    return '0x' + v.toString(16);
+  }
+  function render() {
+    var toks = bytesEl.value.trim().split(/\s+/).filter(Boolean);
+    var bad = toks.filter(function (t) { return !/^[0-9a-fA-F]{1,2}$/.test(t); });
+    if (bad.length) { out.innerHTML = '<p class="err">看不懂的 byte：' + bad.slice(0, 3).join(' ') + '（只收空白分隔的十六進位 byte）</p>'; return; }
+    if (toks.length % 4) { out.innerHTML = '<p class="err">' + toks.length + ' byte 不是 4 的倍數，切不成 32-bit cell。</p>'; return; }
+    var cells = [];
+    for (var i = 0; i < toks.length; i += 4) {
+      cells.push(((parseInt(toks[i], 16) << 24) >>> 0) + (parseInt(toks[i + 1], 16) << 16) + (parseInt(toks[i + 2], 16) << 8) + parseInt(toks[i + 3], 16));
+    }
+    var ac = +acEl.value, sc = +scEl.value, per = ac + sc;
+    if (cells.length % per) { out.innerHTML = '<p class="err">' + cells.length + ' 個 cell 不是 ' + per + '（' + ac + ' + ' + sc + '）的倍數：父節點的 cells 數選錯了。</p>'; return; }
+    var rows = '';
+    for (var j = 0; j < cells.length; j += per) {
+      rows += '<tr><td>#' + (j / per) + '</td><td>' + hex(cells.slice(j, j + ac)) + '</td><td>' + (sc ? hex(cells.slice(j + ac, j + per)) : '（沒有長度）') + '</td></tr>';
+    }
+    out.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);margin:0.2rem 0 0">' + cells.length + ' 個 cell：' + cells.map(function (c) { return '0x' + c.toString(16); }).join(' ') + '</p>' +
+      '<table><thead><tr><th>段</th><th>位址</th><th>長度</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+  document.querySelectorAll('#decoder button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      bytesEl.value = b.dataset.bytes; acEl.value = b.dataset.ac; scEl.value = b.dataset.sc; render();
+    });
+  });
+  [bytesEl, acEl, scEl].forEach(function (el) { el.addEventListener('input', render); el.addEventListener('change', render); });
+  render();
+})();
+</script>
+</body>
+</html>
