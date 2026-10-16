@@ -432,6 +432,105 @@ void I2C1_ER_IRQHandler(void)
       </ul>
       <div class="callout"><p><b>原本以為要防的 bug，實測沒有發生</b>：BUF 中斷開著時，硬體把一個 byte 搬去送的同時 <code>TXE</code> 就又亮了，firmware 會在 Jetson 回 NACK <b>之前</b>先放好下一個 byte。我讀 RM0008 推論：這個預先放好的 byte 會留在 <code>DR</code>，在<b>下一次</b>讀取時先被送出去，讀 0x20 會拿到上一次讀的 0x00 的值。所以第一版在讀取時關掉 BUF、改用 BTF 補 byte。實機上試了兩種沒有防護的寫法，「交替讀 400 次」<b class="hl-ok">都全對</b>，所以改回最簡單的 TXE 寫法。code review 時又問到：值在兩次讀取之間改變的話呢？想清楚就知道不會出事：預先放的永遠是同一個 register 的值，而 pointer 和值只會被<b>寫入</b>改變，寫入收到的 byte 也經過同一個 <code>DR</code>，會把預先放的那個蓋掉。實機上 LED 切換 20 次、每次分別用 <code>i2cget</code> 和不寫 pointer 的 <code>i2ctransfer r1</code> 讀回，<b class="hl-ok">全部正確</b>，這條也加進了硬體測試。硬體本身怎麼處理那個沒送出去的 byte，沒有查證。11.7 會說明怎麼確認這些測試真的抓得到這種錯。</p></div>
       <p><code>main()</code> 本身什麼都不做，所有事情都在中斷裡發生。主迴圈原本寫成 <code>for (;;) __WFI();</code>（睡到下一個中斷），後來改成空迴圈，原因在 11.8。</p>
+      <h3>腳位的 pad 設定：沒有 pinmux，寫在 GPIO 自己的暫存器裡</h3>
+      <p>Jetson 那邊，一根腳背後的 <b class="hl-key">pad</b>（訊號來源選擇、輸出驅動器、輸入接收器、上下拉）由獨立的 pinmux 暫存器區設定，Linux 透過 pinctrl 和 Device Tree 管它（見 <a href="devicetree.html#pinctrl">Device Tree 入門 DT.9</a>）。MCU 一樣有 pad，差在<b>設定放在哪裡、由誰來寫</b>：STM32F103 沒有獨立的 pinmux 區塊，每根腳的 pad 設定就放在它所屬 GPIO port 的 <code>GPIOx_CRL</code>（pin 0–7）／<code>GPIOx_CRH</code>（pin 8–15）裡，每根腳 4 個 bit。沒有作業系統替你管，firmware 初始化時自己寫。</p>
+      <table>
+        <thead><tr><th>4 個 bit</th><th>意思</th></tr></thead>
+        <tbody>
+          <tr><td><code>MODE[1:0]</code>（低兩位）</td><td><code>00</code> = 輸入；<code>01</code> / <code>10</code> / <code>11</code> = 輸出，最高翻轉速度 10 / 2 / 50 MHz。速度其實是輸出驅動器的邊緣速率，也是 pad 的電氣選項</td></tr>
+          <tr><td><code>CNF[1:0]</code>（高兩位），輸入時</td><td><code>00</code> 類比、<code>01</code> 浮接、<code>10</code> 上拉或下拉（由 <code>ODR</code> 那一位決定：1 上拉、0 下拉）</td></tr>
+          <tr><td><code>CNF[1:0]</code>，輸出時</td><td><code>00</code> 推挽、<code>01</code> 開汲極、<code>10</code> 交給周邊（AF）推挽、<code>11</code> 交給周邊開汲極</td></tr>
+        </tbody>
+      </table>
+      <p>欄位定義依 STM32F103 的 reference manual（RM0008）。這張表在 SPL 的原始碼裡就看得到，因為 <code>GPIO_Mode_*</code> 的數值就是照這些欄位編碼的：</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.h:58–79 — 速度就是 MODE 的值；模式的低 4 bit 是 CNF 放在 bit 3:2，0x10 表示「輸出」</figcaption>
+<pre data-start="58" data-hot="60-62,73,75-79">typedef enum
+{ 
+  GPIO_Speed_10MHz = 1,
+  GPIO_Speed_2MHz, 
+  GPIO_Speed_50MHz
+}GPIOSpeed_TypeDef;
+#define IS_GPIO_SPEED(SPEED) (((SPEED) == GPIO_Speed_10MHz) || ((SPEED) == GPIO_Speed_2MHz) || \
+                              ((SPEED) == GPIO_Speed_50MHz))
+
+/** 
+  * @brief  Configuration Mode enumeration  
+  */
+
+typedef enum
+{ GPIO_Mode_AIN = 0x0,
+  GPIO_Mode_IN_FLOATING = 0x04,
+  GPIO_Mode_IPD = 0x28,
+  GPIO_Mode_IPU = 0x48,
+  GPIO_Mode_Out_OD = 0x14,
+  GPIO_Mode_Out_PP = 0x10,
+  GPIO_Mode_AF_OD = 0x1C,
+  GPIO_Mode_AF_PP = 0x18</pre></figure>
+      <p><code>GPIO_Init()</code> 把這兩個值組成那 4 個 bit：模式先取低 4 bit；是輸出的話（<code>0x10</code>），再把速度 OR 進 <code>MODE</code>。</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c:183–190 — 輸入時 MODE 留 00；輸出時把速度放進 MODE</figcaption>
+<pre data-start="183" data-hot="183,184,189">  currentmode = ((uint32_t)GPIO_InitStruct-&gt;GPIO_Mode) &amp; ((uint32_t)0x0F);
+  if ((((uint32_t)GPIO_InitStruct-&gt;GPIO_Mode) &amp; ((uint32_t)0x10)) != 0x00)
+  { 
+    /* Check the parameters */
+    assert_param(IS_GPIO_SPEED(GPIO_InitStruct-&gt;GPIO_Speed));
+    /* Output mode */
+    currentmode |= (uint32_t)GPIO_InitStruct-&gt;GPIO_Speed;
+  }</pre></figure>
+      <p>接著清掉那根腳的 4 個 bit、寫入新值。上拉、下拉輸入（<code>IPU</code> = <code>0x48</code>、<code>IPD</code> = <code>0x28</code>）的低 4 bit 一樣都是 <code>0x8</code>，差別只在 <code>0x40</code> / <code>0x20</code> 這兩個旗標：<code>GPIO_Init()</code> 依它們用 <code>BSRR</code> 或 <code>BRR</code> 把 <code>ODR</code> 那一位設成 1 或 0，這就是上拉和下拉的分別：</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c:203–221 — 每根腳 4 bit：先清再寫；上下拉方向寫在 ODR</figcaption>
+<pre data-start="203" data-hot="205,206,208,212,219">        pos = pinpos &lt;&lt; 2;
+        /* Clear the corresponding low control register bits */
+        pinmask = ((uint32_t)0x0F) &lt;&lt; pos;
+        tmpreg &amp;= ~pinmask;
+        /* Write the mode configuration in the corresponding bits */
+        tmpreg |= (currentmode &lt;&lt; pos);
+        /* Reset the corresponding ODR bit */
+        if (GPIO_InitStruct-&gt;GPIO_Mode == GPIO_Mode_IPD)
+        {
+          GPIOx-&gt;BRR = (((uint32_t)0x01) &lt;&lt; pinpos);
+        }
+        else
+        {
+          /* Set the corresponding ODR bit */
+          if (GPIO_InitStruct-&gt;GPIO_Mode == GPIO_Mode_IPU)
+          {
+            GPIOx-&gt;BSRR = (((uint32_t)0x01) &lt;&lt; pinpos);
+          }
+        }</pre></figure>
+      <p>這一步用到的三種設定，換算成 4 個 bit：</p>
+      <table>
+        <thead><tr><th>腳位</th><th>設定</th><th>4 bit</th><th>為什麼</th></tr></thead>
+        <tbody>
+          <tr><td>PB6 / PB7（I2C1 SCL / SDA）</td><td><code>GPIO_Mode_AF_OD</code>、50 MHz</td><td><code>0xF</code>：CNF <code>11</code>、MODE <code>11</code>，在 <code>GPIOB_CRL</code> 的 bit 27:24 / 31:28</td><td>I2C 的線只能被拉低，高電位靠 Jetson 載板的上拉電阻；設成推挽的話，兩邊同時驅動就是短路。交給周邊（AF），由 I2C1 的硬體驅動</td></tr>
+          <tr><td>PC13（板載 LED）</td><td><code>GPIO_Mode_Out_PP</code>、2 MHz</td><td><code>0x2</code>：CNF <code>00</code>、MODE <code>10</code>，在 <code>GPIOC_CRH</code> 的 bit 23:20</td><td>一般 GPIO 推挽輸出，LED 開關不需要快的邊緣</td></tr>
+          <tr><td>其他沒設定的腳（例如 PA0–PA7）</td><td>重置值</td><td><code>0x4</code>：CNF <code>01</code>、MODE <code>00</code>，浮接輸入（<code>GPIO_Mode_IN_FLOATING</code> = <code>0x04</code>）</td><td>RM0008 寫的重置值是 <code>0x44444444</code>。和 JP6 開機時的 pin 29 一樣不會輸出，只是沒有上拉。SWD／JTAG 用的幾根腳例外，重置後就是除錯功能</td></tr>
+        </tbody>
+      </table>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:21–31 — PC13 的 LED：一般 GPIO 推挽輸出，2 MHz 就夠</figcaption>
+<pre data-start="21" data-hot="27,28">static void led_init(void)
+{
+    GPIO_InitTypeDef gpio;
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+    gpio.GPIO_Pin = GPIO_Pin_13;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIOC, &amp;gpio);
+    led_apply();
+}</pre></figure>
+      <p>PB6 / PB7 那段在上面 <code>i2c1_target_init()</code> 的節錄裡：<code>GPIO_Speed_50MHz</code> 加上 <code>GPIO_Mode_AF_OD</code>。</p>
+      <p>周邊訊號接到哪根腳，在 F103 上也和 Tegra 不同。Tegra 每根腳可以各自選 function；F103 每根腳只選「一般 GPIO 或交給周邊」，至於 I2C1 接在哪兩根腳，是晶片固定的，只能用 <code>AFIO_MAPR</code> 整組搬到另一組腳（I2C1 可以從 PB6 / PB7 搬到 PB8 / PB9）。這一步用的是預設位置，所以沒有動 <code>AFIO_MAPR</code>。F4 之後的 STM32 才有逐腳選周邊的 <code>GPIOx_AFR</code>，比較接近 Tegra 的做法。這兩點也是依 reference manual 寫的。</p>
+      <table>
+        <thead><tr><th></th><th>Jetson（Tegra234）</th><th>STM32F103</th></tr></thead>
+        <tbody>
+          <tr><td>pad 設定在哪</td><td>獨立的 pinmux 暫存器區（<code>0x02430000</code>）</td><td>各 GPIO port 的 <code>CRL</code> / <code>CRH</code></td></tr>
+          <tr><td>誰來寫</td><td>Linux 的 pinctrl，依 DT 的狀態節點</td><td>firmware 自己寫（這裡用 SPL 的 <code>GPIO_Init()</code>）</td></tr>
+          <tr><td>選功能</td><td>每根腳選一個 function</td><td>每根腳只選 GPIO 或 AF；周邊接哪組腳用 <code>AFIO_MAPR</code> 整組切換</td></tr>
+          <tr><td>tristate</td><td>pad 裡有獨立的 tristate 位元</td><td>沒有這個名稱；設成輸入模式就是輸出驅動器斷開（高阻抗）</td></tr>
+          <tr><td>開機時</td><td>bootloader 設成 <code>0x58</code>（上拉、tristate、只收輸入）</td><td>硬體重置成浮接輸入（<code>0x4</code>）</td></tr>
+        </tbody>
+      </table>
+      <div class="callout"><p><b>還沒實測</b>：這段的暫存器值是從 SPL 原始碼和 RM0008 推出來的。寫這段時 ST-Link 沒有插在 Jetson 上，所以沒有用 OpenOCD 讀回 <code>GPIOB_CRL</code>（<code>0x40010C00</code>）、<code>GPIOC_CRH</code>（<code>0x40011004</code>）核對。PB6 / PB7 和 PC13 設對了，有 11.8 的驗收間接證明：Jetson 讀得到 <code>0x42</code>，LED 也照寫入的值亮滅。</p></div>
     </div>
   </section>
 
@@ -662,6 +761,7 @@ PASS test_stm32_i2c_target.py (OK)
       <details class="quiz"><summary>2. LED_CONTROL 寫 2，Jetson 怎麼知道失敗了？</summary><p>bus 上看不出來：F103 收到 byte 時硬體就自動回 ACK 了。只能讀回 LED_CONTROL，發現還是原來的值。Step 12 會加 STATUS register 直接回報。</p></details>
       <details class="quiz"><summary>3. 只在 STOPF 時呼叫 <code>i2c_target_stop()</code>，會出什麼事？</summary><p>寫入沒事，但讀取以 controller 的 NACK 結束，target 收到的是錯誤中斷裡的 AF，不是 STOPF。不處理 AF 的話旗標清不掉，錯誤中斷會一直進來；狀態也回不到 IDLE。</p></details>
       <details class="quiz"><summary>4. 整條 bus 都 timeout，怎麼判斷是不是 STM32 在拉住 SCL？</summary><p>用 SWD 停住 CPU，讀 I2C1 的 SR1 / SR2：SR1 是 0 就表示周邊沒卡在任何事件上。再關掉 I2C1、把 PB6 改成輸入，讀 GPIOB 的 IDR：還是 0，就是外部拉低的。這一章的答案是麵包板上一條接到 GND 的線。</p></details>
+      <details class="quiz"><summary>把 PB7（SDA）誤設成 <code>GPIO_Mode_AF_PP</code>（推挽）會怎樣？4 個 bit 會變成多少？</summary><p>4 個 bit 從 <code>0xF</code> 變成 <code>0xB</code>（CNF <code>10</code>、MODE <code>11</code>）。推挽會主動把線推到 3.3 V；Jetson 要把 SDA 拉低（ACK、資料 0）時，兩邊一個推高、一個拉低，等於短路，訊號也錯。I2C 的線一律用開汲極，高電位交給上拉電阻。</p></details>
     </div>
   </section>
 
