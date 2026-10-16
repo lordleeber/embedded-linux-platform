@@ -168,7 +168,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <dt>gpiochip</dt><dd>kernel 把每個 GPIO controller 開放成一個字元裝置 <code>/dev/gpiochipN</code>。userspace 打開它、用 ioctl 請求 line，就能控制 GPIO，不需要寫 driver。</dd>
         <dt>pad</dt><dd>晶片邊緣和外界接觸的那一小塊電路。裡面有輸出驅動器、輸入接收器、上拉／下拉電阻，以及一個選擇這根腳給哪個功能用的多工器。GPIO controller 決定「想輸出 1」，pad 決定這個 1 能不能變成腳位上的電壓。</dd>
         <dt>tristate</dt><dd>輸出的第三種狀態「高阻抗」（Hi-Z）：輸出驅動器和腳位斷開，既不推高也不拉低。</dd>
-        <dt>pinmux / pinctrl</dt><dd>設定 pad 的硬體暫存器叫 pinmux；Linux 管理它們的子系統叫 pinctrl。4-b 會用 Device Tree 透過 pinctrl 設定 pad，本章先直接寫暫存器。</dd>
+        <dt>pinmux / pinctrl</dt><dd>設定 pad 的硬體暫存器叫 pinmux；Linux 管理它們的子系統叫 pinctrl。4-b 會用 Device Tree 透過 pinctrl 設定 pad，本章先直接寫暫存器。三個詞的分別與 DT 的寫法見 <a href="devicetree.html#pinctrl">Device Tree 入門 DT.9</a>。</dd>
         <dt>/dev/mem</dt><dd>把實體位址空間攤開成一個檔案的特殊裝置。SoC 的暫存器都對應到某個實體位址，所以 root 可以透過它直接讀寫硬體暫存器，完全繞過 kernel 的 driver。</dd>
       </dl>
     </div>

@@ -145,7 +145,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · 補充章 · Linux Device Tree</div>
     <h1>Device Tree 入門：kernel 怎麼知道板子上有什麼</h1>
-    <p class="lede">Step 2、3 的 <code>edge_test</code> 不碰任何硬體，所以不需要問「裝置在哪裡」。從 Step 4 開始，每個 driver 都要知道暫存器在哪個位址、用哪根 GPIO、接哪條中斷、掛在哪條 I2C bus 的哪個位址。在 ARM 板子上，這些資訊不是 driver 自己找出來的，而是寫在一份叫 <b class="hl-key">Device Tree</b> 的資料結構裡，開機時交給 kernel。這一章不寫任何 code，只在板子上讀現成的 Device Tree，把之後每一章都會用到的語法和機制先講清楚：節點與屬性、<code>reg</code> 和位址 cell、<code>phandle</code>、<code>compatible</code> 配對，以及一個節點怎麼變成 <code>/sys</code> 底下的一個 device。</p>
+    <p class="lede">Step 2、3 的 <code>edge_test</code> 不碰任何硬體，所以不需要問「裝置在哪裡」。從 Step 4 開始，每個 driver 都要知道暫存器在哪個位址、用哪根 GPIO、接哪條中斷、掛在哪條 I2C bus 的哪個位址。在 ARM 板子上，這些資訊不是 driver 自己找出來的，而是寫在一份叫 <b class="hl-key">Device Tree</b> 的資料結構裡，開機時交給 kernel。這一章不寫任何 code，只在板子上讀現成的 Device Tree，把之後每一章都會用到的語法和機制先講清楚：節點與屬性、<code>reg</code> 和位址 cell、<code>phandle</code>、<code>compatible</code> 配對，以及一個節點怎麼變成 <code>/sys</code> 底下的一個 device；最後把 4-a 會遇到的 pad、pinmux、pinctrl 三個詞分清楚。</p>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html}。不新增 code，所有指令只讀不寫、不需要 root</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
@@ -577,8 +577,171 @@ waiting_for_supplier</pre>
     </div>
   </section>
 
+  <section id="pinctrl">
+    <div class="rail"><span class="no">DT.9</span><b>腳位</b><span class="dot" style="background: var(--hw)"></span>pad · pinmux · pinctrl</div>
+    <div class="content">
+      <h2>pad、pinmux、pinctrl：一根腳怎麼接到晶片裡的電路</h2>
+      <p>4-a 的 LED 不亮，問題不在 GPIO，而在 GPIO 和腳位之間的那一層。這三個詞常常混著用，其實各指一層：<b class="hl-key">pad</b> 是晶片邊緣的電路，<b class="hl-key">pinmux</b> 是設定 pad 的硬體暫存器，<b class="hl-key">pinctrl</b> 是 Linux 裡管這些暫存器的子系統。DT 跟它們的關係是：pinctrl 要怎麼設定，寫在 DT 裡。</p>
+      <table>
+        <thead><tr><th>名詞</th><th>是什麼</th><th>在這台板子上</th></tr></thead>
+        <tbody>
+          <tr><td>pad</td><td>硬體：一根腳在晶片裡的那一小塊電路，包括訊號來源的選擇、輸出驅動器、輸入接收器、上拉／下拉電阻</td><td>header pin 29 的 pad 叫 <code>soc_gpio32_pq5</code></td></tr>
+          <tr><td>pinmux</td><td>硬體：一整區暫存器，每個 pad 一個 32-bit 暫存器，用不同的 bit 設定上面那些開關</td><td><code>pinmux@2430000</code>；pin 29 的暫存器在 <code>0x02430068</code>（4-a）</td></tr>
+          <tr><td>pinctrl</td><td>Linux 的子系統：pinmux 的 driver，加上一套讓別的 driver 或 DT「要求某組 pad 設成某樣子」的機制</td><td>driver <code>tegra234-pinctrl</code>；設定寫在 DT 的 <code>nvidia,pins</code> 這類節點裡</td></tr>
+        </tbody>
+      </table>
+
+      <h3>pad：一根腳背後的四個開關</h3>
+      <p>SoC 的腳位比功能少很多，所以大多數腳都是<b>多用途</b>的：同一根腳可以接到 I2C、UART、時脈輸出等專用電路（這類專用功能叫 <b>SFIO</b>，special-function I/O），也可以交給 GPIO controller 當一般的 GPIO。pin 29 就是這樣：NVIDIA 的 40-pin overlay 把它設成 <code>extperiph3</code>（對外的時脈輸出），我們的 LED 則把它當 GPIO <code>PQ.05</code>。訊號選好以後，還要經過 pad 裡的電氣開關才到得了腳位：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 320" role="img" aria-label="SFIO 訊號和 GPIO controller 都接到 pad 的訊號來源選擇，選中的訊號經輸出驅動器到 header pin 29，tristate 為 1 時輸出驅動器斷開；腳位上的電壓經輸入接收器讀回，enable-input 為 1 才收；腳位另外接上拉或下拉電阻，由 pull 欄位決定。這些開關都在 pinmux 暫存器裡">
+          <defs>
+            <marker id="mDtPad" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect x="250" y="14" width="400" height="296" rx="12" fill="none" stroke="var(--hw)" stroke-width="1.4" stroke-dasharray="6 5"/>
+          <text class="s-mono" x="264" y="36">PAD · PINMUX 暫存器控制的範圍</text>
+          <rect class="s-box" x="14" y="50" width="210" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="119" y="75" text-anchor="middle">SFIO 訊號</text>
+          <text class="s-sm" x="119" y="96" text-anchor="middle">I2C、UART、時脈輸出…</text>
+          <rect class="s-box" x="14" y="150" width="210" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="119" y="175" text-anchor="middle">GPIO controller</text>
+          <text class="s-sm" x="119" y="196" text-anchor="middle">OUTPUT / INPUT 暫存器</text>
+          <rect class="s-box" x="262" y="50" width="180" height="158" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="352" y="112" text-anchor="middle">選訊號來源</text>
+          <text class="s-sm" x="352" y="136" text-anchor="middle">function：選哪個 SFIO</text>
+          <text class="s-sm" x="352" y="156" text-anchor="middle">GPIO 模式：接 GPIO</text>
+          <rect class="s-box" x="462" y="50" width="170" height="58" rx="9" style="stroke: var(--bad)"/>
+          <text class="s-key" x="547" y="75" text-anchor="middle">輸出驅動器</text>
+          <text class="s-sm" x="547" y="96" text-anchor="middle">tristate=1 時斷開</text>
+          <rect class="s-box" x="462" y="150" width="170" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="547" y="175" text-anchor="middle">輸入接收器</text>
+          <text class="s-sm" x="547" y="196" text-anchor="middle">enable-input=1 才收</text>
+          <rect class="s-box" x="462" y="240" width="170" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="547" y="265" text-anchor="middle">上拉 / 下拉</text>
+          <text class="s-sm" x="547" y="286" text-anchor="middle">pull：none、down、up</text>
+          <rect class="s-box" x="668" y="150" width="84" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="710" y="175" text-anchor="middle">PIN 29</text>
+          <text class="s-sm" x="710" y="196" text-anchor="middle">header</text>
+          <line class="sv-down" x1="225" y1="79" x2="258" y2="79" marker-end="url(#mDtPad)"/>
+          <line class="sv-down" x1="225" y1="179" x2="258" y2="179" marker-end="url(#mDtPad)"/>
+          <line class="sv-down" x1="443" y1="79" x2="458" y2="79" marker-end="url(#mDtPad)"/>
+          <path class="sv-down" d="M633,79 L710,79 L710,146" marker-end="url(#mDtPad)"/>
+          <line class="sv-down" x1="667" y1="179" x2="637" y2="179" marker-end="url(#mDtPad)"/>
+          <path class="sv-down" d="M633,269 L710,269 L710,212" marker-end="url(#mDtPad)"/>
+          <text class="s-sm" x="547" y="226" text-anchor="middle">讀回 GPIO 的 INPUT 暫存器</text>
+        </svg>
+        <figcaption>圖 0.4 — 選訊號、輸出、輸入、上下拉都是 pad 裡的開關，全都由 pinmux 暫存器設定。GPIO controller 只負責「想輸出 1」；JP6 開機時 pin 29 的輸出驅動器是斷開的（tristate），所以 1 到不了腳位。</figcaption>
+      </figure>
+      <p>4-a 讀到的開機值 <code>0x58</code> 拆開來，正好就是圖上的三個開關：pull = up、tristate = 1、input = 1，function 欄位是 0。另外 pad 還有驅動強度、Schmitt trigger、高壓 I/O 這些電氣選項，<code>nvidia,io-high-voltage</code> 就是其中一個（下面 NVIDIA 的 overlay 會看到），本書用不到。「GPIO 模式」這個開關（GPIO 還是 SFIO）在 Tegra 上不在 pinmux 暫存器裡，而是由 GPIO controller 自己的暫存器決定，line 被請求時 GPIO driver 會切過去；這是依上游 <code>gpio-tegra186</code> driver 的寫法推論的，這台沒有原始碼可以對照。</p>
+
+      <h3>pinmux：每個 pad 一個暫存器</h3>
+      <p><code>pinmux@2430000</code> 是 SoC 裡的一塊暫存器區（<code>reg</code> 長度 <code>0x19100</code>，DT.5），每個 pad 在裡面佔一個 32-bit 暫存器，4-a 實際讀寫的就是其中 pin 29 的那個。always-on 電源域的 pad 另外有一塊，NVIDIA 的 overlay 裡用 <code>pinmux_aon</code> 這個標籤引用。DT 的 binding header 裡的常數，就是直接照暫存器欄位的值定義的：</p>
+<pre class="cmd">grep -n 'TEGRA_PIN_DISABLE\|TEGRA_PIN_ENABLE\|PULL_NONE\|PULL_UP\|PULL_DOWN' /lib/modules/$(uname -r)/build/include/dt-bindings/pinctrl/pinctrl-tegra.h</pre>
+<pre class="out"><span class="prompt">$</span> grep -n 'TEGRA_PIN_DISABLE\|TEGRA_PIN_ENABLE\|PULL_NONE\|PULL_UP\|PULL_DOWN' /lib/modules/$(uname -r)/build/include/dt-bindings/pinctrl/pinctrl-tegra.h
+18:#define TEGRA_PIN_DISABLE				0
+19:#define TEGRA_PIN_ENABLE				1
+21:#define TEGRA_PIN_PULL_NONE				0
+22:#define TEGRA_PIN_PULL_DOWN				1
+23:#define TEGRA_PIN_PULL_UP				2</pre>
+      <p><code>PULL_UP</code> 是 2，就是 4-a 圖 4.2 裡 pull 欄位的 <code>10</code>；tristate、enable-input 都是 0／1 的開關。所以 DT 裡寫 <code>nvidia,pull = &lt;TEGRA_PIN_PULL_UP&gt;</code>，最後就是 pinctrl driver 把 2 寫進那兩個 bit。</p>
+
+      <h3>pinctrl：driver 不寫暫存器，只要「狀態」</h3>
+      <p>如果每個 driver 都自己去寫 pinmux 暫存器，兩個 driver 就可能搶同一個 pad，而且 driver 要知道每一代 SoC 的暫存器位置。pinctrl 把這件事收到一個地方：只有 pinctrl driver 會碰 pinmux 暫存器，其他人用 DT 描述「我需要哪些 pad 設成什麼樣子」，這叫一個<b>狀態</b>（state）。DT 裡的寫法分兩半：</p>
+      <ul>
+        <li><b>設定節點</b>放在 pinmux 節點底下：<code>nvidia,pins</code> 用 pad 名稱指定是哪個 pad，其他屬性各對應一個欄位（<code>nvidia,function</code>、<code>nvidia,pull</code>、<code>nvidia,tristate</code>、<code>nvidia,enable-input</code>）。屬性名稱前面的 <code>nvidia,</code> 表示這是 Tegra pinctrl binding 自己的格式，別家 SoC 寫法不同。</li>
+        <li><b>引用的一方</b>用 <code>pinctrl-names</code> 列出狀態名稱，<code>pinctrl-0</code>、<code>pinctrl-1</code>… 依序是各狀態的設定節點（phandle）。名稱叫 <code>"default"</code> 的狀態，driver core 會在 driver 的 <code>probe()</code> 被呼叫之前自動套用。</li>
+      </ul>
+      <p>4-b 的 overlay 就是這樣寫的：<code>fragment@1</code> 在 pinmux 節點底下加一個設定節點，DT.6 節錄的 <code>fragment@0</code> 裡 <code>edge-led</code> 的 <code>pinctrl-0 = &lt;&amp;edge_led_pins&gt;</code> 引用它：</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:43–55 — 4-b 加在 pinmux 底下的 pad 設定：關掉 tristate 和 input、不上拉</figcaption>
+<pre data-start="43" data-hot="48,49,50,51">	fragment@1 {
+		target = &lt;&amp;pinmux&gt;;
+		__overlay__ {
+			edge_led_pins: edge-led-pins {
+				pin29 {
+					nvidia,pins = "soc_gpio32_pq5";
+					nvidia,pull = &lt;TEGRA_PIN_PULL_NONE&gt;;
+					nvidia,tristate = &lt;TEGRA_PIN_DISABLE&gt;;
+					nvidia,enable-input = &lt;TEGRA_PIN_DISABLE&gt;;
+				};
+			};
+		};
+	};</pre></figure>
+      <p>開機後這個設定節點就在 pinmux 節點底下，而且 kernel 記下了「誰依賴 pinmux」：</p>
+<pre class="cmd">ls /proc/device-tree/bus@0/pinmux@2430000/
+ls /sys/bus/platform/devices/2430000.pinmux/ | grep consumer; readlink /sys/bus/platform/devices/2430000.pinmux/driver</pre>
+<pre class="out" data-marks><span class="prompt">$</span> ls /proc/device-tree/bus@0/pinmux@2430000/
+compatible
+edge-button-pins «1»
+edge-led-pins
+eqos_rx_disable
+eqos_rx_enable
+name
+pex_rst_c10_in
+pex_rst_c4_in
+pex_rst_c5_in
+pex_rst_c6_in
+pex_rst_c7_in
+phandle
+reg
+status
+<span class="prompt">$</span> ls /sys/bus/platform/devices/2430000.pinmux/ | grep consumer; readlink /sys/bus/platform/devices/2430000.pinmux/driver
+consumer:platform:edge-button «2»
+consumer:platform:edge-led
+../../../../bus/platform/drivers/tegra234-pinctrl «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>edge-*-pins</code> 是我們的 overlay 加的（4-b、5-b）。其餘幾個是原廠樹自己的狀態（乙太網路、PCIe reset 腳），<b>原廠樹裡沒有任何 40-pin header 的設定</b>。還沒裝 overlay 時只會看到原廠那幾個。</span></li>
+        <li><span class="mk">2</span><span>kernel 解析 <code>pinctrl-0</code> 這個 phandle 時，自動在兩個 device 之間建立「consumer」連結：pinmux 的 driver 還沒 probe 之前，<code>edge-led</code> 不會先 probe。這也是 phandle 的用途之一：讓 kernel 知道 device 之間的先後順序。</span></li>
+        <li><span class="mk">3</span><span>認領 <code>pinmux@2430000</code> 的就是 pinctrl driver。</span></li>
+      </ol>
+      <p>NVIDIA 自己的 40-pin overlay（jetson-io 選「設定 header」時就是套這一類）用的是另一種做法，叫 <b>hog</b>：<code>pinctrl-names</code>／<code>pinctrl-0</code> 不放在某個裝置上，而是直接放在 pinmux 節點自己身上，pinctrl driver 一 probe 就把狀態套上去，不必有任何 driver 使用這些腳。這個 overlay 在 <code>/boot</code> 裡，但這台沒有啟用：</p>
+<pre class="cmd">dtc -I dtb -O dts /boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo 2&gt;/dev/null | grep -A3 'target = '| head -8
+dtc -I dtb -O dts /boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo 2&gt;/dev/null | grep -A10 'hdr40-pin29 {'</pre>
+<pre class="out" data-marks><span class="prompt">$</span> dtc -I dtb -O dts /boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo 2&gt;/dev/null | grep -A3 'target = '| head -8
+		target = &lt;0xffffffff&gt;; «1»
+
+		__overlay__ {
+			pinctrl-names = "default"; «2»
+--
+		target = &lt;0xffffffff&gt;;
+
+		__overlay__ {
+<span class="prompt">$</span> dtc -I dtb -O dts /boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo 2&gt;/dev/null | grep -A10 'hdr40-pin29 {'
+				hdr40-pin29 {
+					nvidia,pins = "soc_gpio32_pq5"; «3»
+					nvidia,function = "extperiph3";
+					nvidia,pin-group = "extperiph3_clk";
+					nvidia,pull = &lt;0x00&gt;;
+					nvidia,tristate = &lt;0x00&gt;;
+					nvidia,enable-input = &lt;0x00&gt;;
+					nvidia,io-high-voltage = &lt;0x00&gt;;
+					nvidia,lpdr = &lt;0x00&gt;;
+				};
+</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>0xffffffff</code> 是還沒解出來的佔位：這個 overlay 的 <code>__fixups__</code> 寫著第一個 fragment 的 target 是 <code>pinmux</code>、第二個是 <code>pinmux_aon</code>，開機合併時才換成真正的 phandle（4-b 細講）。</span></li>
+        <li><span class="mk">2</span><span>狀態直接掛在 pinmux 節點自己身上，這就是 hog。我們的 overlay 則掛在 <code>edge-led</code> 上，LED 的 driver 沒載入時 pad 就維持原樣。</span></li>
+        <li><span class="mk">3</span><span>同一個 pad <code>soc_gpio32_pq5</code>，NVIDIA 選了 SFIO 功能 <code>extperiph3</code>；tristate、input、pull 的設定和我們的 <code>fragment@1</code> 相同。4-b 的靜態測試就是拿這一份來核對我們的 pad 名稱有沒有寫錯。</span></li>
+      </ol>
+
+      <h3>那開機時的 0x58 是誰寫的？</h3>
+      <p>原廠樹裡沒有 pin 29 的設定、也沒有 hog，所以 Linux 開機時根本沒動過這個 pad。4-a 讀到的開機值是在 Linux 之前就寫好的：Jetson 的早期 bootloader 會依刷機時帶進去的 pinmux 設定（NVIDIA 用一份 pinmux 試算表產生）初始化所有 pad。這部分是根據 NVIDIA 的文件，這台板子上看不到那份設定。JP6 這份預設把沒指定用途的 header 腳設成「上拉、tristate、只收輸入」，也就是 <code>0x58</code>，這是對沒接東西的腳最安全的狀態：不會輸出，也不會浮動。</p>
+      <p>所以要讓 pin 29 輸出，有三條路，本書會依序走過：</p>
+      <table>
+        <thead><tr><th>做法</th><th>誰寫暫存器</th><th>kernel 知不知道</th></tr></thead>
+        <tbody>
+          <tr><td>4-a：<code>pad_pin29.py</code> 經 <code>/dev/mem</code> 直接寫</td><td>userspace，繞過 pinctrl</td><td>不知道；重開機就消失，pinctrl 之後也可能把它蓋掉</td></tr>
+          <tr><td>jetson-io／NVIDIA 的 hdr40 overlay（hog）</td><td>pinctrl driver，probe 時一次套上</td><td>知道；不必有 driver 使用這根腳</td></tr>
+          <tr><td>4-b：裝置節點上的 <code>pinctrl-0</code></td><td>pinctrl core，在 <code>edge_gpio</code> 的 <code>probe()</code> 之前</td><td>知道，而且知道這個 pad 是給哪個 device 用的</td></tr>
+        </tbody>
+      </table>
+      <p>要看 pinctrl driver 眼中每個 pad 現在的設定，得讀 debugfs 的 <code>/sys/kernel/debug/pinctrl/2430000.pinmux/pinconf-groups</code>，需要 root。4-a 的驗收腳本就是讀這個檔案，2026-10-10 讀到 pin 29 那一組的開頭是：</p>
+<pre class="out">115 (soc_gpio32_pq5): pull=2 tristate=1 enable-input=1 …</pre>
+      <p>和用 <code>/dev/mem</code> 讀暫存器、拆欄位得到的結果一樣（4-a.4）。</p>
+    </div>
+  </section>
+
   <section id="pitfalls">
-    <div class="rail"><span class="no">DT.9</span><b>常見錯誤</b></div>
+    <div class="rail"><span class="no">DT.10</span><b>常見錯誤</b></div>
     <div class="content">
       <h2>容易搞混的地方</h2>
       <p>前四格來自這個專案後面幾個 Step 的實際紀錄（<code>docs/baseline.md</code> 與 4-a、4-b 兩章），後兩格是讀 DT 時常見的誤會。</p>
@@ -594,7 +757,7 @@ waiting_for_supplier</pre>
   </section>
 
   <section id="next">
-    <div class="rail"><span class="no">DT.10</span><b>收尾</b>DT → 4-a</div>
+    <div class="rail"><span class="no">DT.11</span><b>收尾</b>DT → 4-a</div>
     <div class="content">
       <h2>這一章讀懂了什麼</h2>
       <ul class="checks">
@@ -602,7 +765,8 @@ waiting_for_supplier</pre>
         <li class="y">屬性只是 byte：字串以 <code>\0</code> 分隔、cell 是 big-endian 32-bit；<code>reg</code> 怎麼切由父節點的 <code>#address-cells</code>／<code>#size-cells</code> 決定。</li>
         <li class="y">phandle 讓節點互相引用；引用後面接幾格，由被引用的 controller 的 <code>#gpio-cells</code>／<code>#interrupt-cells</code> 決定。</li>
         <li class="y">父節點決定誰建 device（platform bus 或 i2c core），<code>compatible</code> 決定哪個 driver 認領；device 可以存在而沒有 driver。</li>
-        <li class="n">overlay 的格式（<code>fragment</code>、<code>__fixups__</code>）、怎麼安裝、pinctrl 狀態怎麼在 <code>probe()</code> 前套用：4-b。</li>
+        <li class="y">pad 是腳位背後的電路、pinmux 是設定它的暫存器、pinctrl 是 Linux 管它的子系統；pad 的設定寫成 DT 的狀態節點，由裝置的 <code>pinctrl-0</code> 或 hog 引用。</li>
+        <li class="n">overlay 的格式（<code>fragment</code>、<code>__fixups__</code>）與怎麼安裝：4-b。</li>
         <li class="n">driver 端讀屬性的 API（<code>devm_gpiod_get()</code>、<code>of_match_table</code>、I2C 的 <code>i2c_driver</code>）：4-b、5-b、7 各自介紹。</li>
       </ul>
       <p>下一章 4-a 會先<b>繞過</b> Device Tree：用 userspace 程式控制 pin 29，再用 <code>/dev/mem</code> 直接改 <code>pinmux@2430000</code> 裡的一個暫存器，找出 LED 不亮的原因。這兩件事都是 kernel 不知情的，所以 4-b 回頭把它們寫進 Device Tree，交給 kernel 管。</p>
@@ -610,6 +774,7 @@ waiting_for_supplier</pre>
       <details class="quiz"><summary>2. 某按鍵節點寫 <code>gpios = &lt;0xf3 0x38 0x01&gt;</code>，在 gpiochip0 是哪一條 line？（提示：4-a 的 port 表裡 H 從 43 開始）</summary><p><code>0xf3</code> 是 <code>gpio@2200000</code> = gpiochip0。<code>0x38</code> = 56 = 7 × 8 + 0，port 7 是 H，所以是 PH.00；port H 從 line 43 開始，第 0 支就是 line 43，active-low。這正是 Step 5 按鍵用的腳（overlay 裡寫成 <code>TEGRA234_MAIN_GPIO(H, 0)</code>）。</p></details>
       <details class="quiz"><summary>3. 板子上的 INA219 一直在那裡，為什麼 Step 6 用 <code>i2cget</code> 讀得到它，<code>/sys/bus/i2c/devices/7-0041</code> 卻要等 Step 7 的 overlay 開機後才出現？</summary><p><code>i2cget</code> 透過 <code>/dev/i2c-7</code> 直接在 bus 上送封包，不需要 kernel 知道那裡有晶片。<code>7-0041</code> 是 i2c core 依 DT 子節點建立的 client；I2C 不會自動列舉，沒有 <code>ina219@41</code> 節點就不會建立 device，driver 也就沒有東西可以認領。</p></details>
       <details class="quiz"><summary>4. 你在 <code>/proc/device-tree</code> 找到一個節點，但 <code>/sys/bus/platform/devices/</code> 底下沒有對應的 device。列出兩個可能的原因。</summary><p>它的 <code>status</code> 是 <code>"disabled"</code>（像 <code>ethernet@6800000</code>）；或者它的父節點不是根節點也不是 simple-bus，device 由別的 bus 建立（例如 I2C controller 底下的節點會變成 i2c client，不是 platform device），或是根本沒有人替它建 device（例如 <code>prod-settings</code> 這種只給 driver 讀的設定節點）。</p></details>
+      <details class="quiz"><summary>5. 4-b 把 pad 設定的 <code>pinctrl-0</code> 放在 <code>edge-led</code> 節點上，NVIDIA 的 hdr40 overlay 放在 pinmux 節點自己身上。<code>edge_gpio.ko</code> 沒載入時，兩種做法下 pin 29 的 pad 各是什麼狀態？</summary><p>放在 <code>edge-led</code> 上：狀態要等 <code>edge_gpio</code> 的 <code>probe()</code> 之前才套用，module 沒載入就不會套，pad 維持 bootloader 設的 <code>0x58</code>（tristate）。放在 pinmux 上（hog）：pinctrl driver 開機 probe 時就套上，不管有沒有 driver 使用這根腳，pad 都已經打開。</p></details>
     </div>
   </section>
 
