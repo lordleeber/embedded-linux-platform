@@ -402,7 +402,7 @@ inline Result draw_text_at(ssd1306::Frame &amp;f, int line, int column, const ch
 {
     return draw_string(f, column * kCellWidth, line * kCellHeight, s);
 }</pre></figure>
-      <p><code>draw_text_at(line, column)</code> 讓呼叫者用文字座標思考（「第 2 行第 0 欄」），Step 10-c 排電壓、電流、功率三行就用它。換行回到<b>起始的 x</b> 而不是 0：在第 4 欄開始寫 <code>"A\nB"</code>，B 會在下一行的第 4 欄，對齊上一行。</p>
+      <p><code>draw_text_at(line, column)</code> 讓呼叫者用文字座標思考（「<span data-ref="-">第 2 行</span>第 0 欄」），Step 10-c 排電壓、電流、功率三行就用它。換行回到<b>起始的 x</b> 而不是 0：在第 4 欄開始寫 <code>"A\nB"</code>，B 會在下一行的第 4 欄，對齊上一行。</p>
     </div>
   </section>
 
@@ -418,7 +418,7 @@ inline Result draw_text_at(ssd1306::Frame &amp;f, int line, int column, const ch
           <tr><td>x / y 在面板外（含負數）</td><td>照點裁切，部分在面板上的字照樣畫出看得到的部分。</td></tr>
           <tr><td>表裡沒有的字元</td><td>畫空心方框（<code>kBox</code>），<b>字格照樣往右移</b>。跳過不畫的話後面的字會左移一格，看起來像拼錯字；畫方框一眼就看得出「這裡有一個字顯示不了」。整個字都在面板外時什麼都沒畫，只算 clipped、不算方框（code review 找到：第一版兩個都算，stderr 說畫了方框，螢幕上卻沒有）。</td></tr>
           <tr><td><code>\n</code></td><td>下一行，回到起始 x。</td></tr>
-          <tr><td>超過 8 行</td><td>第 9 行起整行在面板外，算 clipped。</td></tr>
+          <tr><td>超過 8 行</td><td><span data-ref="-">第 9 行</span>起整行在面板外，算 clipped。</td></tr>
         </tbody>
       </table>
       <p>前兩種都不是錯誤，函式照樣畫完，但把數量放在 <code>Result</code> 裡回傳，由呼叫者決定要不要說。<code>edge_oled_ctl</code> 的做法是畫完照樣寫出去、結束碼 0，在 stderr 報數量：</p>

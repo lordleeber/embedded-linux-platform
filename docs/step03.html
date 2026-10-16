@@ -352,9 +352,9 @@ static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</
 	}
 }</pre></figure>
       <ul>
-        <li><b>不認得的命令一律回 <code>-ENOTTY</code></b>（第 130–131 行）。這是 ioctl 的慣例錯誤碼，意思是「這個檔案不支援這個命令」；不要回 <code>-EINVAL</code>，那留給「命令認得、但參數值不對」。</li>
+        <li><b>不認得的命令一律回 <code>-ENOTTY</code></b>（第 <span data-ref="kernel/edge_test/edge_test.c:130-131" data-expect="default:…return -ENOTTY;">130–131</span> 行）。這是 ioctl 的慣例錯誤碼，意思是「這個檔案不支援這個命令」；不要回 <code>-EINVAL</code>，那留給「命令認得、但參數值不對」。</li>
         <li><code>get_user()</code> / <code>put_user()</code> 是搬單一個整數用的 <code>copy_from_user()</code> / <code>copy_to_user()</code>，同樣會檢查位址、碰到壞指標回 <code>-EFAULT</code>。NULL 也算壞指標。</li>
-        <li><b class="hl-key">先讀進區域變數，成功才改狀態</b>（第 124–125 行）：Step 2 的 <code>copy_from_user()</code> 坑換了個樣子出現，SET 給了壞指標時 value 必須不變——測試「failed SET leaves the value unchanged」守著這件事。</li>
+        <li><b class="hl-key">先讀進區域變數，成功才改狀態</b>（第 <span data-ref="kernel/edge_test/edge_test.c:124-125" data-expect="if (get_user(val, uptr))…return -EFAULT;">124–125</span> 行）：Step 2 的 <code>copy_from_user()</code> 坑換了個樣子出現，SET 給了壞指標時 value 必須不變——測試「failed SET leaves the value unchanged」守著這件事。</li>
         <li>讀寫 <code>edge_test_value</code> 都在 Step 2 那把 <code>edge_test_lock</code> 底下；但 <code>put_user()</code> 在鎖外，因為它可能因 page fault 睡眠，沒必要讓別人等。</li>
       </ul>
       <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:135–143 — file_operations 表多了兩行</figcaption>
@@ -367,11 +367,11 @@ static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</
 	.unlocked_ioctl	= edge_test_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 };</pre></figure>
-      <p>第 141 行把 handler 掛上去。第 142 行的 <code>compat_ioctl</code> 給 32-bit 程式用：64-bit kernel 上跑的 32-bit 程式，指標只有 32 位元，<code>compat_ptr_ioctl</code> 把它轉成 kernel 的指標後，呼叫同一個 <code>edge_test_ioctl()</code>。能這樣共用，前提就是參數只用固定大小的 <code>__u32</code>，兩種程式看到的號碼和排列完全一樣。這台的 kernel 有開 <code>CONFIG_COMPAT=y</code>，但沒有 32-bit 的編譯器，<b>這條路徑沒有實測</b>。</p>
+      <p>第 <span data-ref="kernel/edge_test/edge_test.c:141" data-expect=".unlocked_ioctl">141</span> 行把 handler 掛上去。第 <span data-ref="kernel/edge_test/edge_test.c:142" data-expect=".compat_ioctl">142</span> 行的 <code>compat_ioctl</code> 給 32-bit 程式用：64-bit kernel 上跑的 32-bit 程式，指標只有 32 位元，<code>compat_ptr_ioctl</code> 把它轉成 kernel 的指標後，呼叫同一個 <code>edge_test_ioctl()</code>。能這樣共用，前提就是參數只用固定大小的 <code>__u32</code>，兩種程式看到的號碼和排列完全一樣。這台的 kernel 有開 <code>CONFIG_COMPAT=y</code>，但沒有 32-bit 的編譯器，<b>這條路徑沒有實測</b>。</p>
       <figure class="listing"><figcaption>kernel/edge_test/Makefile:4–5 — 讓 module 找得到共用 header</figcaption>
 <pre data-start="4" data-hot="5">obj-m := edge_test.o
 ccflags-y := -I$(src)/../../include</pre></figure>
-      <p>kernel module 不會自動去 repo 的 <code>include/</code> 找 header，第 5 行用 <code>ccflags-y</code> 把它加進搜尋路徑；<code>$(src)</code> 是 kbuild 提供的「這個 module 的原始碼目錄」。</p>
+      <p>kernel module 不會自動去 repo 的 <code>include/</code> 找 header，第 <span data-ref="kernel/edge_test/Makefile:5" data-expect="ccflags-y">5</span> 行用 <code>ccflags-y</code> 把它加進搜尋路徑；<code>$(src)</code> 是 kbuild 提供的「這個 module 的原始碼目錄」。</p>
     </div>
   </section>
 
@@ -429,7 +429,7 @@ target_include_directories(edge_test_cli PRIVATE include)
 
 add_executable(test_edge_device tests/test_edge_device.cpp)
 target_include_directories(test_edge_device PRIVATE include)</pre></figure>
-      <p>這段節錄釘在 commit <code>f8728e8</code>。Step 11 要把 STM32 firmware 的 C 檔編進 host 端測試，把第 2 行改成 <code>project(embedded_linux_platform C CXX)</code>，其餘不變。</p>
+      <p>這段節錄釘在 commit <code>f8728e8</code>。Step 11 要把 STM32 firmware 的 C 檔編進 host 端測試，把第 <span data-ref="CMakeLists.txt@f8728e8:2" data-expect="project(embedded_linux_platform CXX)">2</span> 行改成 <code>project(embedded_linux_platform C CXX)</code>，其餘不變。</p>
       <p><code>-Wall -Wextra -Werror</code> 讓警告直接變成編譯錯誤。兩個執行檔都把 repo 的 <code>include/</code> 加進搜尋路徑，所以和 kernel module 讀的是同一份 header。</p>
     </div>
   </section>
@@ -566,8 +566,8 @@ PASS dmesg shows 3 load / 3 unload messages
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:57</code>），而且以你的身分執行。</td></tr>
-          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 114 行），下一輪自動檢查（第 84–88 行）。</td></tr>
+          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:<span data-ref="scripts/verify_edge_test.sh:57" data-expect="cmake --build">57</span></code>），而且以你的身分執行。</td></tr>
+          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 <span data-ref="scripts/verify_edge_test.sh:114" data-expect="set 4242">114</span> 行），下一輪自動檢查（第 <span data-ref="scripts/verify_edge_test.sh:84-88" data-expect="# Step 3: the ioctl value lives in the module…fi">84–88</span> 行）。</td></tr>
           <tr><td>用 sudo 跑 CLI 的 Python 測試</td><td>不要：那支測試第一次會跑 CMake，用 root 會在 <code>build/</code> 留下 root 所有的檔案。腳本用 <code>sudo -u "$SUDO_USER"</code> 執行它。</td></tr>
         </tbody>
       </table>

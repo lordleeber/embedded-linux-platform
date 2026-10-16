@@ -409,7 +409,7 @@ static inline s64 edge_ina219_current_ma(u16 raw, u16 cal, s32 shunt_mohm)
     if cat "$hw/curr1_input" &gt;/dev/null; then pass "Cal 26868 written back: curr1_input reads again"; else fail "curr1_input after restoring Cal"; fi</pre></figure>
       <p><code>i2cset ... w</code> 的值要 byte 對調，6-b 踩過這個坑：要寫進晶片的 Calibration 是 <code>0x68F4</code>，命令列上要寫 <code>0xf468</code>。腳本開頭的 <code>cleanup</code> 也會在中途中斷時寫回這個值。靜態測試 <code>test_i2cset_only_zeroes_and_restores_calibration</code> 確保腳本裡的 <code>i2cset</code> 只做這兩種寫入。</p>
       <h3>stale node：unbind / bind，以及 rmmod 前打開的檔案</h3>
-      <p>unbind / bind（腳本第 163–174 行）檢查 hwmon 目錄跟著綁定消失、再出現時只有一個。比較刁鑽的是「有程式在 rmmod 前就打開了檔案」：檔案描述子還在，rmmod 後再讀會怎樣？腳本用一小段 Python 在同一個 process 裡打開、讀、rmmod、再讀：</p>
+      <p>unbind / bind（腳本第 <span data-ref="scripts/verify_edge_ina219.sh:163-174" data-expect="# Unbind / bind: the hwmon device must leave…expect_probes=2">163–174</span> 行）檢查 hwmon 目錄跟著綁定消失、再出現時只有一個。比較刁鑽的是「有程式在 rmmod 前就打開了檔案」：檔案描述子還在，rmmod 後再讀會怎樣？腳本用一小段 Python 在同一個 process 裡打開、讀、rmmod、再讀：</p>
       <figure class="listing"><figcaption>scripts/verify_edge_ina219.sh:184–199 — pread 從 offset 0 重讀，sysfs 才會再呼叫一次 read callback</figcaption>
 <pre data-start="184" data-hot="189,190,191,193,195,199">if ((expect_probes)); then
     # A reader that opened in1_input before rmmod must get an error afterwards, not the
