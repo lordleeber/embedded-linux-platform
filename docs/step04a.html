@@ -258,7 +258,7 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
           <tr><td>I</td><td>51</td><td>7</td><td>…</td><td>…</td><td>…</td></tr>
         </tbody>
       </table>
-      <p>port Q 從 100 開始，PQ.05 是第 5 支，所以 <b class="hl-key">100 + 5 = 105</b>。先記住一件事，4-b 會用到：Device Tree 用的是另一套編號，binding header 定義成 <code>port × 8 + pin</code>，不管每個 port 實際有幾支腳一律當 8 支算，所以同一根腳在 DT 裡是 15 × 8 + 5 = 125。不要把 header pin 號、DT 編號和 line 編號混用。</p>
+      <p>port Q 從 100 開始，PQ.05 是第 5 支，所以 <b class="hl-key">100 + 5 = 105</b>。對照上一章 <a href="devicetree.html#phandle">DT.6</a>：Device Tree 用的是另一套編號，binding header 定義成 <code>port × 8 + pin</code>，不管每個 port 實際有幾支腳一律當 8 支算，所以同一根腳在 DT 裡是 15 × 8 + 5 = 125，4-b 寫 overlay 時用的就是這個數字。不要把 header pin 號、DT 編號和 line 編號混用。</p>
     </div>
   </section>
 
