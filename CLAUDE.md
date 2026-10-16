@@ -30,7 +30,7 @@ Build / test 指令會隨各 Step 落地而出現；新增時請回來更新本�
 
 1. 主流程：讀基準 → 開分支 → 先寫測試 → 實作 → 對照基線驗證 → 同步文件 → 寫教學頁 → 開 PR。
 2. 寫教學頁時載入 **`/incremental-html-textbook`**，照它用 artifact 的做法寫，但**不發佈到 claude.ai**，寫成完整的單檔 HTML 存成 `docs/stepNN.html`。要等 code 驗證通過後才動筆，而且要由寫 code 的同一個 session 來寫。
-3. **不跑 `cold-read`**。Step 1、2 的章是用舊做法（共用 `style.css` + 冷讀）寫的，保留原樣。
+3. **不跑 `cold-read`**。Step 1 的章（和 `index.html`）是用舊做法寫的：共用的 `docs/style.css` / `docs/enhance.js` 由 `inline_assets.py` 內嵌，寫完跑冷讀，保留原樣。Step 2 的章原本也是，後來在 `a388481` 改寫成現在的單檔樣板，之後和其他章一樣維護（Step 3、4-b 都改過它）。
 4. PR 開出後，使用者會在另一個乾淨的 session 跑 `/code-review`。不要在同一個 session 自己再審一輪 code。
 
 本 repo 的慣例如下：
@@ -39,11 +39,11 @@ Build / test 指令會隨各 Step 落地而出現；新增時請回來更新本�
 |---|---|
 | 教學章 | `docs/stepNN.html`，編號補零成兩位數（`step01.html`、`step23.html`），拆分的 Step 加上字尾（`step10a.html`）。不屬於任何 Step 的補充章（只有教材、沒有 code）用描述性檔名，例如插在 Step 3 與 4-a 之間的 `devicetree.html`（Device Tree 入門），一樣要進 `index.html` 與章節導覽鏈。artifact 風格的完整單檔 HTML：CSS/JS inline、只做暗色主題，以桌面瀏覽器閱讀為準（不要求手機寬度），頁面寬度統一 1080px（最外層 `max-width: 67.5rem`，和 Step 1、2 的章一致），外部資源只用 Google Fonts。頂部和底部各放一組導覽（↑ 目錄、← 前章、後章 →），`check_book.py` 靠它驗章節鏈 |
 | 教材目錄 | `docs/index.html`，卡片順序要和章節順序一致 |
-| 新章上線 | 在前一章頂部和底部的 pagenav 都補上 next 連結，並在 `index.html` 加卡片，再跑 `python3 scripts/check_book.py docs`（這份是從 skill 複製進 repo 的；skill 版本更新時要同步過來） |
+| 新章上線 | 在前一章頂部和底部的 pagenav 都補上 next 連結，並在 `index.html` 加卡片，再跑 `python3 scripts/check_book.py docs`（這份是從 skill 複製進 repo 的；skill 版本更新時要同步過來），以及 `check_listings.py`、`check_line_refs.py`、`check_test_counts.py` |
 | 基線與踩坑紀錄 | `docs/baseline.md`：每個 Step 追加驗收數字、對照方法與容差，以及踩到的坑（坑要寫出「原本以為」什麼）。下一個 Step 開工前要先讀它 |
 | 驗收證據 | 貼在 PR 描述。需要實體硬體才能驗的項目（`dmesg`、示波現象、按鍵、LED 等）要照實標示哪些已實測、哪些尚未實測 |
 | 範圍外缺陷 | 不要順手修，記下來排進 ROADMAP 後續的 Step |
-| 快照同步 | 改到教材有引用的函式或檔案時，用 `grep -l '<名稱>' docs/*.html` 找出受影響的章並一起更新。如果 PR 動到這類檔案卻沒改 docs，視為一個 review finding |
+| 快照同步 | 改到教材有引用的函式或檔案時，用 `grep -l '<名稱>' docs/*.html` 找出受影響的章並一起更新，再跑 `check_listings.py` 與 `check_line_refs.py`。如果 PR 動到這類檔案卻沒改 docs，視為一個 review finding |
 
 ## 規劃中的架構（跨 Phase 的大方向）
 
@@ -85,7 +85,7 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 - Jetson target 環境檢查：`bash scripts/check_host_env.sh`（Step 1）；更新快照用 `bash scripts/check_host_env.sh --record docs/jetson-version.txt`
 - 全部 userspace 測試：`python3 -m unittest discover -s tests -v`
 - 教材全書驗收：`python3 scripts/check_book.py docs`（結束碼：0 = 通過、1 = 檢查沒過、2 = 環境或參數有問題）；章裡「N 個測試」的宣稱寫成 `<span data-tests="tests/<file>.py">N</span>`，用 `python3 scripts/check_test_counts.py docs` 核對（同一套結束碼）
-- 教材共用樣式：改 `docs/style.css` / `docs/enhance.js`（來自 skill 的 assets）後跑 `python3 ~/.claude/skills/completed-repo-to-html-textbook/scripts/inline_assets.py docs` 重新內嵌
+- 教材共用樣式（只有 `step01.html` 與 `index.html` 用；其他章的 CSS / JS 各自寫在檔案裡，改全書樣式時逐章一起改）：改 `docs/style.css` / `docs/enhance.js`（來自 skill 的 assets）後跑 `python3 ~/.claude/skills/completed-repo-to-html-textbook/scripts/inline_assets.py docs` 重新內嵌
 - Kernel module：在 `kernel/<name>/` 下 `make`，以 `insmod` / `rmmod` 載入卸載，觀察 `dmesg`
 - Step 2 `edge_test` 驗收（需 root，sudo 要密碼，請使用者執行）：`sudo bash scripts/verify_edge_test.sh 3`；device 測試單獨跑：`python3 -m unittest discover -s tests -p test_edge_test_device.py -v`（module 未載入時 skip）
 - C++ userspace：在 repo 根目錄 `cmake -S . -B build && cmake --build build`（產出 `build/edge_test_cli`、`build/test_edge_device`；`build/` 不入庫）。`test_edge_device` 結束碼 0/1/77（77 = 裝置不存在而 skip）
@@ -103,4 +103,5 @@ STM32 firmware ──I2C/SPI──▶ Jetson kernel driver ──/dev, sysfs, hw
 - Step 10-c 電池數值顯示（INA219 接線同 6-a、OLED 同 9；overlay 同 10-a；要先載入 `edge_ina219` 與 `edge_oled`）：`build/telemetry_display [--hwmon-root DIR] [--dev PATH] [--interval-ms N] [--stale-ms N] [--count N]`（CMake 產出，預設 `/sys/class/hwmon`、`/dev/edge_oled`、1000、3000、0 = 跑到收到訊號；SIGINT / SIGTERM / SIGHUP 寫一張空白畫面後結束，SIGPIPE 忽略；stdout 每次刷新一行 `#N V=<mV> I=<mA> P=<uW> oled=ok`；結束碼 0/1/2，1 = 最後一次 OLED 寫入失敗）。不接硬體也能跑：`--hwmon-root` 指向假的 hwmon 目錄、`--dev` 指向空的普通檔案。顯示邏輯向量：`build/test_telemetry`。驗收（需 root，**要有人在板子旁回答 y/n**，需要 tty）：`sudo bash scripts/verify_telemetry_display.sh [--no-unplug] [--watch-seconds N]`（會自己 insmod / rmmod 兩個 module；任一個已經載入就以結束碼 2 離開）；不加 `--no-unplug` 時要有人把 OLED 四條線全拔再接回。程序名稱被 kernel 截成 15 字元 `telemetry_displ`，`pgrep -x` 要用這個
 - Step 11 STM32F103 I2C target（Blue Pill PB7 → header pin 27、PB6 → pin 28、GND → pin 20 / 25，`i2c-1` 0x42，和 OLED 同一條 bus；Blue Pill 由 ST-Link V2 供電，ST-Link 插 Jetson USB；不需 root）：建置 `~/.platformio/penv/bin/pio run -d firmware/stm32f103`，燒錄加 `-t upload`（OpenOCD / SWD；第一次要裝 PlatformIO 的 udev 規則，見 `firmware/stm32f103/README.md`）。toolchain 釘 GCC 12.3.1（aarch64 沒有課程用的 7.2.1），不用 `build_type = debug`（GCC 12 的 `as` 不收 `-g2`）。SWD `Examination failed` 時：BOOT0 = 1 + RESET 進 bootloader 再燒，燒完 BOOT0 = 0 + RESET。register：0x00 DEVICE_ID 0xED、0x01 / 0x02 版本 0.1、0x20 LED_CONTROL（0 / 1，其他值丟掉），沒定義的讀 0xFF，讀取不 auto-increment。host 向量：`build/test_i2c_target`。驗收（**要有人看 PC13 LED 回答 y/n**，需要 tty）：`bash scripts/verify_stm32_i2c.sh [--no-look] [--rounds N]`；實機測試：`EDGE_STM32_HW=1 python3 -m unittest discover -s tests -p test_stm32_i2c_target.py -v`（PlatformIO 沒裝時建置測試 skip）。整條 i2c-1 `I2C transfer timed out`、連 ina3221（`i2cget -y 1 0x40 0xfe w` = `0x4954`）都讀不到時，先查有沒有線把 SDA / SCL 拉到 GND
 - 教材程式碼節錄比對：`python3 scripts/check_listings.py docs`（0/1/2）。改到教材有引用的原始檔後一定要跑。後面的 Step 改掉或刪掉舊章教的 code 時，舊章的節錄與測試數宣稱改釘在當時的 commit：`path@REV:A–B`、`data-tests="tests/x.py@REV"`（Step 7 的章釘在 `c818fea`）
+- 教材內文行號比對：`python3 scripts/check_line_refs.py docs`（0/1/2）。內文寫的「第 N 行」與「路徑:N」一律標成 `<span data-ref="PATH[@REV]:A-B,C" data-expect="頭…尾|…">顯示的數字</span>`：每段範圍一個 expect（用 `|` 分隔，原始碼裡的 `|` 寫成 `&#124;`），頭要在範圍第一行、尾要在最後一行（不寫 `…` 時同一段字頭尾都要有，頭尾都不能空），畫面上的數字要和 data-ref 相同；不是原始碼行號的（OLED 畫面的第幾行）標 `data-ref="-"`。沒標記的「第 N 行」（含「至」「到」「和」等寫法、中間夾 tag 或 `&nbsp;` 的）與「x.任何副檔名:N」直接算失敗；節錄圖說 `PATH:A–B — ` 之後的文字也算內文，要標。釘版本的規則同 `check_listings.py`
 - Yocto：kas + BitBake（Phase 10）

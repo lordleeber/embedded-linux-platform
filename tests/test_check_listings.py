@@ -49,6 +49,15 @@ class CheckListingsTest(unittest.TestCase):
         self.page(fig)
         self.assertEqual(self.run_check().returncode, 1)
 
+    def test_markup_in_the_caption_does_not_hide_the_listing(self):
+        # check_line_refs.py marks line numbers inside captions with a <span>.
+        fig = listing("src/x.c", 1, 2, "int b;\nint c &lt;").replace(
+            "— demo", '— 改了第 <span data-ref="src/x.c:2" data-expect="int b">2</span> 行')
+        self.page(fig)
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("listings checked: 1", result.stdout)
+
     def test_missing_source_is_environment_error(self):
         self.page(listing("src/missing.c", 1, 1, "x"))
         result = self.run_check()

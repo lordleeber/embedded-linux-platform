@@ -544,9 +544,9 @@ PASS pad restored to low byte 0x58 «6»
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>cmake</code> 建置再跑腳本</td><td>腳本會以你的身分自己建置（<code>scripts/verify_edge_gpio_blink.sh:59</code>）。</td></tr>
-          <tr><td>跑完手動把 pad 改回去</td><td>腳本一開始記下低位元組（第 46–47 行），結束或中斷時由 <code>cleanup</code> 還原（第 52–55 行）。</td></tr>
-          <tr><td>另外跑實機測試</td><td>第二階段會以你的身分、帶 <code>EDGE_GPIO_HW=1</code> 執行（第 98 行）。</td></tr>
+          <tr><td>先 <code>cmake</code> 建置再跑腳本</td><td>腳本會以你的身分自己建置（<code>scripts/verify_edge_gpio_blink.sh:<span data-ref="scripts/verify_edge_gpio_blink.sh:59" data-expect="--target edge_gpio_blink">59</span></code>）。</td></tr>
+          <tr><td>跑完手動把 pad 改回去</td><td>腳本一開始記下低位元組（第 <span data-ref="scripts/verify_edge_gpio_blink.sh:46-47" data-expect="58) orig_action=close…00) orig_action=open">46–47</span> 行），結束或中斷時由 <code>cleanup</code> 還原（第 <span data-ref="scripts/verify_edge_gpio_blink.sh:52-55" data-expect="cleanup() {…}">52–55</span> 行）。</td></tr>
+          <tr><td>另外跑實機測試</td><td>第二階段會以你的身分、帶 <code>EDGE_GPIO_HW=1</code> 執行（第 <span data-ref="scripts/verify_edge_gpio_blink.sh:98" data-expect="EDGE_GPIO_HW=1">98</span> 行）。</td></tr>
           <tr><td>相信 PASS 就代表 LED 正常</td><td>不行：腳本讀不到腳位電壓。兩個階段都要親眼看 LED，一暗一閃才算通過。</td></tr>
         </tbody>
       </table>

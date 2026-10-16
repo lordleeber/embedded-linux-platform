@@ -288,7 +288,7 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
 
 .PHONY: all clean</pre></figure>
-      <p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」；第 5 行把共用 header 的目錄 <code>include/</code> 加進搜尋路徑（Step 3 加的），第 10 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是編譯 / 連結一個 module 檔。載入時 kernel 靠檔尾兩行找到進入點：</p>
+      <p><code>obj-m := edge_test.o</code> 告訴 kbuild「把 <code>edge_test.c</code> 編成 module」；第 <span data-ref="kernel/edge_test/Makefile:5" data-expect="ccflags-y">5</span> 行把共用 header 的目錄 <code>include/</code> 加進搜尋路徑（Step 3 加的），第 <span data-ref="kernel/edge_test/Makefile:10" data-expect="$(MAKE) -C $(KDIR) M=$(CURDIR) modules">10</span> 行切換到 <code>KDIR</code>（Step 1 檢查過的 headers 目錄）去執行它的 Makefile，再用 <code>M=</code> 指回這個目錄。編譯輸出裡的 <code>CC [M]</code>、<code>LD [M]</code> 就是編譯 / 連結一個 module 檔。載入時 kernel 靠檔尾兩行找到進入點：</p>
       <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:194–204 — 卸載函式與進入點登記</figcaption>
 <pre data-start="194" data-hot="203-204">static void __exit edge_test_exit(void)
 {
@@ -392,8 +392,8 @@ out:
 }</pre></figure>
       <p><code>ubuf</code> 帶著 <code>__user</code> 標記：它是 <b>userspace 的位址</b>，kernel 不能直接 dereference。<code>copy_from_user()</code> 會檢查位址範圍、碰到 page fault 也能安全收場，回傳沒複製成功的 byte 數。driver 成功回寫入的 byte 數、失敗回負的 errno；syscall 那層再轉成 <code>write()</code> 回 -1、<code>errno</code> 設成 <code>ENOSPC</code> 或 <code>EFAULT</code>。</p>
       <ul>
-        <li>寫 300 bytes 到空的 buffer：第 91 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>。</li>
-        <li>像 <code>head</code> 這種會把資料寫完的程式會再送剩下的 44 bytes；這時 <code>*ppos</code> 已經是 256，第 87–89 行回 <code>-ENOSPC</code>，<code>head</code> 印出 <code>No space left on device</code>（2.9 節實測）。</li>
+        <li>寫 300 bytes 到空的 buffer：第 <span data-ref="kernel/edge_test/edge_test.c:91" data-expect="min_t">91</span> 行把 <code>count</code> 截成 256，回傳 256。這叫 <b>short write</b>。</li>
+        <li>像 <code>head</code> 這種會把資料寫完的程式會再送剩下的 44 bytes；這時 <code>*ppos</code> 已經是 256，第 <span data-ref="kernel/edge_test/edge_test.c:87-89" data-expect="if (*ppos &gt;= EDGE_TEST_BUF_SIZE)…goto out;">87–89</span> 行回 <code>-ENOSPC</code>，<code>head</code> 印出 <code>No space left on device</code>（2.9 節實測）。</li>
       </ul>
       <p>所有存取 buffer 的地方都在 <code>edge_test_lock</code> 底下。kernel 的 mutex 拿不到時讓執行緒去睡，跟 pthread mutex 類似；spinlock 拿不到時原地空轉、持有期間不准睡。<code>copy_from_user()</code> 碰到還沒載入記憶體的 user page 會觸發 page fault 並等待（也就是「睡眠」），所以這裡只能用 mutex。</p>
     </div>
@@ -425,7 +425,7 @@ out:
 	mutex_unlock(&amp;edge_test_lock);
 	return ret;
 }</pre></figure>
-      <p><b class="hl-key"><code>*ppos</code> 是這一次 open 的讀寫位置</b>，存在 <code>struct file</code> 的 <code>f_pos</code>，每個 <code>open()</code> 各有一份。<code>cat</code> 會一直 <code>read()</code> 到回傳 0，所以第 61–62 行的 EOF 一定要有，否則 <code>cat</code> 會無限迴圈。</p>
+      <p><b class="hl-key"><code>*ppos</code> 是這一次 open 的讀寫位置</b>，存在 <code>struct file</code> 的 <code>f_pos</code>，每個 <code>open()</code> 各有一份。<code>cat</code> 會一直 <code>read()</code> 到回傳 0，所以第 <span data-ref="kernel/edge_test/edge_test.c:61-62" data-expect="if (*ppos &gt;= edge_test_data_len)…/* EOF */">61–62</span> 行的 EOF 一定要有，否則 <code>cat</code> 會無限迴圈。</p>
       <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:38–47 — open 時處理 O_TRUNC</figcaption>
 <pre data-start="38" data-hot="40-42">static int edge_test_open(struct inode *inode, struct file *file)
 {
@@ -453,7 +453,7 @@ static char *edge_test_devnode(struct device *dev, umode_t *mode)
 		*mode = 0666;
 	return NULL;
 }</pre></figure>
-      <p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>。第 172 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>；回傳 <code>NULL</code> 表示節點名稱不改。學習用的 buffer 裝置這樣方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，應該用 udev（收到 uevent 後依規則調整節點的 userspace 程式）的 rule 指定 group。</p>
+      <p>devtmpfs 建出來的節點預設是 <code>root</code> 所有、權限 <code>0600</code>。第 <span data-ref="kernel/edge_test/edge_test.c:172" data-expect="devnode = edge_test_devnode">172</span> 行（2.3 節的 init 節錄）把這個 callback 掛到 class 上，節點建立時就是 <code>0666</code>；回傳 <code>NULL</code> 表示節點名稱不改。學習用的 buffer 裝置這樣方便；<b class="hl-bad">控制真實硬體的節點不要開成 0666</b>，應該用 udev（收到 uevent 後依規則調整節點的 userspace 程式）的 rule 指定 group。</p>
     </div>
   </section>
 
@@ -533,7 +533,7 @@ AssertionError: b'\x00\x00\x00\x00' != b'safe'</pre>
 }</pre>
         </div>
         <div>
-          <div class="tag ok">修正版 · 見 2.4 節第 97–101 行</div>
+          <div class="tag ok">修正版 · 見 2.4 節第 <span data-ref="kernel/edge_test/edge_test.c:97-101" data-expect="if (copy_from_user(tmp, ubuf, count))…memcpy(edge_test_buf">97–101</span> 行</div>
 <pre>if (copy_from_user(tmp, ubuf, count)) {
 	ret = -EFAULT;
 	goto out;
@@ -633,10 +633,10 @@ PASS dmesg shows 3 load / 3 unload messages
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:42</code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
+          <tr><td>先 <code>make</code> 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:<span data-ref="scripts/verify_edge_test.sh:42" data-expect="make -C &quot;$MOD_DIR&quot;">42</span></code>），而且以你的身分 build，不會留下 root 所有的檔案。</td></tr>
           <tr><td>先 <code>mknod /dev/edge_test</code></td><td>不用；<code>device_create()</code> 讓 devtmpfs 自動建立節點。</td></tr>
-          <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 33–39 行）在任何結束路徑都會卸載。</td></tr>
-          <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 64–65、129 行），並自動比對 load/unload 次數。</td></tr>
+          <tr><td>測試失敗後要手動 <code>rmmod</code></td><td>不用；<code>trap cleanup EXIT</code>（第 <span data-ref="scripts/verify_edge_test.sh:33-39" data-expect="cleanup() {…trap cleanup EXIT">33–39</span> 行）在任何結束路徑都會卸載。</td></tr>
+          <tr><td>跑完要自己翻 <code>dmesg</code></td><td>腳本只看本次執行的區段（第 <span data-ref="scripts/verify_edge_test.sh:64-65,129" data-expect="marker=&quot;edge_test verify…&gt; /dev/kmsg|sed -n &quot;/$marker/">64–65、129</span> 行），並自動比對 load/unload 次數。</td></tr>
         </tbody>
       </table>
       <p>不需要 root 的部分可以單獨跑：</p>

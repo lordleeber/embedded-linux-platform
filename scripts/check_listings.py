@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 LISTING = re.compile(
-    r'<figure class="listing"><figcaption>([^<:]+):(\d+)–(\d+) — [^<]*</figcaption>\s*'
+    r'<figure class="listing"><figcaption>([^<:]+):(\d+)–(\d+) — .*?</figcaption>\s*'
     r'<pre data-start="(\d+)"[^>]*>(.*?)</pre>', re.S)
 
 

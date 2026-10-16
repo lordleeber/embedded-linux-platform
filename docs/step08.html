@@ -409,7 +409,7 @@ static inline s64 edge_ina219_current_ma(u16 raw, u16 cal, s32 shunt_mohm)
     if cat "$hw/curr1_input" &gt;/dev/null; then pass "Cal 26868 written back: curr1_input reads again"; else fail "curr1_input after restoring Cal"; fi</pre></figure>
       <p><code>i2cset ... w</code> 的值要 byte 對調，6-b 踩過這個坑：要寫進晶片的 Calibration 是 <code>0x68F4</code>，命令列上要寫 <code>0xf468</code>。腳本開頭的 <code>cleanup</code> 也會在中途中斷時寫回這個值。靜態測試 <code>test_i2cset_only_zeroes_and_restores_calibration</code> 確保腳本裡的 <code>i2cset</code> 只做這兩種寫入。</p>
       <h3>stale node：unbind / bind，以及 rmmod 前打開的檔案</h3>
-      <p>unbind / bind（腳本第 163–174 行）檢查 hwmon 目錄跟著綁定消失、再出現時只有一個。比較刁鑽的是「有程式在 rmmod 前就打開了檔案」：檔案描述子還在，rmmod 後再讀會怎樣？腳本用一小段 Python 在同一個 process 裡打開、讀、rmmod、再讀：</p>
+      <p>unbind / bind（腳本第 <span data-ref="scripts/verify_edge_ina219.sh:163-174" data-expect="# Unbind / bind: the hwmon device must leave…expect_probes=2">163–174</span> 行）檢查 hwmon 目錄跟著綁定消失、再出現時只有一個。比較刁鑽的是「有程式在 rmmod 前就打開了檔案」：檔案描述子還在，rmmod 後再讀會怎樣？腳本用一小段 Python 在同一個 process 裡打開、讀、rmmod、再讀：</p>
       <figure class="listing"><figcaption>scripts/verify_edge_ina219.sh:184–199 — pread 從 offset 0 重讀，sysfs 才會再呼叫一次 read callback</figcaption>
 <pre data-start="184" data-hot="189,190,191,193,195,199">if ((expect_probes)); then
     # A reader that opened in1_input before rmmod must get an error afterwards, not the
@@ -440,7 +440,7 @@ EOF
       <ul>
         <li><b><code>tests/test_edge_ina219_static.py</code></b>：共 <span data-tests="tests/test_edge_ina219_static.py">30</span> 個，不需要硬體。Step 7 的「沒有 hwmon」「屬性唯讀」兩個換成五個：用 <code>devm_hwmon_device_register_with_info</code> 註冊且名字是 <code>edge_ina219</code>、channel 宣告正好是兩路 in（含 label）加 curr1、power1、<code>is_visible</code> 只回 <code>0444</code>、read callback 遇錯 return 且沒有 static 數值、沒有任何私有屬性；算式改成檢查 hwmon 單位的函式；驗收腳本多兩個（<code>i2cset</code> 只寫 Cal 0 與還原值、有 hwmon / ENODEV / unbind / bind 檢查）。</li>
         <li><b><code>tests/test_edge_ina219_device.py</code></b>：共 <span data-tests="tests/test_edge_ina219_device.py">11</span> 個，只有 <code>7-0041</code> 綁在 <code>edge_ina219</code> 時才跑：<code>name</code> 與 class 連結、class 裡只有一個 <code>edge_ina219</code>（沒有 <code>name</code> 檔的 hwmon 裝置略過）、probe 寫入的 Config / Cal 是範例值（hwmon 沒有對應的檔，用 <code>ina219_raw</code> 讀；驗收模式下沒建好工具算失敗，不 skip）、檔案 0444、只有宣告的 channel、label、私有屬性已消失、整數加換行、電壓 9.0～12.8 V、和 <code>ina219_raw</code> 比（電壓 ≤ 40 mV、shunt ≤ 1 mV、電流 ≤ 50 mA、功率 ≤ 700 mW；shunt 比 Step 7 寬 0.5 mV，是取整數 mV 的捨入）、四個檔各讀 1000 次。這一份<b class="hl-bad">沒有看過紅燈</b>：要用 root 載入 Step 7 的 module 才跑得起來，這次沒做。</li>
-        <li><b>文件工具</b>：<code>scripts/check_listings.py</code> 與 <code>check_test_counts.py</code> 加了 <code>path@REV</code>（8.10 的第一個坑），加了測試（<span data-tests="tests/test_check_listings.py">7</span> 個與 <span data-tests="tests/test_check_test_counts.py">7</span> 個）。</li>
+        <li><b>文件工具</b>：<code>scripts/check_listings.py</code> 與 <code>check_test_counts.py</code> 加了 <code>path@REV</code>（8.10 的第一個坑），加了測試（<span data-tests="tests/test_check_listings.py@5d7dcd8">7</span> 個與 <span data-tests="tests/test_check_test_counts.py">7</span> 個）。</li>
       </ul>
       <p>在 repo 根目錄跑不需硬體的那一份（約 1 秒，會順便在 <code>kernel/edge_ina219/</code> 裡編 module）：</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p test_edge_ina219_static.py</pre>
