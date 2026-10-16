@@ -87,7 +87,9 @@ figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-m
 pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
 figure.listing pre, figure.snippet pre { margin: 0; }
 .hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
-.ln::before { content: attr(data-n); display: inline-block; width: var(--lnw, 3ch); margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
+/* The gutter is exactly one tab stop wide (6.5ch + 1.5ch = 8ch = tab-size), so tabs in the code still land on the source file's columns.
+   The second content line gives screen readers empty alt text; browsers without that syntax keep the first one. */
+.ln::before { content: attr(data-n); content: attr(data-n) / ""; display: inline-block; width: 6.5ch; margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
 pre .c { color: var(--term-dim); }
 pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
 pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
@@ -917,18 +919,18 @@ PASS dmesg shows 1 probe / 1 remove
 <script>
 /* Listings: number every line with its line number in the source file (data-start), and highlight data-hot lines.
    The number is drawn by CSS ::before, so copying the code does not copy the numbers. */
-document.querySelectorAll('pre[data-start]').forEach(function (pre) {
-  var start = parseInt(pre.dataset.start, 10);
+document.querySelectorAll('pre[data-start], pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
   var hot = new Set();
   (pre.dataset.hot || '').split(',').filter(Boolean).forEach(function (part) {
     var r = part.split('-').map(Number);
     for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
   });
+  var numbered = pre.hasAttribute('data-start');  // without it the source line numbers are unknown: highlight only
   var lines = pre.innerHTML.split('\n');
-  pre.style.setProperty('--lnw', String(start + lines.length - 1).length + 'ch');
   pre.innerHTML = lines.map(function (line, i) {
-    var n = start + i;
-    return '<span class="ln' + (hot.has(n) ? ' hot' : '') + '" data-n="' + n + '">' + line + '</span>';
+    var n = start + i, cls = [numbered ? 'ln' : '', hot.has(n) ? 'hot' : ''].join(' ').trim();
+    return cls ? '<span class="' + cls + '" data-n="' + n + '">' + line + '</span>' : line;
   }).join('\n');
 });
 document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
