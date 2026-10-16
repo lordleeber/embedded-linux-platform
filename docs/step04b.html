@@ -159,7 +159,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2>硬體描述不該寫死在程式裡</h2>
       <p>4-a 的 <code>edge_gpio_blink</code> 把「<code>gpiochip0</code> 的 line 105」寫死在 C++ 裡，pad 要另外用 root 跑 <code>pad_pin29.py</code> 打開。換一塊板子、LED 改接別根腳、改成反向接法，就得改程式、重新編譯，而 pad 的設定 kernel 完全不知道。</p>
-      <p>Linux 在 ARM 板子上的做法是把「板子上有什麼、接在哪裡」寫成 <b>Device Tree</b>，driver 只說「我認得哪一種裝置」。開機時 kernel 讀 Device Tree，為每個節點建立一個 device；platform bus 拿 device 的 <code>compatible</code> 去比對已註冊 driver 的清單，對上了就呼叫那個 driver 的 <code>probe()</code>。driver 在 <code>probe()</code> 裡向 kernel 要「這個 device 的 led GPIO」，拿到的已經是 DT 裡寫好的那根腳和極性。</p>
+      <p>Linux 在 ARM 板子上的做法是把「板子上有什麼、接在哪裡」寫成 <b>Device Tree</b>（語法與機制見 <a href="devicetree.html">Device Tree 入門</a>），driver 只說「我認得哪一種裝置」。開機時 kernel 讀 Device Tree，為每個節點建立一個 device；platform bus 拿 device 的 <code>compatible</code> 去比對已註冊 driver 的清單，對上了就呼叫那個 driver 的 <code>probe()</code>。driver 在 <code>probe()</code> 裡向 kernel 要「這個 device 的 led GPIO」，拿到的已經是 DT 裡寫好的那根腳和極性。</p>
       <p><b>互動雙方</b>：controller 是 Jetson 上的 kernel driver <code>edge_gpio.ko</code>，target 是 GPIO controller 與 pin 29 的 pad，最後是麵包板上的 LED。userspace 只看到 <code>/dev/edge_gpio</code>：寫 <code>1</code> 亮、寫 <code>0</code> 暗。<b>這一步不做</b>：IRQ、按鈕（Step 5-a、5-b）。</p>
       <dl class="terms">
         <dt>Device Tree</dt><dd>描述硬體的一棵樹，編譯成二進位的 <code>.dtb</code>，開機時交給 kernel。每個節點描述一個裝置：它是什麼（<code>compatible</code>）、用到哪些資源（暫存器、GPIO、中斷）。</dd>

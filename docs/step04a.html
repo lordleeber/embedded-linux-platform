@@ -139,7 +139,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04b.html">Step 4-b →</a></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="devicetree.html">← Device Tree 入門</a><a href="step04b.html">Step 4-b →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 4-a · userspace GPIO</div>
     <h1>先在 userspace 點亮 pin 29</h1>
@@ -168,7 +168,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <dt>gpiochip</dt><dd>kernel 把每個 GPIO controller 開放成一個字元裝置 <code>/dev/gpiochipN</code>。userspace 打開它、用 ioctl 請求 line，就能控制 GPIO，不需要寫 driver。</dd>
         <dt>pad</dt><dd>晶片邊緣和外界接觸的那一小塊電路。裡面有輸出驅動器、輸入接收器、上拉／下拉電阻，以及一個選擇這根腳給哪個功能用的多工器。GPIO controller 決定「想輸出 1」，pad 決定這個 1 能不能變成腳位上的電壓。</dd>
         <dt>tristate</dt><dd>輸出的第三種狀態「高阻抗」（Hi-Z）：輸出驅動器和腳位斷開，既不推高也不拉低。</dd>
-        <dt>pinmux / pinctrl</dt><dd>設定 pad 的硬體暫存器叫 pinmux；Linux 管理它們的子系統叫 pinctrl。4-b 會用 Device Tree 透過 pinctrl 設定 pad，本章先直接寫暫存器。</dd>
+        <dt>pinmux / pinctrl</dt><dd>設定 pad 的硬體暫存器叫 pinmux；Linux 管理它們的子系統叫 pinctrl。4-b 會用 Device Tree 透過 pinctrl 設定 pad，本章先直接寫暫存器。三個詞的分別與 DT 的寫法見 <a href="devicetree.html#pinctrl">Device Tree 入門 DT.9</a>。</dd>
         <dt>/dev/mem</dt><dd>把實體位址空間攤開成一個檔案的特殊裝置。SoC 的暫存器都對應到某個實體位址，所以 root 可以透過它直接讀寫硬體暫存器，完全繞過 kernel 的 driver。</dd>
       </dl>
     </div>
@@ -258,7 +258,7 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
           <tr><td>I</td><td>51</td><td>7</td><td>…</td><td>…</td><td>…</td></tr>
         </tbody>
       </table>
-      <p>port Q 從 100 開始，PQ.05 是第 5 支，所以 <b class="hl-key">100 + 5 = 105</b>。先記住一件事，4-b 會用到：Device Tree 用的是另一套編號，binding header 定義成 <code>port × 8 + pin</code>，不管每個 port 實際有幾支腳一律當 8 支算，所以同一根腳在 DT 裡是 15 × 8 + 5 = 125。不要把 header pin 號、DT 編號和 line 編號混用。</p>
+      <p>port Q 從 100 開始，PQ.05 是第 5 支，所以 <b class="hl-key">100 + 5 = 105</b>。對照上一章 <a href="devicetree.html#phandle">DT.6</a>：Device Tree 用的是另一套編號，binding header 定義成 <code>port × 8 + pin</code>，不管每個 port 實際有幾支腳一律當 8 支算，所以同一根腳在 DT 裡是 15 × 8 + 5 = 125，4-b 寫 overlay 時用的就是這個數字。不要把 header pin 號、DT 編號和 line 編號混用。</p>
     </div>
   </section>
 
@@ -585,7 +585,7 @@ PASS pad restored to low byte 0x58 «6»
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04b.html">Step 4-b →</a></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="devicetree.html">← Device Tree 入門</a><a href="step04b.html">Step 4-b →</a></nav>
 </main>
 
 <script>
