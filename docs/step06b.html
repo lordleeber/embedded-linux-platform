@@ -478,7 +478,7 @@ EDGE_INA219_HW=1 python3 -m unittest discover -s tests -p 'test_ina219_raw.py' -
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先建置 <code>build/ina219_raw</code></td><td>腳本自己跑 <code>cmake</code>（第 35 行起）</td></tr>
+          <tr><td>先建置 <code>build/ina219_raw</code></td><td>腳本自己跑 <code>cmake</code>（第 38–39 行）</td></tr>
           <tr><td>知道 bus 是 7</td><td>腳本用 <code>i2cdetect -l</code> 找名稱是 <code>c250000.i2c</code> 的 bus，並用 <code>EDGE_INA219_BUS</code> 傳給實機測試</td></tr>
           <tr><td>i2cset 要寫什麼值</td><td>腳本把剛讀到的 Calibration 原樣寫回，<b>會寫入晶片</b>，但值不變</td></tr>
         </tbody>

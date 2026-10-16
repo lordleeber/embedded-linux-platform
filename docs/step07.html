@@ -586,7 +586,7 @@ sudo reboot</pre>
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>make -C kernel/edge_ina219</code>、建置 <code>build/ina219_raw</code></td><td>腳本以 <code>sudo</code> 前的使用者身分自己編（第 55–64 行）</td></tr>
+          <tr><td>先 <code>make -C kernel/edge_ina219</code>、建置 <code>build/ina219_raw</code></td><td>腳本以 <code>sudo</code> 前的使用者身分自己編（第 64–73 行）</td></tr>
           <tr><td>知道 bus 是 7</td><td>用 <code>i2cdetect -l</code> 找 <code>c250000.i2c</code>，再把 bus 號傳給 device 測試</td></tr>
           <tr><td><code>insmod</code> / <code>rmmod</code></td><td>腳本自己載入、卸載；中途中斷時 <code>trap</code> 會 <code>rmmod</code>、刪掉 0x45 的 client</td></tr>
           <tr><td>判斷這次開機有沒有 DT 節點</td><td>看 <code>/proc/device-tree/bus@0/i2c@c250000/ina219@41</code>：沒有就只檢查「什麼都不綁定」</td></tr>
