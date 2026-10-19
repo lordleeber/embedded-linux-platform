@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UEFI 之前 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from devicetree.html). Layout: a 1080px column with a left rail per section. Dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 100ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 100ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure svg a:hover .s-box { fill: var(--surface-2); }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-side { stroke: var(--user); stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+/* The gutter is exactly one tab stop wide (6.5ch + 1.5ch = 8ch = tab-size), so tabs in the code still land on the source file's columns.
+   The second content line gives screen readers empty alt text; browsers without that syntax keep the first one. */
+.ln::before { content: attr(data-n); content: attr(data-n) / ""; display: inline-block; width: 6.5ch; margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 30%; }
+
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="uefi.html">UEFI 與開機 →</a></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · 補充章 · 開機流程</div>
+    <h1>UEFI 之前：上電後最早跑的那幾層韌體</h1>
+    <p class="lede">下一章的 UEFI 是「最先讓我們看得到東西的一層」，但它不是第一個跑的程式。按下電源到 UEFI 開始之間，還有 BootROM、MB1、MB2 和一批跑在別的處理器上的韌體。這些在執行中的 Linux 裡<b>幾乎看不到</b>，所以這一章分清楚三件事：哪些是 NVIDIA 文件的說法、哪些能從更新包的檔案名稱間接看到、哪些在 kernel 的開機訊息裡有直接的痕跡。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7（nvidia-l4t-bootloader 36.4.7-20250918154033）· 新增 <span class="new">docs/bootchain.html</span>；修改 docs/{index.html, step03.html, uefi.html}、CLAUDE.md。不新增 code，所有指令只讀不寫、不需要 root</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--hw)">板子上的韌體（晶片內的 ROM、flash 裡的各層韌體）</span>
+      <span style="--c: var(--kern)">kernel</span>
+      <span style="--c: var(--accent)">從 Linux 看得到的證據</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">BC.1</span><b>起點</b>為什麼有好幾層</div>
+    <div class="content">
+      <h2>UEFI 要有地方跑，才有辦法讓你看到它</h2>
+      <p>UEFI 是一支幾十 MB 的程式，要用到 DRAM、要讀 NVMe、要有時脈和電源。可是剛上電時，DRAM 還沒初始化、時脈是預設值、除了 SoC 內建的少量 SRAM 以外沒有可用的記憶體。所以必須有更小、更簡單的程式先把這些硬體準備好，再把下一層載進來。每一層只做自己那一步，載入下一層，這就是一條<b>開機鏈</b>。</p>
+      <p>第二個原因是安全：NVIDIA 的文件說，晶片裡有一個叫 PSCROM 的 ROM，持有金鑰，替 BootROM 驗證、解密後面載入的階段，並稽核下一階段，讓信任從晶片內不能改的 ROM 開始往後接（這章不展開 Secure Boot，只在這裡先交代為什麼要分層）。</p>
+      <p><b>互動雙方</b>：<b>載入的一方</b>是前一層，<b>被載入的一方</b>是後一層，載入來源是 SoC 外的 QSPI flash（板子上的一顆小容量 flash，放所有早期韌體）。每一層跑完就把控制權交給下一層。<b>這一章不做</b>：不讀、不寫、不更新 flash，不講 Secure Boot 與簽章，不解開韌體映像。</p>
+      <div class="callout"><p><b>先講好證據的等級</b>：這一章大部分內容（誰載入誰、每層做什麼）來自 NVIDIA 的文件和我的背景知識，在這台板子上<b>沒有逐項驗證</b>。能在板子上確認的只有兩類：更新包檔案裡出現的名稱、kernel 開機訊息裡出現的字串。每一節都會標明是哪一種。</p></div>
+      <dl class="terms">
+        <dt>BootROM / PSCROM</dt><dd>BootROM 燒在 SoC 晶片裡、出廠後不能修改，上電後第一個執行；依 NVIDIA 文件，它在 BPMP（下面會講）離開 reset 時開始跑，初始化開機媒體，載入 BR-BCT、PSCBL1、MB1 與 MB1-BCT 後就停下。PSCROM 是另一個固定在晶片裡的 ROM，負責驗證與解密。</dd>
+        <dt>QSPI flash</dt><dd>板上一顆小容量、斷電後內容還在的 flash 晶片。SPI 是一種簡單的序列匯流排，Q（Quad）是一次用 4 條資料線傳輸；Tegra 的 QSPI 控制器支援單線、雙線與四線（NVIDIA 文件）。依文件，cold boot 時 BPMP 的開機程式和下一階段 UEFI 都放在它裡面。注意它不是 NVMe，rootfs 不在這裡。<b>它的容量 NVIDIA 的文件沒有明寫，這章沒有確認</b>（有第三方文章寫 16 MB，我沒找到官方出處，所以不採用）。</dd>
+        <dt>MB1 / MB2</dt><dd>NVIDIA 的第一、第二層 bootloader（Microboot 1、2）。依文件，MB1 跑在 BPMP 上，由 BootROM 載入到晶片內的 SRAM，負責平台設定、SDRAM（DRAM）初始化、載入韌體與載入 MB2；MB2 跑在 CPU 複合體（CCPLEX）上，另有一個跑在 BPMP 上、負責偵測裝置型號的 MB2 Applet。UEFI 在文件裡稱為 CPUBL（給 CPU 的 bootloader）。<b>誰載入 UEFI，我查到的文件摘錄沒寫</b>，這章不下結論。</dd>
+        <dt>BCT</dt><dd>Boot Configuration Table，給早期韌體用的設定資料。更新包的字串裡有 <code>MB1_BCT</code>。</dd>
+        <dt>BPMP</dt><dd>Boot and Power Management Processor，SoC 裡一顆獨立的小處理器，跑自己的韌體（BPMP-FW），管時脈、電源與 reset。</dd>
+        <dt>TF-A / BL31</dt><dd>Arm Trusted Firmware 的常駐部分，跑在比 kernel 更高的特權級（EL3），提供 PSCI（開關 CPU 核心的標準介面）等服務。這是我的背景知識；這次查的 NVIDIA Boot Flow 頁面沒有提到 TF-A 和 OP-TEE。</dd>
+        <dt>OP-TEE</dt><dd>Trusted Execution Environment 的作業系統，跑在 secure world，更新包裡叫 <code>tos</code>（trusted OS）。</dd>
+        <dt>capsule（.Cap）</dt><dd>UEFI 規格定義的韌體更新包格式。<code>nvidia-l4t-bootloader</code> 套件把整組早期韌體包成 <code>.Cap</code> 放在 <code>/opt/ota_package</code>。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="journey">
+    <div class="rail"><span class="no">BC.2</span><b>全景</b>BootROM → UEFI</div>
+    <div class="content">
+      <h2>五層，和它們在 Linux 裡留下的痕跡</h2>
+      <p>左邊是開機的順序（依 NVIDIA 文件），右邊是這台板子上<b>能找到的證據</b>。右邊的方框如果是虛線，代表這一層在執行中的 Linux 裡找不到任何東西。每個方框都可以點，跳到講那一站的小節。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 520" role="img" aria-label="開機鏈五層：SoC 內的 BootROM、MB1、MB2、跑在各處理器與特權級的其他韌體（BPMP-FW、TF-A BL31、OP-TEE 等）、UEFI；右邊對應各層在 Linux 裡的證據：BootROM 沒有、MB1 與 MB2 只有更新包的名稱、其他韌體有 kernel 開機訊息、UEFI 有 efi 開機訊息與 efibootmgr">
+          <defs>
+            <marker id="mBcDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="55">1</text>
+          <rect class="s-box" x="130" y="20" width="330" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="295" y="46" text-anchor="middle">BootROM</text>
+          <text class="s-sm" x="295" y="68" text-anchor="middle">SoC 晶片內的 ROM，不能改（PSCROM 輔助驗證）</text>
+          <rect class="s-box" x="490" y="20" width="250" height="62" rx="9" style="stroke: var(--muted); stroke-dasharray: 6 4"/>
+          <text class="s-sm" x="615" y="47" text-anchor="middle">Linux 裡找不到</text>
+          <text class="s-sm" x="615" y="66" text-anchor="middle">只在 DT 看得到 Force Recovery 按鍵</text>
+          <text class="s-mono" x="14" y="139">2</text>
+          <a href="#package"><rect class="s-box" x="130" y="104" width="330" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="295" y="130" text-anchor="middle">MB1</text>
+          <text class="s-sm" x="295" y="152" text-anchor="middle">DRAM 初始化、載入韌體與 MB2（文件）</text>
+          <rect class="s-box" x="490" y="104" width="250" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-sm" x="615" y="131" text-anchor="middle">更新包的字串：</text>
+          <text class="s-mono" x="615" y="150" text-anchor="middle">mb1、MB1_BCT</text></a>
+          <text class="s-mono" x="14" y="223">3</text>
+          <a href="#package"><rect class="s-box" x="130" y="188" width="330" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="295" y="214" text-anchor="middle">MB2</text>
+          <text class="s-sm" x="295" y="236" text-anchor="middle">跑在 CPU 複合體上（文件）</text>
+          <rect class="s-box" x="490" y="188" width="250" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-sm" x="615" y="215" text-anchor="middle">更新包的字串：</text>
+          <text class="s-mono" x="615" y="234" text-anchor="middle">MB2_PARAMS、MB2_KERNEL_LOAD</text></a>
+          <text class="s-mono" x="14" y="307">4</text>
+          <a href="#trace"><rect class="s-box" x="130" y="272" width="330" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="295" y="298" text-anchor="middle">BPMP-FW、TF-A BL31、OP-TEE…</text>
+          <text class="s-sm" x="295" y="320" text-anchor="middle">跑在別的處理器或更高的特權級</text>
+          <rect class="s-box" x="490" y="272" width="250" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-sm" x="615" y="299" text-anchor="middle">kernel 開機訊息：</text>
+          <text class="s-mono" x="615" y="318" text-anchor="middle">tegra-bpmp、psci、optee</text></a>
+          <line class="sv-edge" x1="10" y1="352" x2="750" y2="352"/>
+          <text class="s-sm edge-lbl" x="750" y="368" text-anchor="end">下一章從這裡開始 ↓</text>
+          <text class="s-mono" x="14" y="415">5</text>
+          <a href="uefi.html"><rect class="s-box" x="130" y="380" width="330" height="62" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="295" y="406" text-anchor="middle">UEFI（更新包的 cpu-bootloader）</text>
+          <text class="s-sm" x="295" y="428" text-anchor="middle">讀 BootOrder，載入 L4TLauncher</text>
+          <rect class="s-box" x="490" y="380" width="250" height="62" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-sm" x="615" y="407" text-anchor="middle">kernel 開機訊息與 efibootmgr：</text>
+          <text class="s-mono" x="615" y="426" text-anchor="middle">EFI v2.70 by EDK II</text></a>
+          <line class="sv-down" x1="295" y1="83" x2="295" y2="100" marker-end="url(#mBcDown)"/>
+          <line class="sv-down" x1="295" y1="167" x2="295" y2="184" marker-end="url(#mBcDown)"/>
+          <line class="sv-down" x1="295" y1="251" x2="295" y2="268" marker-end="url(#mBcDown)"/>
+          <line class="sv-down" x1="295" y1="335" x2="295" y2="376" marker-end="url(#mBcDown)"/>
+        </svg>
+        <figcaption>圖 000.1 — 從上電到 UEFI 有五層，左邊的順序和分工是 NVIDIA 文件的說法；右邊的證據才是這台板子上實際看得到的，越早的層證據越少。第 4 層（BPMP-FW、TF-A、OP-TEE）嚴格說不是一個「先後」的單一步驟，而是早期各階段陸續載入、之後一直留在背景跑的幾個東西，圖裡把它們畫成一格。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="where">
+    <div class="rail"><span class="no">BC.3</span><b>在哪裡</b>flash 與 slot</div>
+    <div class="content">
+      <h2>早期韌體在 QSPI flash，從 Linux 讀不到它</h2>
+      <p>rootfs 在 NVMe，但前面那五層不在。板子上的設定檔記得它們放在哪：</p>
+<pre class="cmd">cat /etc/nv_boot_control.conf
+ls /dev/mtd*
+cat /proc/mtd
+nvbootctrl dump-slots-info 2&gt;/dev/null</pre>
+      <p>2026-10-19 的實測輸出：</p>
+<pre class="out" data-marks><span class="prompt">$</span> cat /etc/nv_boot_control.conf
+TNSPEC 3767-300-0005-T.1-1-1-jetson-orin-nano-devkit-super-
+COMPATIBLE_SPEC 3767--0005--1--jetson-orin-nano-devkit-super-
+TEGRA_BOOT_STORAGE nvme0n1 «1»
+TEGRA_CHIPID 0x23 «2»
+TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0 «3»
+TEGRA_OTA_GPT_DEVICE /dev/mtdblock0
+<span class="prompt">$</span> ls /dev/mtd*
+ls: cannot access '/dev/mtd*': No such file or directory «4»
+<span class="prompt">$</span> cat /proc/mtd
+dev:    size   erasesize  name
+<span class="prompt">$</span> nvbootctrl dump-slots-info 2&gt;/dev/null
+Current version: 0.0.13
+Capsule update status: 0
+Current bootloader slot: B «5»
+Active bootloader slot: B
+num_slots: 2
+slot: 0,             status: normal
+slot: 1,             status: normal</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>TEGRA_BOOT_STORAGE</code>：rootfs（以及 ESP）在 <code>nvme0n1</code>。這是「UEFI 之後」的儲存裝置。</span></li>
+        <li><span class="mk">2</span><span><code>TEGRA_CHIPID 0x23</code> 是 T234，也就是 Orin 這一代的 SoC。</span></li>
+        <li><span class="mk">3</span><span><code>TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0</code>：設定檔把更新的目標寫成一個 MTD（flash）區塊裝置，和 NVMe 無關；它指的是放早期韌體的 QSPI flash。</span></li>
+        <li><span class="mk">4</span><span>可是現在這個 kernel 沒有任何 <code>/dev/mtd*</code>，<code>/proc/mtd</code> 也只有標題。意思是：<b>從這個執行中的 Linux，沒辦法直接讀那顆 flash</b>。這章沒有追究為什麼設定檔寫了這個節點、系統裡卻沒有。</span></li>
+        <li><span class="mk">5</span><span>bootloader 有 A、B 兩組 slot，目前用 B，兩組狀態都是 <code>normal</code>。A/B 是為了更新韌體失敗時能退回舊的一組；這章不展開，Step 規劃裡有需要時再回頭看。<code>Current version: 0.0.13</code> 是什麼的版本，這章沒有查。</span></li>
+      </ol>
+      <p><code>nvbootctrl</code> 不加 <code>2&gt;/dev/null</code> 時，非 root 會在 stderr 印好幾行 <code>open fail errno = 13</code>：它想開的某些裝置要 root，但上面這些資訊不需要。</p>
+      <p><b>跑出來和這裡不一樣時</b>：SD 卡開機的板子 <code>TEGRA_BOOT_STORAGE</code> 會是 <code>mmcblk0</code>；沒有 <code>nvbootctrl</code> 的話它在 <code>nvidia-l4t-tools</code> 套件裡（這台已裝）；slot 目前是 A 還是 B 取決於你的板子更新過幾次。</p>
+    </div>
+  </section>
+
+  <section id="package">
+    <div class="rail"><span class="no">BC.4</span><b>更新包</b>零件名單</div>
+    <div class="content">
+      <h2>從更新包的檔案名稱，看那些早期韌體叫什麼</h2>
+      <p>flash 讀不到，但 <code>nvidia-l4t-bootloader</code> 套件把整組要寫進 flash 的韌體包成 <code>.Cap</code>，放在檔案系統裡，這份是讀得到的。用 <code>strings</code> 撈出檔案裡的字串，就能看到各個元件的名字：</p>
+<pre class="cmd">ls -l /opt/ota_package/t23x
+sha256sum /opt/ota_package/t23x/BOOTAA64.efi /boot/efi/EFI/BOOT/BOOTAA64.efi
+strings -n 3 /opt/ota_package/t23x/TEGRA_BL_3767_super.Cap | grep -x -E 'mb1|cpu-bootloader|bpmp-fw|tos|spe-fw|psc-fw|tsec-fw|rce-fw|dce-fw|pva-fw|xusb-fw|eks|sc7' | sort -u | tr '\n' ' '</pre>
+<pre class="out" data-marks><span class="prompt">$</span> ls -l /opt/ota_package/t23x
+total 288776
+-rw-r--r-- 1 root root   110592 Sep 19  2025 BOOTAA64.efi
+-rw-r--r-- 1 root root 63298339 Sep 19  2025 kernel_only_payload
+-rw-r--r-- 1 root root 58513380 Sep 19  2025 kernel_only_payload_3701_000
+-rw-r--r-- 1 root root 17988759 Sep 19  2025 TEGRA_BL_3701_000.Cap
+-rw-r--r-- 1 root root 44121867 Sep 19  2025 TEGRA_BL_3701_agx.Cap
+-rw-r--r-- 1 root root 23316335 Sep 19  2025 TEGRA_BL_3701_agx_ind.Cap
+-rw-r--r-- 1 root root 37384982 Sep 19  2025 TEGRA_BL_3767.Cap
+-rw-r--r-- 1 root root 50796752 Sep 19  2025 TEGRA_BL_3767_super.Cap «1»
+-rw-r--r-- 1 root root   156672 Sep 19  2025 xusb_t234_prod.bin
+<span class="prompt">$</span> sha256sum /opt/ota_package/t23x/BOOTAA64.efi /boot/efi/EFI/BOOT/BOOTAA64.efi
+91db497c6c0292ac59a434d251da13e640186af5fb62f23273cd81eea8696dcc  /opt/ota_package/t23x/BOOTAA64.efi
+91db497c6c0292ac59a434d251da13e640186af5fb62f23273cd81eea8696dcc  /boot/efi/EFI/BOOT/BOOTAA64.efi «2»
+<span class="prompt">$</span> strings -n 3 /opt/ota_package/t23x/TEGRA_BL_3767_super.Cap | grep -x -E 'mb1|cpu-bootloader|bpmp-fw|tos|spe-fw|psc-fw|tsec-fw|rce-fw|dce-fw|pva-fw|xusb-fw|eks|sc7' | sort -u | tr '\n' ' '
+bpmp-fw cpu-bootloader dce-fw eks mb1 psc-fw pva-fw rce-fw sc7 spe-fw tos tsec-fw xusb-fw «3»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>套件裡有好幾個 <code>.Cap</code>，對應不同的模組型號；<code>3767</code> 是 Orin Nano 模組的編號（上一節 <code>TNSPEC 3767-…</code> 同一個數字），<code>_super</code> 是這台的 Super 版本。</span></li>
+        <li><span class="mk">2</span><span><b>ESP 裡的 <code>BOOTAA64.efi</code> 和這個套件裡的那一個，SHA-256 完全相同</b>。所以 L4TLauncher 是隨 <code>nvidia-l4t-bootloader</code> 套件來的，和早期韌體同一包管。</span></li>
+        <li><span class="mk">3</span><span>更新包的字串裡找得到這十三個名稱（<code>-x</code> 是整行完全相符，避免撈到無關的字）。它們看起來是 NVIDIA 的 flash 分區名稱（從名稱判斷），下面的表是每個名字的用途。</span></li>
+      </ol>
+      <table>
+        <thead><tr><th>名稱</th><th>用途（依名稱與 NVIDIA 文件，沒有解開映像驗證）</th></tr></thead>
+        <tbody>
+          <tr><td><code>mb1</code></td><td>MB1；同一個檔案裡還有 <code>MB1_BCT</code> 字串，是給它的設定資料。</td></tr>
+          <tr><td><code>cpu-bootloader</code></td><td>給 CPU 的 bootloader，也就是 UEFI。這個對應是 NVIDIA 文件的說法；strings 能看到 <code>edkii@tianocore.org</code>，是 EDK II 的簽章資訊，方向一致，但不是證明。</td></tr>
+          <tr><td><code>bpmp-fw</code></td><td>BPMP 的韌體。</td></tr>
+          <tr><td><code>tos</code></td><td>trusted OS，也就是 OP-TEE。同檔案裡還有 <code>secure-os</code> 字串。</td></tr>
+          <tr><td><code>spe-fw</code></td><td>SPE（Sensor Processing Engine）的韌體。</td></tr>
+          <tr><td><code>rce-fw</code>、<code>dce-fw</code>、<code>pva-fw</code></td><td>分別是攝影機、顯示、視覺加速相關處理器的韌體，從名稱判斷；檔案裡有 <code>Camera-FW on t234-rce-safe started</code>、<code>clock@dce</code>、<code>clock@pva_core</code> 之類字串。</td></tr>
+          <tr><td><code>xusb-fw</code></td><td>USB 控制器的韌體。</td></tr>
+          <tr><td><code>sc7</code></td><td>低功耗睡眠狀態（SC7）的 context 儲存與還原，字串裡有 <code>SC7_CONTEXT_SAVE</code>。</td></tr>
+          <tr><td><code>psc-fw</code>、<code>tsec-fw</code>、<code>eks</code></td><td>這章沒有查。</td></tr>
+        </tbody>
+      </table>
+      <p>注意這是一份「名稱清單」，不是載入順序。依 NVIDIA 文件，MB1 負責載入韌體與 MB2；每個元件的大小和載入細節記在 BCT 裡。到底哪個元件由哪一階段載入，這章沒有解開映像去確認。</p>
+    </div>
+  </section>
+
+  <section id="trace">
+    <div class="rail"><span class="no">BC.5</span><b>痕跡</b>kernel 開機訊息</div>
+    <div class="content">
+      <h2>kernel 開機的前幾秒，已經看得到這些韌體留下的東西</h2>
+      <p>kernel 的開機訊息保存在 journal 裡。早期韌體做完的事，kernel 啟動後會碰到它們，並且印出一行：</p>
+<pre class="cmd">journalctl -k -b -o cat | grep -E 'efi: EFI|psci: PSCIv|SMCCC: SOC_ID|optee: revision|tegra-bpmp bpmp: firmware|Unknown kernel command line'
+od -An -tx1 /proc/device-tree/bpmp/phandle
+od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/clocks | head -1</pre>
+<pre class="out" data-marks><span class="prompt">$</span> journalctl -k -b -o cat | grep -E 'efi: EFI|psci: PSCIv|SMCCC: SOC_ID|optee: revision|tegra-bpmp bpmp: firmware|Unknown kernel command line'
+efi: EFI v2.70 by EDK II «1»
+psci: PSCIv1.1 detected in firmware. «2»
+Unknown kernel command line parameters "nv-auto-config bl_prof_dataptr=2031616@0x271E10000 bl_prof_ro_ptr=65536@0x271E00000", will be passed to user space «3»
+SMCCC: SOC_ID: ID = jep106:036b:0234 Revision = 0x00000401 «4»
+tegra-bpmp bpmp: firmware: e941463f35523d12ee54-da583751bbf «5»
+optee: revision 4.2 (d78bc5fa) «6»
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bpmp/phandle
+ 00 00 00 03 «7»
+<span class="prompt">$</span> od -An -tx1 /proc/device-tree/bus@0/i2c@c250000/clocks | head -1
+ 00 00 00 03 00 00 00 36 00 00 00 03 00 00 00 66</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>kernel 認得 UEFI：版本 2.70、實作是 EDK II。這是上一章 UEFI.6 的 <code>linux,uefi-*</code> 屬性之外，另一個「kernel 看到了 UEFI」的證據。</span></li>
+        <li><span class="mk">2</span><span><b>PSCI</b> 是 kernel 叫韌體開關 CPU 核心的標準介面。<code>detected in firmware</code> 表示這個服務是韌體提供的，不是 kernel 自己做的。TF-A 的 BL31 通常提供它（我的背景知識）；更新包字串裡確實有 <code>BL31: %s</code>。實作者是 UEFI 還是 BL31，kernel 這行沒說。</span></li>
+        <li><span class="mk">3</span><span>上一章 UEFI.6 提過的 <code>bl_prof_*</code>：kernel 不認得它們，所以放行給 userspace。名稱裡 <code>bl</code> 大概是 bootloader、<code>prof</code> 是 profile，是早期各層記錄開機時間用的資料位置（從名稱判斷，沒查）。</span></li>
+        <li><span class="mk">4</span><span>SMCCC 是 kernel 呼叫更高特權級韌體的方式，這行讀回晶片 ID；<code>0234</code> 和前面的 <code>TEGRA_CHIPID 0x23</code>（T234）對得上。</span></li>
+        <li><span class="mk">5</span><span><code>tegra-bpmp</code> 是 kernel 和 BPMP 溝通的 driver，它讀到 BPMP 韌體的版本字串。表示 BPMP 在 kernel 開始前就已經載入並執行了。</span></li>
+        <li><span class="mk">6</span><span>OP-TEE 版本 4.2，kernel 的 <code>optee</code> driver 找到了 secure world 的 OS，表示 <code>tos</code> 已經在跑。</span></li>
+        <li><span class="mk">7</span><span>這一組和本專案直接有關：DT.6 提過的 <code>i2c@c250000</code>（header pin 3/5 的 I2C controller），它的 <code>clocks</code> 屬性第一個 cell 是 <code>0x03</code>，正是 <code>bpmp</code> 節點的 phandle。也就是說，Step 6、7、8 讀 INA219 用的 I2C 時脈，是 kernel 透過 BPMP 韌體要來的。</span></li>
+      </ol>
+      <p><b>跑出來和這裡不一樣時</b>：版本字串（<code>EDK II</code> 的版本、OP-TEE 的 <code>4.2</code>、BPMP 的字串）會隨你的 L4T 版本而不同；<code>journalctl -k</code> 沒有權限時加 <code>sudo</code>，或把使用者加進 <code>adm</code> 群組（這台的使用者已在）。如果你的 journal 沒有保留開機訊息，改用 <code>sudo dmesg | grep …</code>。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">BC.6</span><b>常見錯誤</b>容易搞混</div>
+    <div class="content">
+      <h2>容易搞混的地方</h2>
+      <p>標「沒實測」的項目，是只有文件或字串指向、沒有真的做過。這章同樣沒有故意弄壞任何東西。</p>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 apt 更新就換了韌體</h4><dl><dt>症狀</dt><dd><code>dpkg -l</code> 顯示 <code>nvidia-l4t-bootloader</code> 新版了，開機訊息裡的 <code>EDK II</code> 版本卻沒變。</dd><dt>後果</dt><dd>以為更新失敗，或以為已經用上新韌體。</dd><dt>正解</dt><dd class="fix">套件只是把更新包（<code>.Cap</code>）放進檔案系統；寫進 flash 要另外一個步驟，依文件由 UEFI 在重開機時套用（沒實測）。用 <code>nvbootctrl</code> 的 <code>Capsule update status</code> 看。</dd></dl></div>
+        <div class="pit"><h4>在 Linux 裡找 BootROM 或 MB1 的檔案</h4><dl><dt>症狀</dt><dd><code>find / -name '*mb1*'</code> 找不到可以執行的映像。</dd><dt>後果</dt><dd>以為系統少了東西。</dd><dt>正解</dt><dd class="fix">BootROM 在晶片裡；MB1、MB2 在 QSPI flash，Linux 看不到那顆 flash（BC.3）。只有更新包 <code>.Cap</code> 裡有副本。</dd></dl></div>
+        <div class="pit"><h4>以為 ESP 上的 BOOTAA64.efi 就是 UEFI 韌體</h4><dl><dt>症狀</dt><dd>想「更新 UEFI」就換掉 ESP 的 <code>BOOTAA64.efi</code>。</dd><dt>後果</dt><dd>換的是 L4TLauncher，UEFI 本體（<code>cpu-bootloader</code>）沒變。</dd><dt>正解</dt><dd class="fix">UEFI 在 flash，ESP 的是它載入的 L4TLauncher（UEFI.4）。兩者同屬 <code>nvidia-l4t-bootloader</code> 這個套件（BC.4 的 SHA-256 相同）。</dd></dl></div>
+        <div class="pit"><h4>把 PSCI 的「in firmware」當成 UEFI</h4><dl><dt>症狀</dt><dd>讀到 <code>psci: PSCIv1.1 detected in firmware</code>，以為 UEFI 在提供電源管理。</dd><dt>後果</dt><dd>要查 CPU 開關問題時去找錯一層。</dd><dt>正解</dt><dd class="fix">PSCI 通常由 TF-A 的 BL31 提供（背景知識，沒實測），UEFI 在 kernel 啟動後就不再執行（UEFI.1）。</dd></dl></div>
+        <div class="pit"><h4>板子停在更早的階段還想用 Linux 工具</h4><dl><dt>症狀</dt><dd>上電後沒有畫面、ssh 連不上，<code>efibootmgr</code> 當然也沒得跑。</dd><dt>後果</dt><dd>不知道卡在哪一層。</dd><dt>正解</dt><dd class="fix">接序列 console（這台 kernel 命令列有 <code>console=ttyTCU0,115200</code>）看早期韌體的訊息，必要時進 recovery 模式重燒（沒實測）。</dd></dl></div>
+        <div class="pit"><h4>以為 Force Recovery 是 Linux 在管</h4><dl><dt>症狀</dt><dd>DT 裡有一個 <code>key-force-recovery</code> 節點（DT.6），以為按它由 kernel 處理。</dd><dt>後果</dt><dd>以為在 Linux 裡能「按」出 recovery 模式。</dd><dt>正解</dt><dd class="fix">依文件，進 recovery 是上電時由 BootROM 檢查那根腳，那時 Linux 還不存在；DT 的那個節點只是讓 kernel 能把它當成一顆按鍵來讀（沒實測）。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">BC.7</span><b>收尾</b>→ UEFI</div>
+    <div class="content">
+      <h2>這一章讀懂了什麼</h2>
+      <ul class="checks">
+        <li class="y">UEFI 前面還有 BootROM（與 PSCROM）→ MB1 → MB2，加上 BPMP-FW、TF-A、OP-TEE 等其他韌體（依 NVIDIA 文件與背景知識）；cold boot 時 BPMP 的開機程式和 UEFI 放在 QSPI flash。</li>
+        <li class="y">早期韌體不在 NVMe、也讀不到；能看到的是 <code>nvidia-l4t-bootloader</code> 的更新包裡的名稱清單（BC.4）。</li>
+        <li class="y">kernel 開機訊息裡有 EFI、PSCI、BPMP、OP-TEE 的痕跡，證明這些韌體在 kernel 之前已經在跑（BC.5）。</li>
+        <li class="y">本專案相關的一例：I2C controller 的時脈是 kernel 透過 BPMP 韌體取得的。</li>
+        <li class="n">映像怎麼解開、簽章與 Secure Boot、MB1 與 MB2 各自載入什麼的確切分工：這章沒有查證。</li>
+        <li class="n">怎麼更新與還原這些韌體（capsule、A/B slot 的切換）：不在這章範圍。</li>
+      </ul>
+      <p>本章引用的 NVIDIA 文件：<a href="https://docs.nvidia.com/jetson/archives/r36.5.2/DeveloperGuide/AR/BootArchitecture/JetsonOrinSeriesBootFlow.html">Jetson AGX Orin, Orin NX, and Orin Nano Boot Flow</a>（BootROM、PSCROM、MB1、MB2、UEFI 的分工）、<a href="https://docs.nvidia.com/jetson/archives/r36.4.4/DeveloperGuide/SO/JetsonOrinSeries.html">Jetson Orin Series</a>（QSPI 的用途與控制器寬度）。文件版本和這台的 L4T R36.4.7 不完全相同，細節以你的版本為準。</p>
+      <p>下一章 <a href="uefi.html">UEFI 與開機</a>從第 5 層開始：UEFI 怎麼找到 L4TLauncher、<code>extlinux.conf</code> 怎麼決定載入什麼，最後把 kernel 交出去。</p>
+      <details class="quiz"><summary>1. 為什麼不讓 BootROM 直接載入 UEFI？</summary><p>BootROM 在晶片裡、不能修改，只能做最簡單的事，也只有少量 SRAM 可用；DRAM 要靠後面的層初始化。UEFI 很大、要用 DRAM，必須等前面的層把硬體準備好。此外 BootROM 不能改也代表不能修 bug，讓它越簡單越好。</p></details>
+      <details class="quiz"><summary>2. 你想確認 <code>/boot/efi/EFI/BOOT/BOOTAA64.efi</code> 是不是 <code>nvidia-l4t-bootloader</code> 套件裡的那一份，怎麼做？</summary><p>對兩個檔案跑 <code>sha256sum</code>（BC.4）：<code>/opt/ota_package/t23x/BOOTAA64.efi</code> 和 ESP 裡的那個。雜湊相同就是同一份。</p></details>
+      <details class="quiz"><summary>3. kernel 開機訊息有一行 <code>optee: revision 4.2</code>，這代表什麼？</summary><p>kernel 的 <code>optee</code> driver 找到了 secure world 的 OP-TEE，版本 4.2。OP-TEE 是更新包裡 <code>tos</code> 分區的內容，在 kernel 啟動前就已經由早期韌體載入並執行。</p></details>
+      <details class="quiz"><summary>4. <code>/proc/mtd</code> 是空的，但 <code>/etc/nv_boot_control.conf</code> 寫 <code>TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0</code>。這代表早期韌體不在 flash 嗎？</summary><p>不能這樣推論。設定檔表示更新的目標是一個 MTD 裝置，更新包裡也有早期韌體的名稱；而這個 kernel 沒有暴露 MTD 裝置，所以「從這個 Linux 讀不到」。這章沒有查它為什麼沒有，只能說兩邊的資訊對不上，需要再查。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="uefi.html">UEFI 與開機 →</a></nav>
+</main>
+
+<script>
+/* Command-output markers: «N» in a <pre data-marks> becomes a numbered dot matching the notes list below it. */
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>

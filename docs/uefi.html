@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UEFI 與開機 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from devicetree.html). Layout: a 1080px column with a left rail per section. Dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 100ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.rail .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 100ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure svg a:hover .s-box { fill: var(--surface-2); }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.edge-lbl { fill: var(--bad); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.sv-side { stroke: var(--user); stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+.sv-edge { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 3 4; }
+
+figure.listing figcaption, figure.snippet figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre, figure.snippet pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+/* The gutter is exactly one tab stop wide (6.5ch + 1.5ch = 8ch = tab-size), so tabs in the code still land on the source file's columns.
+   The second content line gives screen readers empty alt text; browsers without that syntax keep the first one. */
+.ln::before { content: attr(data-n); content: attr(data-n) / ""; display: inline-block; width: 6.5ch; margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 30%; }
+.cmp td:first-child { width: 8rem; }
+
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="bootchain.html">← UEFI 之前</a><a href="devicetree.html">Device Tree 入門 →</a></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · 補充章 · 開機流程</div>
+    <h1>UEFI 與開機：誰把 kernel 和 Device Tree 放進記憶體</h1>
+    <p class="lede">到 Step 3 為止，我們都是從「kernel 已經在跑」開始看。這一章往前走一步：按下電源之後、kernel 的第一行 C code 執行之前，是誰在做事？UEFI 是什麼？<code>extlinux.conf</code> 是誰讀的？為什麼改了 overlay 一定要重開機？下一章的 Device Tree 會直接用到這些答案。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7（nvidia-l4t-bootloader 36.4.7-20250918154033）· 新增 <span class="new">docs/uefi.html</span>；修改 docs/{index.html, step03.html, devicetree.html}、CLAUDE.md。不新增 code，所有指令只讀不寫、不需要 root</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--hw)">板子上的韌體與開機程式（UEFI、L4TLauncher）</span>
+      <span style="--c: var(--kern)">kernel（含開頭的 EFI stub）</span>
+      <span style="--c: var(--accent)">資料：設定檔、映像檔、韌體交給 kernel 的資訊</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">UEFI.1</span><b>起點</b>為什麼需要</div>
+    <div class="content">
+      <h2>kernel 是一個檔案，它不會自己跑起來</h2>
+      <p><code>/boot/Image</code> 只是儲存裝置上的一個檔案。電源接上之後，必須有別的程式把它讀進記憶體、把 initrd（一個小型的暫時 root 檔案系統，kernel 先用它載入 driver，才能掛上真正的 rootfs）和 Device Tree 也準備好、再跳到它的入口，這份工作叫 <b>bootloader</b>。PC 上是 BIOS 或 UEFI 加上 GRUB；這台 Jetson（JP6 / L4T R36）用的也是 <b class="hl-key">UEFI</b>。</p>
+      <p>UEFI（Unified Extensible Firmware Interface）是一份<b>規格</b>：它規定韌體要把哪些服務提供給後面的程式，例如「找開機項目」「讀 FAT 分區上的檔案」「配記憶體」「讀寫存在韌體裡的變數」。照這份規格寫成的韌體就叫 UEFI firmware；NVIDIA 的這份是以開源的 EDK II 為基礎（後面 UEFI.4 會在 <code>BOOTAA64.efi</code> 裡看到 <code>edk2-nvidia</code> 的路徑）。</p>
+      <p><b>互動雙方</b>：<b>交出的一方</b>是 UEFI 韌體，以及它載入的開機程式 L4TLauncher；它們都在 kernel 之前執行，交接完就退場。<b>接手的一方</b>是 kernel（開頭的 EFI stub 先接手）。交出的東西有三樣：</p>
+      <ul>
+        <li>kernel 映像和 initrd 在記憶體裡的位置；</li>
+        <li>已經疊好 overlay 的 Device Tree；</li>
+        <li>kernel 命令列。</li>
+      </ul>
+      <p>交接之後韌體不再主動做事，只剩 kernel 需要時可以呼叫它的 Runtime Services，例如讀寫韌體變數（UEFI.6）。<b>這一章不做</b>：不改任何開機設定，不碰 UEFI 的設定畫面，不講 Secure Boot、韌體更新（capsule）與 A/B slot。</p>
+      <dl class="terms">
+        <dt>UEFI firmware</dt><dd>板子上最先跑起來的一層可擴充韌體。它依序做：初始化硬體、依 <code>BootOrder</code> 找開機項目、載入並執行一個 <code>.efi</code> 程式。</dd>
+        <dt>.efi（EFI application）</dt><dd>一種可以被 UEFI 載入執行的 PE 格式程式。開機程式（GRUB、L4TLauncher）和 Linux kernel 本身（帶 EFI stub 時）都可以是 <code>.efi</code>。</dd>
+        <dt>rootfs</dt><dd>root filesystem（根檔案系統）：以 <code>/</code> 為起點、整個 Linux 目錄樹掛在上面的那個檔案系統，系統檔、使用者檔案和 <code>/boot</code> 都在裡面。這台板子上是 NVMe 的 <code>nvme0n1p1</code>（ext4）。kernel 靠命令列的 <code>root=PARTUUID=…</code> 找到它。</dd>
+        <dt>ESP</dt><dd>EFI System Partition，一個 FAT 格式的分區，規格規定韌體一定要讀得懂它。開機用的 <code>.efi</code> 放在這裡。</dd>
+        <dt>L4TLauncher</dt><dd>NVIDIA 寫的 UEFI 應用程式，是這台板子上實際讀 <code>extlinux.conf</code>、疊 overlay、啟動 kernel 的那一個（UEFI.4）。</dd>
+        <dt>extlinux.conf</dt><dd>開機選單的設定檔，一個 <code>LABEL</code> 是一個開機項目，記錄 kernel、initrd、Device Tree、overlay 與 kernel 命令列（UEFI.5）。名字來自 syslinux 家族的 extlinux 開機程式，格式沿用至今。</dd>
+        <dt>UEFI variable</dt><dd>存在韌體非揮發儲存裡的「名字 → 值」。<code>BootOrder</code>、<code>Boot0001</code> 都是。kernel 開機後透過 <code>efivarfs</code> 把它們當檔案開放在 <code>/sys/firmware/efi/efivars</code>。</dd>
+        <dt>EFI stub</dt><dd>編進 kernel 映像開頭的一小段程式，讓 UEFI 能把 <code>Image</code> 當成 <code>.efi</code> 載入，並把 UEFI 的資訊整理後交給 kernel 本體（UEFI.6）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="journey">
+    <div class="rail"><span class="no">UEFI.2</span><b>全景</b>電源 → kernel</div>
+    <div class="content">
+      <h2>一次開機經過的七站</h2>
+      <p>下圖是這台板子從上電到 <code>/proc/device-tree</code> 出現的路。每個方框都可以點，會跳到講那一站的小節。最上面一站是照 NVIDIA 文件寫的，從執行中的系統看不到，細節放在上一章<a href="bootchain.html">UEFI 之前</a>，本章只當作背景；從第二站開始，後面每一站都有一段只讀指令可以自己確認。</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 630" role="img" aria-label="開機七站：上電後的早期 bootloader、UEFI 韌體依 BootOrder 找開機項目、ESP 上的 BOOTAA64.efi 就是 L4TLauncher、L4TLauncher 讀 rootfs 的 extlinux.conf、取得 dtb 加 overlay 與 Image 加 initrd、交給 kernel 的 EFI stub、kernel 展開 Device Tree">
+          <defs>
+            <marker id="mUeDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">POWER-ON</text>
+          <rect class="s-box" x="130" y="20" width="610" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="435" y="45" text-anchor="middle">BootROM → 早期 bootloader</text>
+          <text class="s-sm" x="435" y="66" text-anchor="middle">文件上的順序；執行中的系統看不到，本章不展開</text>
+          <text class="s-mono" x="14" y="136">FIRMWARE</text>
+          <a href="#firmware"><rect class="s-box" x="130" y="104" width="610" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="435" y="129" text-anchor="middle">UEFI 韌體：依 BootOrder 找開機項目</text>
+          <text class="s-sm" x="435" y="150" text-anchor="middle">韌體本體不在 NVMe 上；開機項目存在韌體變數裡</text></a>
+          <text class="s-mono" x="14" y="220">ESP</text>
+          <a href="#launcher"><rect class="s-box" x="130" y="188" width="610" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="435" y="213" text-anchor="middle">ESP：\EFI\BOOT\BOOTAA64.efi（就是 L4TLauncher）</text>
+          <text class="s-sm" x="435" y="234" text-anchor="middle">nvme0n1p10，FAT；規格規定的預設路徑</text></a>
+          <text class="s-mono" x="14" y="304">LOADER</text>
+          <a href="#extlinux"><rect class="s-box" x="130" y="272" width="610" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="435" y="297" text-anchor="middle">L4TLauncher 讀 rootfs 的 /boot/extlinux/extlinux.conf</text>
+          <text class="s-sm" x="435" y="318" text-anchor="middle">選 DEFAULT 那個 LABEL：LINUX、INITRD、FDT、OVERLAYS、APPEND</text></a>
+          <text class="s-mono" x="14" y="388">INPUTS</text>
+          <a href="#extlinux"><rect class="s-box" x="130" y="356" width="300" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="280" y="381" text-anchor="middle">FDT + OVERLAYS</text>
+          <text class="s-sm" x="280" y="402" text-anchor="middle">.dtb 疊上 .dtbo，合併成一份</text></a>
+          <a href="#extlinux"><rect class="s-box" x="470" y="356" width="270" height="58" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="605" y="381" text-anchor="middle">LINUX + INITRD</text>
+          <text class="s-sm" x="605" y="402" text-anchor="middle">Image 與 initrd 讀進記憶體</text></a>
+          <line class="sv-edge" x1="10" y1="436" x2="750" y2="436"/>
+          <text class="s-sm edge-lbl" x="750" y="452" text-anchor="end">韌體 ↕ kernel 交接</text>
+          <text class="s-mono" x="14" y="494">KERNEL</text>
+          <a href="#handoff"><rect class="s-box" x="130" y="462" width="610" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="435" y="487" text-anchor="middle">EFI stub：整理資訊後進 kernel 本體</text>
+          <text class="s-sm" x="435" y="508" text-anchor="middle">合併後的 DT、bootargs、UEFI 系統表都寫進 /chosen</text></a>
+          <text class="s-mono" x="14" y="578">KERNEL</text>
+          <a href="#handoff"><rect class="s-box" x="130" y="546" width="610" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="435" y="571" text-anchor="middle">/proc/device-tree、/sys/firmware/efi</text>
+          <text class="s-sm" x="435" y="592" text-anchor="middle">之後韌體不再參與；Device Tree 的樹從這裡開始讀（下一章）</text></a>
+          <line class="sv-down" x1="435" y1="79" x2="435" y2="100" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="435" y1="163" x2="435" y2="184" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="435" y1="247" x2="435" y2="268" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="280" y1="331" x2="280" y2="352" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="605" y1="331" x2="605" y2="352" marker-end="url(#mUeDown)"/>
+          <text class="s-lbl" x="442" y="429" text-anchor="middle">L4TLauncher 啟動 Image</text>
+          <line class="sv-down" x1="280" y1="415" x2="280" y2="458" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="605" y1="415" x2="605" y2="458" marker-end="url(#mUeDown)"/>
+          <line class="sv-down" x1="435" y1="521" x2="435" y2="542" marker-end="url(#mUeDown)"/>
+        </svg>
+        <figcaption>圖 00.1 — 韌體和開機程式的工作全在 kernel 之前做完，而把 kernel 叫起來的是 L4TLauncher（兩個 INPUTS 框下面的箭頭）：找到 <code>L4TLauncher</code>、讀 <code>extlinux.conf</code>、疊 overlay、載入 <code>Image</code>。kernel 開始後看到的是一份已經合併好的記憶體副本，所以改了 <code>/boot</code> 裡的檔案要重開機才會生效。</figcaption>
+      </figure>
+      <p><b>誰把 kernel 叫起來？是 L4TLauncher，不是 UEFI 韌體本體。</b>圖裡每一站叫起下一站：UEFI 韌體叫起 ESP 上的 L4TLauncher（UEFI.3、UEFI.4），L4TLauncher 讀完 <code>extlinux.conf</code>、把 <code>Image</code>、<code>initrd</code> 載入記憶體、裝好合併後的 Device Tree，再啟動 <code>Image</code>（UEFI.4 的字串證據、UEFI.6 的交接）。啟動之後韌體與 L4TLauncher 都退場，kernel 自己往下跑。</p>
+    </div>
+  </section>
+
+  <section id="firmware">
+    <div class="rail"><span class="no">UEFI.3</span><b>韌體</b>BootOrder</div>
+    <div class="content">
+      <h2>UEFI 韌體不在 NVMe 上，開機項目存在它自己的變數裡</h2>
+      <p>PC 的 GRUB 是裝在硬碟上的程式；UEFI 韌體不是。它是板子上另外一塊非揮發儲存（QSPI flash）裡的映像，由更早的 bootloader 載入（<a href="bootchain.html">UEFI 之前</a>），不在 rootfs 裡，所以從執行中的 Linux 用 <code>ls</code> 找不到它。看得到的是它留給 OS 的<b>變數</b>，用 <code>efibootmgr</code> 讀：</p>
+<pre class="cmd">efibootmgr | head -3
+efibootmgr -v | grep Boot0000
+mount | grep efivarfs
+xxd -p /sys/firmware/efi/efivars/BootOrder-*</pre>
+      <p>2026-10-19 在這台板子上的輸出：</p>
+<pre class="out" data-marks><span class="prompt">$</span> efibootmgr | head -3
+BootCurrent: 0001 «1»
+Timeout: 5 seconds «2»
+BootOrder: 0001,0004,0003,0002,0005,0000,0006,0007 «3»
+<span class="prompt">$</span> efibootmgr -v | grep Boot0000
+«4» Boot0000* Enter Setup	FvVol(49a79a15-8f69-4be7-a30c-a172f44abce7)/FvFile(462caa21-7614-4503-836e-8ab6f4662331)
+<span class="prompt">$</span> mount | grep efivarfs
+efivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime) «5»
+<span class="prompt">$</span> xxd -p /sys/firmware/efi/efivars/BootOrder-*
+0700000001000400030002000500000006000700 «6»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>BootCurrent</code>：這次開機用的是 <code>Boot0001</code>。它的名稱是「UEFI」加上 NVMe 的型號，也就是從這顆 NVMe 開機。</span></li>
+        <li><span class="mk">2</span><span><code>Timeout: 5 seconds</code> 是 UEFI Boot Manager 的等待時間（按鍵進設定畫面用）。<b>它和 <code>extlinux.conf</code> 的 <code>TIMEOUT</code> 是兩件事</b>，後者是 L4TLauncher 的選單（UEFI.5）。</span></li>
+        <li><span class="mk">3</span><span><code>BootOrder</code>：依序嘗試 0001（NVMe）、0004 與 0003、0002、0005（HTTP / PXE 網路開機）、0000（進設定）、0006、0007（開機選單、UEFI Shell）。第一個能成功的就用它；這台第一個就成功。</span></li>
+        <li><span class="mk">4</span><span><code>Boot0000</code> 的裝置路徑是 <code>FvVol/FvFile</code>：<b>韌體映像內部</b>的一個檔案，不是任何磁碟上的檔案。這是「UEFI 本體不在 rootfs」的直接證據。</span></li>
+        <li><span class="mk">5</span><span>kernel 把這些變數用 <code>efivarfs</code> 掛成檔案。能掛，代表 kernel 是靠 UEFI 開機、而且拿得到 UEFI 的 Runtime Services（UEFI.6）。</span></li>
+        <li><span class="mk">6</span><span><code>BootOrder</code> 這個檔案的內容：開頭 4 byte <code>07000000</code> 是變數屬性（UEFI 規格：非揮發、開機服務與 runtime 都可存取），後面是一串 16-bit little-endian 的編號：<code>0100 0400 0300 0200 0500 0000 0600 0700</code> 正是上面的 0001,0004,0003,0002,0005,0000,0006,0007。</span></li>
+      </ol>
+      <p><b>跑出來和這裡不一樣時</b>：開機項目的編號與名稱會隨你的儲存裝置（NVMe、SD 卡）和網卡 MAC 而不同，<code>BootOrder</code> 的順序也可能因為你進過設定畫面而變；只要 <code>BootCurrent</code> 那一項是你的開機碟就對了。<code>efibootmgr</code> 沒有安裝時 <code>sudo apt install efibootmgr</code>（讀取不需要 root）。</p>
+    </div>
+  </section>
+
+  <section id="launcher">
+    <div class="rail"><span class="no">UEFI.4</span><b>ESP</b>L4TLauncher</div>
+    <div class="content">
+      <h2>Boot0001 沒有檔名，韌體執行的是 ESP 上的預設路徑</h2>
+      <p>上一節 <code>Boot0001</code> 的裝置路徑只指到「這顆 NVMe」，沒有指到哪個檔案。UEFI 規格對這種項目有固定的做法：到磁碟上的 ESP 找<b>預設路徑</b> <code>\EFI\BOOT\BOOT&lt;架構&gt;.EFI</code>，AArch64 的架構字串是 <code>AA64</code>，所以是 <code>BOOTAA64.efi</code>。ESP 在哪、裡面有什麼，直接看：</p>
+<pre class="cmd">lsblk -o NAME,SIZE,FSTYPE,PARTLABEL,MOUNTPOINT /dev/nvme0n1 | grep -E 'NAME|APP|esp'
+ls -R /boot/efi/EFI
+strings -e l /boot/efi/EFI/BOOT/BOOTAA64.efi | grep -i extlinux
+strings /boot/efi/EFI/BOOT/BOOTAA64.efi | grep -E '^(ProcessExtLinuxConfig|ExtLinuxBoot)$'
+(strings /boot/efi/EFI/BOOT/BOOTAA64.efi; strings -e l /boot/efi/EFI/BOOT/BOOTAA64.efi) | grep -E 'Installing Kernel DTB|Failed to boot image'</pre>
+<pre class="out" data-marks><span class="prompt">$</span> lsblk -o NAME,SIZE,FSTYPE,PARTLABEL,MOUNTPOINT /dev/nvme0n1 | grep -E 'NAME|APP|esp'
+NAME           SIZE FSTYPE PARTLABEL          MOUNTPOINT
+├─nvme0n1p1    237G ext4   APP                / «1»
+├─nvme0n1p10    64M vfat   esp                /boot/efi «2»
+├─nvme0n1p13    64M        esp_alt             «3»
+<span class="prompt">$</span> ls -R /boot/efi/EFI
+/boot/efi/EFI:
+BOOT
+UpdateCapsule
+
+/boot/efi/EFI/BOOT:
+BOOTAA64.efi «4»
+
+/boot/efi/EFI/UpdateCapsule:
+<span class="prompt">$</span> strings -e l /boot/efi/EFI/BOOT/BOOTAA64.efi | grep -i extlinux
+boot\extlinux\extlinux.conf «5»
+%a: Unable to process extlinux config: %r
+%a: Unable to boot via extlinux: %r
+<span class="prompt">$</span> strings /boot/efi/EFI/BOOT/BOOTAA64.efi | grep -E '^(ProcessExtLinuxConfig|ExtLinuxBoot)$'
+ExtLinuxBoot
+ProcessExtLinuxConfig «6»
+<span class="prompt">$</span> (strings /boot/efi/EFI/BOOT/BOOTAA64.efi; strings -e l /boot/efi/EFI/BOOT/BOOTAA64.efi) | grep -E 'Installing Kernel DTB|Failed to boot image'
+%a: Installing Kernel DTB
+Failed to boot image: %r «7»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>rootfs 是 <code>nvme0n1p1</code>（ext4，分區名 <code>APP</code>），<code>/boot/Image</code>、<code>/boot/extlinux</code> 都在這裡。</span></li>
+        <li><span class="mk">2</span><span>ESP 是 <code>nvme0n1p10</code>（vfat），掛在 <code>/boot/efi</code>。注意它<b>只</b>掛在 <code>/boot/efi</code>，不是整個 <code>/boot</code>。</span></li>
+        <li><span class="mk">3</span><span><code>esp_alt</code> 是備用 slot 的 ESP，本章不展開。</span></li>
+        <li><span class="mk">4</span><span>ESP 裡只有一個開機用檔案 <code>BOOTAA64.efi</code>；<code>UpdateCapsule</code> 是韌體更新用的目錄，現在是空的。沒有 <code>Image</code>、沒有 <code>.dtb</code>、沒有 <code>extlinux.conf</code>。</span></li>
+        <li><span class="mk">5</span><span><code>BOOTAA64.efi</code> 的 UTF-16 字串裡有 <code>boot\extlinux\extlinux.conf</code> 和處理失敗時的錯誤訊息：<b>讀這份設定檔的是這支程式</b>。</span></li>
+        <li><span class="mk">6</span><span>一般的 ASCII 字串裡有 <code>ExtLinuxBoot</code>、<code>ProcessExtLinuxConfig</code> 這兩個函式名；同一個檔案裡還有原始碼路徑 <code>edk2-nvidia/Silicon/NVIDIA/Application/L4TLauncher/L4TLauncher.c</code>，所以 <code>BOOTAA64.efi</code> 就是 <b>L4TLauncher</b>。</span></li>
+        <li><span class="mk">7</span><span>還有兩則訊息：<code>Installing Kernel DTB</code>（把合併好的 Device Tree 裝進去）和 <code>Failed to boot image</code>（啟動 kernel 映像失敗時的錯誤）。意思是 L4TLauncher 自己負責「把 Device Tree 裝好、再啟動 kernel」。實際用哪個 UEFI 呼叫啟動，這章沒有逐行追原始碼，從訊息文字判斷。</span></li>
+      </ol>
+      <div class="callout"><p><b>結論</b>：ESP 裡沒有 <code>extlinux.conf</code>，它在 rootfs 的 <code>/boot/extlinux/</code>；L4TLauncher 是一支能讀 rootfs 的 UEFI 應用程式（推論：因為 ESP 裡沒有，而改 rootfs 這份檔案開機行為確實會變，Step 4-b 的 overlay 就是這樣生效的）。所以 Device Tree 一章的圖 0.1 寫的「UEFI 讀 extlinux.conf」是簡寫，精確的說法是「UEFI 載入的 L4TLauncher 讀 extlinux.conf」。</p></div>
+      <p><b>跑出來和這裡不一樣時</b>：用 SD 卡開機的板子，儲存裝置是 <code>/dev/mmcblk0</code>，分區編號也不同；把指令裡的 <code>/dev/nvme0n1</code> 換成你的裝置。<code>strings</code> 在 <code>binutils</code> 套件裡。</p>
+    </div>
+  </section>
+
+  <section id="extlinux">
+    <div class="rail"><span class="no">UEFI.5</span><b>設定檔</b>extlinux.conf</div>
+    <div class="content">
+      <h2>extlinux.conf：一個 LABEL 就是一個開機項目</h2>
+      <p>L4TLauncher 讀到的設定檔，這台板子目前的 <code>JetsonIO</code> 項目如下（指令裡的 <code>sed -n '/^LABEL JetsonIO/,$p'</code> 是「只印出從以 <code>LABEL JetsonIO</code> 開頭的那一行，到檔案最後一行」：<code>-n</code> 關掉 sed 預設的每行都印，<code>/…/,$</code> 指定範圍，<code>p</code> 是印出。<code>JetsonIO</code> 剛好是檔案裡最後一個 <code>LABEL</code>，所以這個範圍就是它的全部內容，不會印出前面的 <code>primary</code> 項目和註解）：</p>
+<pre class="cmd">sed -n '/^LABEL JetsonIO/,$p' /boot/extlinux/extlinux.conf
+ls /boot/extlinux</pre>
+<pre class="out"><span class="prompt">$</span> sed -n '/^LABEL JetsonIO/,$p' /boot/extlinux/extlinux.conf
+LABEL JetsonIO
+	MENU LABEL Custom Header Config: &lt;CSI Camera IMX219-A&gt;
+	LINUX /boot/Image
+	FDT /boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb
+	INITRD /boot/initrd
+	APPEND ${cbootargs} root=PARTUUID=07c26928-d45b-4e5b-8c02-fc06ea41fecc rw rootwait rootfstype=ext4 mminit_loglevel=4 console=ttyTCU0,115200 firmware_class.path=/etc/firmware fbcon=map:0 video=efifb:off console=tty0 nv-auto-config
+	OVERLAYS /boot/tegra234-p3767-camera-p3768-imx219-A.dtbo,/boot/edge-gpio-overlay.dtbo
+<span class="prompt">$</span> ls /boot/extlinux
+extlinux.conf
+extlinux.conf.edge-gpio.bak
+extlinux.conf.jetson-io-backup
+extlinux.conf.nv-update-extlinux-backup</pre>
+      <p>為什麼說「一個 <code>LABEL</code> 是一個開機項目」：因為每個 <code>LABEL</code> 區塊裡有開機要決定的每一件事（kernel、initrd、Device Tree、overlay、命令列），L4TLauncher 選定一個 <code>LABEL</code>，就拿到完整的一組。檔案裡 <code>JetsonIO</code> 前面還有一個 <code>LABEL primary</code>，兩個項目逐欄對照如下：</p>
+      <table class="cmp">
+        <thead><tr><th>欄位</th><th><code>LABEL primary</code></th><th><code>LABEL JetsonIO</code></th><th>差別</th></tr></thead>
+        <tbody>
+          <tr><td><code>MENU LABEL</code></td><td><code>primary kernel</code></td><td><code>Custom Header Config: &lt;CSI Camera IMX219-A&gt;</code></td><td>不同（只是選單上的名字）</td></tr>
+          <tr><td><code>LINUX</code></td><td><code>/boot/Image</code></td><td><code>/boot/Image</code></td><td>相同</td></tr>
+          <tr><td><code>INITRD</code></td><td><code>/boot/initrd</code></td><td><code>/boot/initrd</code></td><td>相同</td></tr>
+          <tr><td><code>FDT</code></td><td>沒有這一行</td><td><code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code></td><td><b>不同</b>：JetsonIO 指定了 Device Tree</td></tr>
+          <tr><td><code>OVERLAYS</code></td><td>沒有這一行</td><td><code>/boot/tegra234-p3767-camera-p3768-imx219-A.dtbo,/boot/edge-gpio-overlay.dtbo</code></td><td><b>不同</b>：JetsonIO 疊上相機與 <code>edge-gpio</code> 兩個 overlay</td></tr>
+          <tr><td><code>APPEND</code></td><td><code>${cbootargs} root=PARTUUID=…</code></td><td><code>${cbootargs} root=PARTUUID=…</code></td><td>相同（整行逐字相同）</td></tr>
+        </tbody>
+      </table>
+      <p>兩個項目用同一個 kernel、initrd 和命令列，差別只在 Device Tree：<code>JetsonIO</code> 指定了 <code>FDT</code> 並疊上 overlay，<code>primary</code> 沒有指定。開機時用哪一個，由檔案開頭的 <code>DEFAULT JetsonIO</code> 決定，所以本專案的安裝腳本只改 <code>DEFAULT</code> 那個 <code>LABEL</code> 的 <code>OVERLAYS</code>。<code>primary</code> 的內容用 <code>sed -n '/^LABEL primary/,/^LABEL JetsonIO/p' /boot/extlinux/extlinux.conf</code> 可以看到；沒有實際看過開機選單畫面，選單怎麼顯示是依 extlinux 的慣例推的。</p>
+      <table>
+        <thead><tr><th>欄位</th><th>這台板子上的值與作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>DEFAULT</code>（檔案開頭）</td><td><code>JetsonIO</code>：不選的話開哪個 LABEL。本專案的 overlay 一律裝在這個 LABEL（<code>scripts/install_edge_gpio_overlay.py</code>）。</td></tr>
+          <tr><td><code>LABEL</code> / <code>MENU LABEL</code></td><td>項目的內部名稱與選單上顯示的文字。<code>JetsonIO</code> 這個 LABEL 是 jetson-io 工具寫的，所以選單文字是「Custom Header Config: …」。</td></tr>
+          <tr><td><code>LINUX</code></td><td>kernel 映像 <code>/boot/Image</code>。</td></tr>
+          <tr><td><code>INITRD</code></td><td>初始 ramdisk <code>/boot/initrd</code>，kernel 掛真正的 rootfs 之前先用它。</td></tr>
+          <tr><td><code>FDT</code></td><td>原廠 Device Tree 的 <code>.dtb</code>。沒有這行時用什麼，這章沒有查證。</td></tr>
+          <tr><td><code>OVERLAYS</code></td><td>要疊在 <code>FDT</code> 上的 <code>.dtbo</code>，用逗號分隔、不加空白。這是 NVIDIA 的擴充，不在原本的 extlinux 格式裡。</td></tr>
+          <tr><td><code>APPEND</code></td><td>傳給 kernel 的命令列。其中 <code>${cbootargs}</code> 不是 kernel 看得懂的字，要由 L4TLauncher 替換（UEFI.6 看結果）。</td></tr>
+        </tbody>
+      </table>
+      <p>兩件要記住的事。第一，所有路徑都是 <b>rootfs 上的路徑</b>（<code>/boot/…</code>），和 ESP 無關。第二，這個檔案會被好幾個工具改：目錄裡的三個備份檔，從檔名看分別是本專案的安裝腳本（<code>.edge-gpio.bak</code>，第一次安裝時存一份，腳本裡有寫）、jetson-io（<code>.jetson-io-backup</code>）和 NVIDIA 的更新腳本（<code>.nv-update-extlinux-backup</code>）留下的；後兩個這章只依檔名判斷，沒有追它們的原始碼。你自己手改之前，也先 <code>cp</code> 一份。</p>
+    </div>
+  </section>
+
+  <section id="handoff">
+    <div class="rail"><span class="no">UEFI.6</span><b>交接</b>韌體 → kernel</div>
+    <div class="content">
+      <h2>kernel 從 /chosen 和 /sys/firmware/efi 拿到韌體留下的東西</h2>
+      <p>L4TLauncher 把 <code>Image</code> 當成 <code>.efi</code> 啟動；<code>Image</code> 開頭的 EFI stub 先跑，把韌體的資訊整理好，才進 kernel 本體。整理的結果有兩處看得到：Device Tree 的 <code>/chosen</code> 節點，以及 <code>/sys/firmware/efi</code>。</p>
+<pre class="cmd">ls /proc/device-tree/chosen | grep uefi
+cat /proc/cmdline
+grep -c bl_prof /boot/extlinux/extlinux.conf
+grep -o 'bl_prof[^ ]*' /proc/cmdline
+ls /sys/firmware/efi/efivars | wc -l
+lsattr /sys/firmware/efi/efivars/BootOrder-* /sys/firmware/efi/efivars/L4TDefaultBootMode-*</pre>
+<pre class="out" data-marks><span class="prompt">$</span> ls /proc/device-tree/chosen | grep uefi
+linux,uefi-mmap-desc-size
+linux,uefi-mmap-desc-ver
+linux,uefi-mmap-size
+linux,uefi-mmap-start
+linux,uefi-secure-boot
+linux,uefi-system-table «1»
+<span class="prompt">$</span> cat /proc/cmdline
+«2» root=PARTUUID=07c26928-d45b-4e5b-8c02-fc06ea41fecc rw rootwait rootfstype=ext4 mminit_loglevel=4 console=ttyTCU0,115200 firmware_class.path=/etc/firmware fbcon=map:0 video=efifb:off console=tty0 nv-auto-config bl_prof_dataptr=2031616@0x271E10000 bl_prof_ro_ptr=65536@0x271E00000
+<span class="prompt">$</span> grep -c bl_prof /boot/extlinux/extlinux.conf
+0 «3»
+<span class="prompt">$</span> grep -o 'bl_prof[^ ]*' /proc/cmdline
+bl_prof_dataptr=2031616@0x271E10000
+bl_prof_ro_ptr=65536@0x271E00000
+<span class="prompt">$</span> ls /sys/firmware/efi/efivars | wc -l
+55 «4»
+<span class="prompt">$</span> lsattr /sys/firmware/efi/efivars/BootOrder-* /sys/firmware/efi/efivars/L4TDefaultBootMode-*
+---------------------- /sys/firmware/efi/efivars/BootOrder-8be4df61-93ca-11d2-aa0d-00e098032b8c
+----i----------------- /sys/firmware/efi/efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9 «5»</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span><code>linux,uefi-*</code> 這組屬性是 kernel 的 EFI stub 寫進 <code>/chosen</code> 的（記憶體地圖與 UEFI system table 的位址；依 kernel 的 EFI stub 文件）。它們存在，表示這個 kernel 是被當成 EFI 應用程式啟動的。</span></li>
+        <li><span class="mk">2</span><span><code>/proc/cmdline</code> 是 <code>APPEND</code> 替換之後的結果：沒有 <code>${cbootargs}</code> 這個字面；結尾多了兩個 <code>bl_prof_*</code>。</span></li>
+        <li><span class="mk">3</span><span><code>bl_prof_*</code> 不在 <code>extlinux.conf</code> 裡（計數 0），所以是韌體那一側加的。推論：<code>${cbootargs}</code> 被換成韌體提供的那串參數；這章沒有追 L4TLauncher 的實際替換流程。</span></li>
+        <li><span class="mk">4</span><span>kernel 能列出 55 個 UEFI 變數，代表 kernel 拿到了 UEFI 的 Runtime Services，可以在開機後繼續讀寫韌體變數。</span></li>
+        <li><span class="mk">5</span><span><code>L4TDefaultBootMode</code> 有 <code>i</code>（immutable）旗標，<code>BootOrder</code> 沒有。efivarfs 對重要變數預設加這個旗標，擋掉不小心的修改。</span></li>
+      </ol>
+      <p><b>為什麼改了 overlay 要重開機</b>：疊 overlay 的是 L4TLauncher，而它在 kernel 開始之前就做完了。之後 kernel 手上只有一份記憶體裡的合併結果，<code>/boot/*.dtbo</code> 不會再被讀一次。這台 kernel 也沒有 <code>CONFIG_OF_CONFIGFS</code>，沒有 runtime overlay 可以用（<a href="step04b.html">Step 4-b</a> 會查這個設定）。<b>cmdline 也是同樣的道理</b>：改了 <code>APPEND</code>，<code>/proc/cmdline</code> 要到下次開機才會變。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">UEFI.7</span><b>常見錯誤</b>容易搞混</div>
+    <div class="content">
+      <h2>容易搞混的地方</h2>
+      <p>這些都是從上面的實測推出來的誤會；沒有一項是故意把板子弄壞去驗證的，標「沒實測」的就是只有證據指向、沒有真的做。</p>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為 /boot/efi 就是 /boot</h4><dl><dt>症狀</dt><dd><code>ls /boot/efi</code> 只有 <code>EFI/</code>，找不到 <code>Image</code>、<code>.dtb</code>。</dd><dt>後果</dt><dd>以為開機檔案不見了，或把 <code>.dtbo</code> 複製到 ESP 期待它被用到。</dd><dt>正解</dt><dd class="fix">ESP 只掛在 <code>/boot/efi</code>，裡面只有 <code>BOOTAA64.efi</code>。<code>extlinux.conf</code> 裡的 <code>/boot/…</code> 路徑都是 rootfs 的。</dd></dl></div>
+        <div class="pit"><h4>改了 APPEND 就查 /proc/cmdline</h4><dl><dt>症狀</dt><dd>在 <code>extlinux.conf</code> 加了 kernel 參數，<code>/proc/cmdline</code> 沒有變。</dd><dt>後果</dt><dd>以為存檔失敗，反覆再改。</dd><dt>正解</dt><dd class="fix"><code>/proc/cmdline</code> 是上次開機時交給 kernel 的那一份，重開機才會換。</dd></dl></div>
+        <div class="pit"><h4>手改 extlinux.conf 沒備份</h4><dl><dt>症狀</dt><dd>打錯字或漏掉 <code>LINUX</code> 行。<code>BOOTAA64.efi</code> 裡有 <code>Unable to process extlinux config</code> 這類訊息（沒實測）。</dd><dt>後果</dt><dd>可能開不了機，要接序列 console 或進 recovery 模式才能救（沒實測）。</dd><dt>正解</dt><dd class="fix">用 <code>install_edge_gpio_overlay.py</code>：它用暫存檔加 rename 原子替換，第一次安裝存 <code>.edge-gpio.bak</code>。手改前先 <code>cp</code>。</dd></dl></div>
+        <div class="pit"><h4>把 efivars 當一般檔案刪</h4><dl><dt>症狀</dt><dd>為了「清理」對 <code>/sys/firmware/efi/efivars</code> 底下的檔案下 <code>rm</code>。</dd><dt>後果</dt><dd>efivarfs 的刪除是真的刪韌體變數。沒有 <code>i</code> 旗標的（如 <code>BootOrder</code>）不會擋你（沒實測，也不建議試）。</dd><dt>正解</dt><dd class="fix">用 <code>efibootmgr</code> 改開機項目；其餘的變數只讀不寫。</dd></dl></div>
+        <div class="pit"><h4>把兩個 timeout 當成同一個</h4><dl><dt>症狀</dt><dd><code>efibootmgr</code> 說 5 秒，<code>extlinux.conf</code> 開頭卻是 <code>TIMEOUT 30</code>。</dd><dt>後果</dt><dd>要縮短選單等待卻改錯地方。</dd><dt>正解</dt><dd class="fix">前者是 UEFI Boot Manager 等待的秒數；後者是 L4TLauncher 的選單，單位依 extlinux 的慣例是 1/10 秒（沒實測）。</dd></dl></div>
+        <div class="pit"><h4>以為 Boot0001 是 NVMe 裡的一個檔案</h4><dl><dt>症狀</dt><dd>想用 <code>find</code> 找 <code>Boot0001</code>。</dd><dt>後果</dt><dd>找不到而困惑，甚至懷疑 NVMe 壞了。</dd><dt>正解</dt><dd class="fix"><code>Boot####</code> 是存在韌體變數區的一筆設定；它的裝置路徑只指到磁碟，檔案由規格的預設路徑 <code>\EFI\BOOT\BOOTAA64.efi</code> 補上。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">UEFI.8</span><b>收尾</b>UEFI → DT</div>
+    <div class="content">
+      <h2>這一章讀懂了什麼</h2>
+      <ul class="checks">
+        <li class="y">開機是一串接力：UEFI 韌體（不在 rootfs）→ ESP 上的 <code>BOOTAA64.efi</code>（L4TLauncher）→ rootfs 的 <code>extlinux.conf</code> → kernel。</li>
+        <li class="y">UEFI 的開機項目存在韌體變數裡（<code>BootOrder</code>、<code>Boot####</code>），kernel 開機後透過 efivarfs 當檔案讀。</li>
+        <li class="y"><code>extlinux.conf</code> 的 <code>LABEL</code> 描述一個開機項目；<code>FDT</code> 加 <code>OVERLAYS</code> 就是 Device Tree 的來源，路徑都在 rootfs。</li>
+        <li class="y">韌體用 <code>/chosen</code>（<code>bootargs</code>、<code>linux,uefi-*</code>）和 <code>/sys/firmware/efi</code> 把資訊交給 kernel；疊 overlay 發生在 kernel 之前，所以要重開機。</li>
+        <li class="n">BootROM、MB1 / MB2 等更早的階段、Secure Boot、capsule 更新、A/B slot：這章沒有展開。</li>
+        <li class="n">Device Tree 本身的格式、<code>/proc/device-tree</code> 怎麼讀、overlay 怎麼找到要改的節點：下一章與 4-b。</li>
+      </ul>
+      <p>下一章 <a href="devicetree.html">Device Tree 入門</a>會從這一章的終點接手：韌體交到 kernel 手上的那份樹，裡面有什麼、怎麼讀、driver 怎麼用它。</p>
+      <details class="quiz"><summary>1. 你在 <code>extlinux.conf</code> 的 <code>APPEND</code> 加了 <code>loglevel=7</code>，存檔後 <code>cat /proc/cmdline</code> 沒看到它。下一步做什麼？</summary><p>重開機。<code>/proc/cmdline</code> 是 L4TLauncher 在上次開機時替換好、交給 kernel 的那一份；重開機後再看。如果仍沒有，才去檢查你改的是不是 <code>DEFAULT</code> 指到的那個 LABEL。</p></details>
+      <details class="quiz"><summary>2. <code>efibootmgr</code> 顯示 <code>Boot0001</code> 沒有檔名，韌體怎麼知道要執行哪個 <code>.efi</code>？這台板子上它執行的是什麼？</summary><p>UEFI 規格規定：項目只指到磁碟時，去那顆磁碟的 ESP 找預設路徑 <code>\EFI\BOOT\BOOT&lt;架構&gt;.EFI</code>。AArch64 是 <code>BOOTAA64.efi</code>，在這台板子上就是 L4TLauncher。</p></details>
+      <details class="quiz"><summary>3. ESP 為什麼要是 FAT 格式，而不是 rootfs 用的 ext4？</summary><p>UEFI 規格只要求韌體一定要讀得懂 FAT，所以放 <code>.efi</code> 的 ESP 用 FAT。L4TLauncher 能讀 rootfs 上的 <code>extlinux.conf</code> 是它自己的能力（見 UEFI.4 的推論），不是規格保證的。</p></details>
+      <details class="quiz"><summary>4. <code>/proc/device-tree/chosen</code> 裡的 <code>linux,uefi-system-table</code> 是誰寫的？它和 <code>/sys/firmware/efi/efivars</code> 能讀有什麼關係？</summary><p>kernel 的 EFI stub 寫的，內容是 UEFI system table 的位址。kernel 有了它才找得到 UEFI 的 Runtime Services，才能在開機後讀寫韌體變數，efivarfs 才有東西可以開放出來。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="bootchain.html">← UEFI 之前</a><a href="devicetree.html">Device Tree 入門 →</a></nav>
+</main>
+
+<script>
+/* Command-output markers: «N» in a <pre data-marks> becomes a numbered dot matching the notes list below it. */
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+</script>
+</body>
+</html>

@@ -39,7 +39,7 @@ h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
 h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
 h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
 h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
-p, li { max-width: 70ch; }
+p, li { max-width: 100ch; }
 p { margin: 0 0 1rem; }
 ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
 a { color: var(--accent); }
@@ -69,7 +69,7 @@ section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem
 
 dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
 dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
-dl.terms dd { margin: 0; color: var(--muted); max-width: 70ch; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 100ch; }
 
 figure { margin: 0 0 1.2rem; }
 .figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
@@ -144,12 +144,12 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04a.html">Step 4-a →</a></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="uefi.html">← UEFI 與開機</a><a href="step04a.html">Step 4-a →</a></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · 補充章 · Linux Device Tree</div>
     <h1>Device Tree 入門：kernel 怎麼知道板子上有什麼</h1>
     <p class="lede">Step 2、3 的 <code>edge_test</code> 不碰任何硬體，所以不需要問「裝置在哪裡」。從 Step 4 開始，每個 driver 都要知道暫存器在哪個位址、用哪根 GPIO、接哪條中斷、掛在哪條 I2C bus 的哪個位址。在 ARM 板子上，這些資訊不是 driver 自己找出來的，而是寫在一份叫 <b class="hl-key">Device Tree</b> 的資料結構裡，開機時交給 kernel。這一章不寫任何 code，只在板子上讀現成的 Device Tree，把之後每一章都會用到的語法和機制先講清楚：節點與屬性、<code>reg</code> 和位址 cell、<code>phandle</code>、<code>compatible</code> 配對，以及一個節點怎麼變成 <code>/sys</code> 底下的一個 device；最後把 4-a 會遇到的 pad、pinmux、pinctrl 三個詞分清楚。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html}。不新增 code，所有指令只讀不寫、不需要 root</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html, uefi.html}。不新增 code，所有指令只讀不寫、不需要 root</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（OF core、platform bus、i2c core）</span>
@@ -164,9 +164,9 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2>SoC 上的硬體不會自己報名</h2>
       <p>PC 上插一張 PCIe 網卡或一支 USB 隨身碟，kernel 不需要事先知道它存在：PCI 和 USB 是<b>可列舉</b>的 bus，裝置插上去後會回報自己的廠商 ID 和型號，kernel 拿這組 ID 找 driver。</p>
-      <p>Jetson 的 Orin SoC 不是這樣。GPIO controller、pinmux、I2C controller 都是晶片裡固定的電路區塊，對 CPU 來說只是一段位址：GPIO 在 <code>0x02200000</code>、pinmux 在 <code>0x02430000</code>、header pin 3/5 用的 I2C controller 在 <code>0x0c250000</code>。去讀這些位址不會得到「我是 I2C controller」這種回答。板子上外接的晶片更是如此：UPS 模組上的 INA219 只是 I2C bus 上位址 0x41 的一個晶片，不問它就不知道它在那裡。</p>
+      <p>Jetson 的 Orin SoC 不是這樣。GPIO controller、pinmux、I2C controller 都是晶片裡固定的電路區塊，對 CPU 來說只是一段位址：GPIO 在 <code>0x02200000</code>、pinmux 在 <code>0x02430000</code>、header pin 3/5（40 pin 排針的第 3、5 腳，分別是 I2C 的 SDA 與 SCL）用的 I2C controller 在 <code>0x0c250000</code>。去讀這些位址不會得到「我是 I2C controller」這種回答。板子上外接的晶片更是如此：UPS 模組上的 INA219 只是 I2C bus 上位址 0x41 的一個晶片，不問它就不知道它在那裡。</p>
       <p>早期的 ARM Linux 把這些資訊寫死在每塊板子的 C 檔案裡（<code>arch/arm/mach-*</code> 底下的 board file），換一塊板子就要改 kernel、重新編譯。Device Tree 把它改成<b>資料</b>：一份描述「這塊板子有哪些硬體、各自接在哪裡」的樹，由 bootloader 在開機時交給 kernel。同一個 kernel image 拿到不同的樹，就能在不同的板子上開機；driver 只說「我認得哪一種硬體」，不寫「它在哪裡」。</p>
-      <p>Step 4-a 會用 <code>/dev/mem</code> 直接寫 pinmux 暫存器，那個基底位址 <code>0x02430000</code> 就是從 Device Tree 的 <code>pinmux@2430000</code> 節點讀來的（DT.5）；4-b 起，我們自己的每一個裝置（LED、按鍵、INA219、OLED）都會寫成 Device Tree 的節點。所以先在這一章把樹讀懂。</p>
+      <p>Step 4-a 會用 <code>/dev/mem</code>（Linux 提供的特殊檔案，內容就是實體位址空間，以位址當偏移量就能直接讀寫硬體暫存器，需要 root）直接寫 pinmux 暫存器，那個基底位址 <code>0x02430000</code> 就是從 Device Tree 的 <code>pinmux@2430000</code> 節點讀來的（DT.5）；4-b 起，我們自己的每一個裝置（LED、按鍵、INA219、OLED）都會寫成 Device Tree 的節點。所以先在這一章把樹讀懂。</p>
       <p><b>互動雙方</b>：寫入方是開機韌體（JP6 上是 UEFI），它把樹放進記憶體交給 kernel；讀取方是 kernel 的 OF core（<code>of_</code> 開頭的那一組 API，名稱來自 Device Tree 的前身 Open Firmware）、各個 bus（platform bus、i2c core）和 driver。userspace 只能透過 <code>/proc/device-tree</code> 唯讀地看。<b>這一章不做</b>：不寫 overlay、不改開機設定、不寫 driver，那些是 4-b 的事。</p>
       <dl class="terms">
         <dt>Device Tree（DT）</dt><dd>描述硬體的一棵樹。每個<b>節點</b>描述一個硬體區塊或一條 bus，節點上的<b>屬性</b>寫它的資源：位址、中斷、GPIO、時脈。</dd>
@@ -198,7 +198,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <text class="s-sm" x="605" y="66" text-anchor="middle">249353 bytes 的二進位</text>
           <text class="s-mono" x="14" y="142">BOOT</text>
           <rect class="s-box" x="130" y="110" width="610" height="58" rx="9" style="stroke: var(--accent)"/>
-          <text class="s-key" x="435" y="135" text-anchor="middle">UEFI 讀 extlinux.conf 的 FDT 與 OVERLAYS 行</text>
+          <text class="s-key" x="435" y="135" text-anchor="middle">UEFI（L4TLauncher）讀 extlinux.conf 的 FDT 與 OVERLAYS 行</text>
           <text class="s-sm" x="435" y="156" text-anchor="middle">載入 dtb、疊上 overlay，連同 /chosen 的 bootargs 放進記憶體交給 kernel</text>
           <line class="sv-edge" x1="10" y1="182" x2="750" y2="182"/>
           <text class="s-sm edge-lbl" x="750" y="198" text-anchor="end">韌體 ↕ kernel 交接</text>
@@ -233,7 +233,16 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         </svg>
         <figcaption>圖 0.1 — kernel 不會去讀 <code>/boot</code> 裡的 <code>.dtb</code> 檔，它看到的是 UEFI 在記憶體裡交給它的那一份（已疊上 overlay）。之後誰替哪個節點建 device，看的是<b>父節點</b>：根節點和 <code>simple-bus</code> 底下歸 platform bus，I2C controller 底下歸 i2c core。</figcaption>
       </figure>
-      <p>這台板子的 extlinux.conf 用的 label 叫 <code>JetsonIO</code>，它的 <code>FDT</code> 行指向 <code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code>，<code>OVERLAYS</code> 行列出要疊上去的 <code>.dtbo</code>。「疊上去」的細節（overlay 怎麼找到要改的節點）放在 4-b。這台的原廠 <code>.dts</code> 原始碼不在板子上，只有編好的 <code>.dtb</code>；要看它的內容，就從開機後的樹倒回來（DT.4）。</p>
+      <p>extlinux.conf 是開機選單的設定檔（<code>/boot/extlinux/extlinux.conf</code>），一個 <code>LABEL</code> 是一個開機項目；讀它的是 UEFI 載入的 L4TLauncher，細節見補充章 <a href="uefi.html">UEFI 與開機</a>。這台板子的 extlinux.conf 用的 label 叫 <code>JetsonIO</code>，它的 <code>FDT</code> 行指向 <code>/boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</code>，<code>OVERLAYS</code> 行列出要疊上去的 <code>.dtbo</code>。「疊上去」的細節（overlay 怎麼找到要改的節點）放在 4-b。這台的原廠 <code>.dts</code> 原始碼不在板子上，只有編好的 <code>.dtb</code>；要看它的內容，就從開機後的樹倒回來（DT.4）。</p>
+      <h3>為什麼 kernel 要把 FDT「展開」</h3>
+      <p>FDT（flattened device tree）是為了<b>傳遞</b>設計的：整棵樹壓成一塊連續、不含指標的 byte（一串「開始節點、屬性、結束節點」的標記，加一塊字串表），放在記憶體哪裡都能原封不動交給 kernel。但它不適合<b>使用</b>：要找一個節點的子節點、父節點，或 phandle 指到的節點，只能從頭掃描；沒有指標，所以節點之間沒有直接的連結；kernel 想在執行中增減節點（這台 <code>CONFIG_OF_DYNAMIC=y</code>）或替每個節點記下「對應哪個 device、引用計數多少」，也沒有地方放。</p>
+      <p>所以 kernel 開機早期先直接讀 flat blob，只拿最基本的資訊（記憶體範圍、<code>/chosen</code>、initrd 的位置），然後呼叫 <code>unflatten_device_tree()</code> 把它<b>展開</b>成記憶體裡一棵由 <code>struct device_node</code> 組成的樹：每個節點有 parent、child、sibling 指標和一串屬性。之後所有 <code>of_</code> 開頭的 API 都在這棵樹上查找，圖 0.1 的 1749 個 <code>device_node</code> 就是展開的結果。</p>
+      <p>原本那份 flat blob 沒有消失，kernel 還開放了它：</p>
+<pre class="cmd">stat -c '%s %n' /sys/firmware/fdt /boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</pre>
+<pre class="out"><span class="prompt">$</span> stat -c '%s %n' /sys/firmware/fdt /boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb
+258909 /sys/firmware/fdt
+249353 /boot/dtb/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb</pre>
+      <p><code>/sys/firmware/fdt</code> 是 kernel 拿到的原始 flat blob（只有 root 讀得了內容，所以用 <code>stat</code> 只看大小）；<code>/proc/device-tree</code> 是展開後的樹。記憶體裡的 blob（258909 byte）比 <code>/boot/dtb</code> 裡的檔案（249353 byte）大，推論是疊上去的 overlay 增加了內容，沒有逐 byte 驗證。<code>/proc/device-tree</code> 做成唯讀目錄，因為它描述的是韌體交給 kernel 的硬體事實，driver 在 probe 時已經照它建好 device，事後從 userspace 改一個屬性不會讓硬體改變，只會讓描述和現實不符（這是設計上的推論，不是查到的文件）。</p>
     </div>
   </section>
 
@@ -781,7 +790,7 @@ dtc -I dtb -O dts /boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo 2&gt;/dev/null 
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step03.html">← Step 3</a><a href="step04a.html">Step 4-a →</a></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="uefi.html">← UEFI 與開機</a><a href="step04a.html">Step 4-a →</a></nav>
 </main>
 
 <script>
