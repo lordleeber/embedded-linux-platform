@@ -514,7 +514,8 @@
 - 和 Step 11 的差異，逐項歸因：FW_MINOR `0x01 → 0x02`（版本規則）；0x03 `0xff → 0x10`、0x30 / 0x31 `0xff → 值`（新 register）；`w1 0x02 r3` 從 `0x01 0x01 0x01` 變成遞增（auto-increment）；寫入的第 2 個以後的資料 byte 從「丟掉」變成寫到下一個位址。交替讀的時間不能直接比：Step 11 每輪 4 次 `i2cget`，這一步每輪 5 筆、其中 3 筆是多 byte。
 - 燒錄：flash 1912 → **2120 byte**，RAM 464 → 468 byte。
 - 容差：同 Step 11，沒有數值容差，register 值逐字比對。
-- **未實測**：真正的 bus error（BERR / ARLO / OVR）。Jetson 的 controller 只送合法的 transaction，沒有能故意製造的方法。重設程序本身用測試用 firmware 驗過（見下）。LED 的人眼確認（y/n）這一輪還沒跑。
+- **未實測**：真正的 bus error（BERR / ARLO / OVR）。Jetson 的 controller 只送合法的 transaction，沒有能故意製造的方法。重設程序本身用測試用 firmware 驗過（見下）。
+- 之後使用者在板子旁跑完整的 `bash scripts/verify_stm32_i2c.sh`（不加 `--no-look`）`=== 0 failure(s)`：人確認 PC13 亮、滅；STATUS 找到時 `0x00`（上一輪清過、板子沒重開）；500 筆 1.4 s 全對；板上 unit test 通過。
 - 自動測試：`tests/test_i2c_target.cpp` 11 → 16 組向量；`tests/test_stm32_i2c_target.py` 29 → 40 個（向量 1、register map 對 header 2 → 4、firmware 原始碼 9 → 11、vendor 3、建置 2、硬體 6 → 12、驗收腳本 6 → 7）。全套 400 → 411 個，`OK (skipped=77)`。
 - 紅燈紀錄：先寫 header 與 stub，向量 56 個 check 失敗；Python 靜態 / 文件 / 腳本測試 8 個紅；Step 11 firmware 上實機 11 個紅 10 個（`test_read_after_the_value_changed` 是守門測試，本來就綠）。變異（每個都燒進板子跑實機測試）：
   - 讀取移動 pointer（Step 11 帶過來的問題）：向量 3 個 check、實機 2 個紅。

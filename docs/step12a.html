@@ -610,7 +610,8 @@ PASS test_stm32_i2c_target.py (OK)
 <pre class="out">0x04
 0x00</pre>
       <p>LED_CONTROL 寫 9 被丟掉，STATUS 讀到 BAD_VALUE（<code>0x04</code>），寫 <code>0x04</code> 清掉後是 0。第一行如果是 <code>0x84</code>，表示 RESET bit 還在（板子重開後沒人清過），用 <code>i2cset -y 1 0x42 0x30 0xff</code> 全清。如果 0x03 讀到 <code>0xff</code>，板子上跑的還是 Step 11 的 firmware。</p>
-      <div class="callout"><p><b class="hl-bad">沒有實測</b>：真正的 bus error（BERR / ARLO / OVR）的偵測，見 12a.6；ES096 的 BUSY 卡住（沒遇到）；400 kHz；OLED 與 STM32 同時在 bus 上。這一輪的 LED 人眼確認（y/n）還沒跑；LED 的程式這一步沒有改。</p></div>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：真正的 bus error（BERR / ARLO / OVR）的偵測，見 12a.6；ES096 的 BUSY 卡住（沒遇到）；400 kHz；OLED 與 STM32 同時在 bus 上。</p></div>
+      <p>之後使用者在板子旁跑了不加 <code>--no-look</code> 的完整腳本，<b class="hl-ok">0 failure</b>：人確認 LED 亮、滅，500 筆混合讀取 1.4 s 全對。那一輪的 STATUS「找到時」是 <code>0x00</code>，因為板子從上一輪之後沒有重開。</p>
     </div>
   </section>
 
@@ -638,7 +639,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：protocol 有明確文件，Jetson 端穩定讀寫多個 register（500 筆混合讀取全對），不合法的寫入能從 STATUS 看到。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">Step 11 帶過來的三件事：多取的 byte 不再影響 pointer（從規格上消失）、寫入失敗有 STATUS 回報、bus error 後重設 I2C1（重設程序實測過）。</li>
         <li class="y">測試：16 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">40</span> 個 Python 測試；四個變異版都燒進板子驗過。規模：非空白新增 545 行（產品碼 142、測試 344、驗收腳本 59）。</li>
-        <li class="n">沒有實測：真正的 bus error 偵測、ES096 的 BUSY 卡住、400 kHz；這一輪的 LED 人眼確認。</li>
+        <li class="n">沒有實測：真正的 bus error 偵測、ES096 的 BUSY 卡住、400 kHz。</li>
       </ul>
       <p>Step 12-b 把 0x10–0x1F 填起來：ADC_LOW / ADC_HIGH 與 BUTTON_STATE，需要新接線（可變電阻與按鍵）。ADC 是第一個多 byte 的值，會用到這一章的 little-endian 和 auto-increment；兩個 byte 還要來自同一次轉換，否則一次讀取可能拿到新的低位元組和舊的高位元組。PROTOCOL_VERSION 會變成 1.1。</p>
       <details class="quiz"><summary>1. 讀 4 個 byte，firmware 的 <code>tx()</code> 會被呼叫幾次？為什麼多的那次不會出事？</summary><p>5 次。第 5 次發生在第 4 個 byte 開始送出時（TXE），那時 Jetson 還沒回 NACK。它不會出事，是因為讀取沒有任何副作用：不移動 pointer、不清 STATUS，transaction 一結束 cursor 就回到 pointer。</p></details>
