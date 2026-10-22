@@ -505,3 +505,26 @@
   - 不改：`test_i2c_target.cpp` 用相對路徑 include header（repo 的測試都這樣寫，如 `../apps/telemetry.h`）。
   - 修正前新增的測試：靜態 2 個（RXNE 在 ADDR 之前、ini 的 warning 旗標）在改之前紅；硬體 1 個在變異版上紅。`test_stm32_i2c_target.py` 26 → 29 個；全套 373 個，`OK (skipped=71)`。規模 754 → 796 行（非空白）。
 - 修正後重燒（flash 1960 → **1912 byte**，沒有逐項追查是哪個改動造成的）並重跑 `bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`：400 次交替讀 1.2 s 全對，板上 unit test 6 個通過；ina3221 仍是 `0x4954`。之後使用者在板子旁重跑完整的 `bash scripts/verify_stm32_i2c.sh` `=== 0 failure(s)`：人確認 PC13 亮、滅，400 次交替讀 1.2 s 全對。
+
+## Step 12-a：正式 register map v1.0（分區、auto-increment、STATUS、版本規則）
+
+- 驗收主機與接線：同 Step 11（Blue Pill PB7 / PB6 → header pin 27 / 28、GND，ST-Link 供電；OLED 拔掉），沒有新接線。
+- 對照方法：同一支 `bash scripts/verify_stm32_i2c.sh`（只加不換）。開工前在 Step 11 firmware 上重跑 `--no-look` `=== 0 failure(s)`，400 次交替讀 1.1 s 全對，和 Step 11 的基線一致。
+- 結果（2026-10-22，`--no-look`）`=== 0 failure(s)`：DEVICE_ID `0xed`、FW `0x00` / `0x02`、PROTOCOL_VERSION `0x10`、WATCHDOG_STATUS `0x00`；燒錄後 STATUS 讀到 `0x80`（RESET）；寫 RO → `0x01`、讀沒定義的 → `0x00`、寫沒定義的 → `0x02`、兩個錯誤後只清 bit 0 → `0x04`、LED 寫 2 → `0x04`；`w1 0x00 r4` = `0xed 0x00 0x02 0x10`、`0x03 r2` = `0x10 0xff`、`0xff r2` = `0xff 0xed`、之後 `r2`（不寫 pointer）= `0x00 0x02`；`w2 0x20 0x01 r1` = `0x01`；`w3 0x1f 0x00 0x01` 讓 LED = 1、STATUS = `0x02`；100 輪混合讀取（`r4`、`i2cget`、`r2`、`i2cget`、`r1`）**500 筆 1.4 s 全對**，之後 STATUS = `0x00`。板上 unit test 12 個通過。ina3221 仍是 `0x4954`。
+- 和 Step 11 的差異，逐項歸因：FW_MINOR `0x01 → 0x02`（版本規則）；0x03 `0xff → 0x10`、0x30 / 0x31 `0xff → 值`（新 register）；`w1 0x02 r3` 從 `0x01 0x01 0x01` 變成遞增（auto-increment）；寫入的第 2 個以後的資料 byte 從「丟掉」變成寫到下一個位址。交替讀的時間不能直接比：Step 11 每輪 4 次 `i2cget`，這一步每輪 5 筆、其中 3 筆是多 byte。
+- 燒錄：flash 1912 → **2120 byte**，RAM 464 → 468 byte。
+- 容差：同 Step 11，沒有數值容差，register 值逐字比對。
+- **未實測**：真正的 bus error（BERR / ARLO / OVR）。Jetson 的 controller 只送合法的 transaction，沒有能故意製造的方法。重設程序本身用測試用 firmware 驗過（見下）。LED 的人眼確認（y/n）這一輪還沒跑。
+- 自動測試：`tests/test_i2c_target.cpp` 11 → 16 組向量；`tests/test_stm32_i2c_target.py` 29 → 40 個（向量 1、register map 對 header 2 → 4、firmware 原始碼 9 → 11、vendor 3、建置 2、硬體 6 → 12、驗收腳本 6 → 7）。全套 400 → 411 個，`OK (skipped=77)`。
+- 紅燈紀錄：先寫 header 與 stub，向量 56 個 check 失敗；Python 靜態 / 文件 / 腳本測試 8 個紅；Step 11 firmware 上實機 11 個紅 10 個（`test_read_after_the_value_changed` 是守門測試，本來就綠）。變異（每個都燒進板子跑實機測試）：
+  - 讀取移動 pointer（Step 11 帶過來的問題）：向量 3 個 check、實機 2 個紅。
+  - STATUS 改成 read-to-clear：向量 5 個 check、實機 3 個紅，包括 `test_status_survives_a_read_that_runs_into_it`：讀 0x2F 時旗標就被清掉了，**實測證實 TXE 會預先取下一個 register**（Step 11 只推論、沒量過）。
+  - EV handler 不呼叫 `i2c_target_read_start()`：**第一次全綠**，見踩坑；補測試後實機 1 個紅、向量 1 個 check 紅。
+  - 每次讀取結束（AF）都 SWRST + 重新設定：實機 12 個與驗收腳本（500 筆）全綠。這不是錯誤，是用來證明重設程序本身沒問題：重設後 0x42 照樣 ACK、中斷照樣進來、state 對。
+- 規模：`git diff main`（不含 docs 與 .md）新增非空白 **545 行**（另刪 159）：產品碼 142、測試 344、驗收腳本 59。動工前估 600–750。
+
+### 踩坑
+
+- 原本以為 auto-increment 照一般 EEPROM 的做法「讀完 pointer 停在下一個」就好。F103 的 TXE 在對方 NACK 前會多取一個 byte，firmware 分不出那個 byte 有沒有送出去，pointer 會多走一格。改成「pointer 只由寫入設定、讀取不移動」，問題從規格上消失，不必去數 TXE 的次數。代價寫進 register map：Jetson 不能接著上次讀到的地方繼續讀。
+- 原本以為 STATUS 用 read-to-clear 最省事（Jetson 讀一次就清）。同一個 TXE 預先取的 byte 會讓 firmware「讀過」STATUS，Jetson 卻沒收到；變異實測旗標真的會不見。改用 write-1-to-clear。
+- 原本以為 `i2c_target_read_start()` 是必要的，有它的測試就守住了。把它從 EV handler 拿掉，向量和實機全綠：`stop()` 與寫 pointer 都已經把游標放回 pointer。只有「同一筆 transaction 寫了資料、repeated START 再讀」時游標在 reg+1，才分辨得出來。補了這個情況的向量、實機測試與驗收腳本一行。

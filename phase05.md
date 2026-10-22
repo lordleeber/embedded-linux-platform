@@ -372,6 +372,26 @@ Step 11 只有最小 4 個 register。這一步把它擴充成一個真正可維
 - 多 byte 讀取要定義 auto-increment。Step 11 實測 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取；auto-increment 時「預先放的那個 byte」會讓 pointer 多前進一格，要先寫出會紅的向量與硬體測試再實作
 - 寫入失敗沒有回報管道（F103 硬體先 ACK）：由 STATUS 補上
 - 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；BUSY 卡住（ES096）時 0x42 不再 ACK，只能按 RESET。順序：先讓錯誤在 STATUS 看得到，再做復原。Step 11 沒有重現方法，這一步若仍找不到，就照實標「只有 host 向量、未實測」
+- **結案（Step 12-a）**：auto-increment 只在 transaction 內有效、讀取不移動 pointer，預先放的 byte 從設計上就不影響下一次讀取（變異「讀取移動 pointer」實機紅）；寫入錯誤由 STATUS 的三個 bit 回報；`I2C1_ER_IRQHandler` 遇到 BERR / ARLO / OVR 設 BUS_ERROR、SWRST、重新設定 I2C1。重設程序用「每次讀取結束都重設」的測試用 firmware 實測（實機測試與驗收腳本全綠）；**真正的 bus error 仍沒有重現方法，偵測那一段未實測**
+
+### 實作決策（Step 12-a 落地時裁決）
+
+- 誰和誰互動：同 Step 11（Jetson `i2c-1` controller → Blue Pill I2C1 target 0x42 → PC13 LED），Jetson 端仍只用 i2c-tools，沒有新的 C++ tool；沒有新接線
+- register map v1.0：0x00 DEVICE_ID、0x01 / 0x02 FW 0.2、0x03 PROTOCOL_VERSION 0x10、0x20 LED_CONTROL、0x30 STATUS（RW1C，reset 0x80）、0x31 WATCHDOG_STATUS（RO，固定 0）。分區照規劃，0x10–0x1F 留給 12-b
+- auto-increment：讀寫都遞增、過 0xFF 回 0x00，但**只在同一筆 transaction 裡**；pointer 只由寫入的第 1 個 byte 設定，讀取（包括 TXE 預先取的那個 byte）不移動它。沒先寫 pointer 的讀取、寫完資料後 repeated START 的讀取，都從 pointer 開始。換來的代價：Jetson 不能「連續讀下去」接著上次的位置，每次都要從 pointer 開始
+- 寫入：每個資料 byte 各自寫到下一個位址、各自檢查；Step 11 的「之後的 byte 丟掉」改掉了（所以算 protocol major 改變）
+- STATUS：bit 0 RO_WRITE、1 UNMAPPED_WRITE、2 BAD_VALUE、3 BUS_ERROR、7 RESET，4–6 保留。**write-1-to-clear，不用 read-to-clear**：讀 0x2F 時 TXE 會順便取 0x30，那個 byte 不會送到 Jetson（變異「read-to-clear」實機紅：旗標在 Jetson 讀之前就被清掉）。讀取任何位址都不算錯誤，因為多 byte 讀取本來就會讀過 register 尾端
+- 版本規則：PROTOCOL_VERSION 高 4 bit major（不相容）、低 4 bit minor（只增加）；FW 版本每次發佈都改。Step 11 的 firmware 讀 0x03 得 0xFF
+- 錯誤中斷：BERR / ARLO / OVR → `i2c_target_bus_error()` + SWRST + `i2c1_regs_init()`（SWRST 清掉 I2C1 的全部 register，所以位址、ACK、中斷要重設）；AF 照舊是讀取的正常結束。ES096 建議的「把 SCL / SDA 切成 GPIO 打 clock」沒做
+- 規模（非空白行，同 Step 11 的算法）：新增 **545 行**（另刪 159）：產品碼 142（`i2c_target.h` 57、`i2c_target.c` 45、`main.c` 40）、測試 344（C++ 188、Python 156）、驗收腳本 59。動工前估 600–750
+
+### 預期檔案（Step 12-a 實際）
+
+```text
+firmware/stm32f103/Core/Inc/i2c_target.h、Core/Src/i2c_target.c、Core/Src/main.c（改）
+firmware/stm32f103/docs/register-map.md、README.md（改）
+tests/test_i2c_target.cpp、tests/test_stm32_i2c_target.py、scripts/verify_stm32_i2c.sh（改）
+```
 
 ### 驗證
 

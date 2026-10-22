@@ -260,7 +260,7 @@ pre, code { font-variant-ligatures: none; }
         <li>讀取<b>不 auto-increment</b>：一次讀 3 個 byte，3 個都是同一個 register。多 byte 的讀取方式（auto-increment、byte 順序）在 Step 12-a 定義，第一個多 byte 的 register（ADC）在 Step 12-b 出現。</li>
       </ul>
       <p>為什麼不用 NACK 拒絕不合法的值？F103 的 I2C1 在 <code>ACK</code> 位元打開時，收到 byte 就由硬體自動回 ACK，firmware 在中斷裡看到這個 byte 時，ACK 早就送出去了。所以 Jetson 要確認寫入有沒有生效，得把 register 讀回來看；Step 12-a 會加一個 STATUS register 回報錯誤。這份規格有兩份拷貝：人看的 <code>firmware/stm32f103/docs/register-map.md</code>，和程式用的 header：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h:26–36 — 位址、register 與值；register-map.md 是它的文字版，一條測試逐欄比對兩者</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h@33e6ded:26–36 — 位址、register 與值；register-map.md 是它的文字版，一條測試逐欄比對兩者</figcaption>
 <pre data-start="26" data-hot="26,31,33">#define I2C_TARGET_ADDR 0x42 /* 7-bit address, the project's choice */
 
 #define REG_DEVICE_ID 0x00   /* RO */
@@ -312,7 +312,7 @@ pre, code { font-variant-ligatures: none; }
         </svg>
         <figcaption>圖 11.2 — 寫入的 state machine。IDLE 和 DISCARD 都會丟掉 byte，但意義不同：DISCARD 是「這次寫入的資料已經收到了」，IDLE 是「根本不在寫入中」，例如 bus 錯誤中途結束了 transaction。</figcaption>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:16–38 — 只有 LED_CONTROL 可寫、只收 0 / 1；收到的 byte 依狀態決定是 pointer、資料還是丟掉</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c@33e6ded:16–38 — 只有 LED_CONTROL 可寫、只收 0 / 1；收到的 byte 依狀態決定是 pointer、資料還是丟掉</figcaption>
 <pre data-start="16" data-hot="19,20,27,28,31,32">static void write_reg(struct i2c_target *t, uint8_t reg, uint8_t value)
 {
     /* Only LED_CONTROL is writable, and only with 0 or 1; anything else is dropped. */
@@ -360,7 +360,7 @@ void i2c_target_rx(struct i2c_target *t, uint8_t byte)
     <div class="content">
       <h2>main.c：把 I2C1 的旗標翻譯成四個呼叫</h2>
       <p>初始化做三件事：PB6 / PB7 設成 <b>alternate function open drain</b>（交給 I2C1 周邊驅動，而且只能拉低、不能推高，高電位由 Jetson 載板的上拉電阻提供）、設定自己的位址並打開 ACK、打開中斷。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:39–64 — 開時脈、腳位交給 I2C1、0x42、ACK、兩個中斷向量</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c@33e6ded:39–64 — 開時脈、腳位交給 I2C1、0x42、ACK、兩個中斷向量</figcaption>
 <pre data-start="39" data-hot="44,49,50,64">    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1, ENABLE);
     /* Open drain: the Jetson's carrier board has the pull-ups on pins 27 / 28. */
@@ -389,7 +389,7 @@ void i2c_target_rx(struct i2c_target *t, uint8_t byte)
     I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE);</pre>
       </figure>
       <p><code>I2C_OwnAddress1</code> 要左移一位：OAR1 暫存器的 bit 0 在 7-bit 模式不用，位址放在 bit 7:1。<code>I2C_ClockSpeed</code> 只有當 controller 時才用到，但 SPL 的 <code>I2C_Init()</code> 一定會拿它算時脈分頻，所以還是要填。三種中斷：<code>EVT</code>（ADDR、STOPF 這類事件）、<code>BUF</code>（RXNE / TXE：資料暫存器滿了 / 空了）、<code>ERR</code>（AF、bus 錯誤）。事件與錯誤是 <b>兩個不同的中斷向量</b>：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:67–98 — 一次讀出 SR1 與 SR2，先收下 DR 裡的資料再看 ADDR；錯誤中斷（含讀取結束的 AF）清旗標並結束 transaction</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c@33e6ded:67–98 — 一次讀出 SR1 與 SR2，先收下 DR 裡的資料再看 ADDR；錯誤中斷（含讀取結束的 AF）清旗標並結束 transaction</figcaption>
 <pre data-start="67" data-hot="70,71,75,76,79,85,87,96,97">void I2C1_EV_IRQHandler(void)
 {
     /* Reads SR1 then SR2, which also clears ADDR; SR2 sits in the upper 16 bits. */
@@ -506,7 +506,7 @@ typedef enum
           <tr><td>其他沒設定的腳（例如 PA0–PA7）</td><td>重置值</td><td><code>0x4</code>：CNF <code>01</code>、MODE <code>00</code>，浮接輸入（<code>GPIO_Mode_IN_FLOATING</code> = <code>0x04</code>）</td><td>RM0008 寫的重置值是 <code>0x44444444</code>。和 JP6 開機時的 pin 29 一樣不會輸出，只是沒有上拉。SWD／JTAG 用的幾根腳例外，重置後就是除錯功能</td></tr>
         </tbody>
       </table>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:21–31 — PC13 的 LED：一般 GPIO 推挽輸出，2 MHz 就夠</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c@33e6ded:21–31 — PC13 的 LED：一般 GPIO 推挽輸出，2 MHz 就夠</figcaption>
 <pre data-start="21" data-hot="27,28">static void led_init(void)
 {
     GPIO_InitTypeDef gpio;
@@ -602,7 +602,7 @@ Building .pio/build/bluepill/firmware.bin
       <h2>測試：protocol 在 host、接線在板子、測試本身也要被測</h2>
       <ul>
         <li><b><code>tests/test_i2c_target.cpp</code></b>：11 組向量，從 header 的規格寫，不是從實作抄：ID / 版本、reset 狀態、LED 開關、不合法的 LED 值（從 0 和從 1 出發各 3 個值）、RO、7 個沒定義的位址、不 auto-increment、pointer 跨 transaction、多餘的資料 byte、repeated START 再寫、transaction 外的 byte。</li>
-        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個。register-map.md 的表格對 header 的值；<code>i2c_target.c</code> 不准出現任何暫存器；<code>main.c</code> 用 I2C1、PB6 / PB7、<code>0x42 &lt;&lt; 1</code>、PC13 低電位亮；AF 會結束 transaction；RXNE 在 ADDR 之前處理；主迴圈沒有 WFI；ini 有 <code>-Wall -Wextra -Werror</code>；範圍檢查（沒有 ADC、IWDG、SPI、DMA，沒有 <code>kernel/edge_ctrl</code>）；vendor 檔的 SHA-256。PlatformIO 和釘住的 toolchain（1.120301.0）都已經裝好時，真的建置 firmware，再用那個 toolchain 的 <code>arm-none-eabi-nm</code> 確認兩個中斷 handler 是我們的強符號；沒裝就 skip，不會在跑測試時上網下載。硬體測試 6 個（<code>EDGE_STM32_HW=1</code>），其餘不需要板子。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py@33e6ded">29</span> 個。register-map.md 的表格對 header 的值；<code>i2c_target.c</code> 不准出現任何暫存器；<code>main.c</code> 用 I2C1、PB6 / PB7、<code>0x42 &lt;&lt; 1</code>、PC13 低電位亮；AF 會結束 transaction；RXNE 在 ADDR 之前處理；主迴圈沒有 WFI；ini 有 <code>-Wall -Wextra -Werror</code>；範圍檢查（沒有 ADC、IWDG、SPI、DMA，沒有 <code>kernel/edge_ctrl</code>）；vendor 檔的 SHA-256。PlatformIO 和釘住的 toolchain（1.120301.0）都已經裝好時，真的建置 firmware，再用那個 toolchain 的 <code>arm-none-eabi-nm</code> 確認兩個中斷 handler 是我們的強符號；沒裝就 skip，不會在跑測試時上網下載。硬體測試 6 個（<code>EDGE_STM32_HW=1</code>），其餘不需要板子。</li>
       </ul>
       <p>中斷 handler 那條是 firmware 特有的陷阱：startup 檔把每個中斷向量都先定成 <b>weak</b> 的 <code>Default_Handler</code>。handler 名字拼錯（例如寫成 <code>I2C1_ERR_IRQHandler</code>）照樣編譯、照樣連結，只是錯誤中斷發生時跳進 <code>Default_Handler</code> 的無窮迴圈。故意改錯名字，這條測試就紅。</p>
       <h3>測試有沒有紅過</h3>
@@ -753,7 +753,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">Blue Pill 在 Jetson 的 <code>i2c-1</code> 上以 0x42 回應：DEVICE_ID、版本、LED_CONTROL，不合法的存取有明確定義。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：Jetson userspace 讀得到 Device ID 與版本，寫 LED_CONTROL 讓 LED 亮、滅。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">protocol 和硬體分開：<code>i2c_target.c</code> 在 Jetson 上跑 11 組向量，<code>main.c</code> 只翻譯 I2C1 的旗標。</li>
-        <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個 Python 測試；故意出錯的 firmware 證明交替讀、LED 切換後讀回兩條測試抓得到舊 byte。</li>
+        <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py@33e6ded">29</span> 個 Python 測試；故意出錯的 firmware 證明交替讀、LED 切換後讀回兩條測試抓得到舊 byte。</li>
         <li class="n">沒有實測：OLED 同時在 bus 上、reset 後的預設值、400 kHz、長時間存取。規模：非空白 796 行（不含 vendor 檔），含 code review 的修正。</li>
       </ul>
       <p>Step 12-a 把這四個 register 擴充成正式的 register map：分區（識別 / 輸入 / 輸出 / 健康狀態）、超過 1 byte 的值要怎麼讀（auto-increment 與 byte 順序，Step 12-b 的 ADC 會用到）、STATUS register 回報不合法的寫入，以及 protocol 版本規則。那時候「預先放好的 byte」就不再無害：多讀一個 byte 會讓 pointer 多前進一格，要重新驗證。</p>
