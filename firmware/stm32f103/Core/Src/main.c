@@ -109,7 +109,7 @@ void I2C1_ER_IRQHandler(void)
         /* Record it, then reset I2C1 so a BUSY flag stuck after the error (ES096) cannot keep
          * the target off the bus until someone presses RESET. SWRST clears every I2C1
          * register, so the setup runs again. A transaction starting in these few
-         * microseconds gets a NACK; the Jetson retries. */
+         * microseconds gets a NACK and fails; retrying is up to the Jetson side. */
         i2c_target_bus_error(&target);
         I2C_SoftwareResetCmd(I2C1, ENABLE);
         I2C_SoftwareResetCmd(I2C1, DISABLE);

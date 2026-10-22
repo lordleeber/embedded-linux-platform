@@ -608,6 +608,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step10b.html">Step 10-b · OLED：把字畫成 pixel（5x7 字型與文字排版）</a><p class="toc-desc">字型與排版全在 userspace（<code>apps/oled_text.h</code>），driver 仍只收整張畫面；字格 6x8、一行 21 字、一行一個 page；太長截斷不換行、不認得的字畫方框。先重現 10-a 留下的「斷電又接回、ACK 但全黑」，再讓 driver 每次 flush 都重送設定。</p></li>
     <li><a class="toc-title" href="step10c.html">Step 10-c · OLED：電池數值上螢幕（hwmon → userspace → /dev/edge_oled）</a><p class="toc-desc"><code>telemetry_display</code> 每秒讀 <code>edge_ina219</code> 的 hwmon，顯示 BAT % / V / I / P 與狀態行，兩個 driver 都沒改；讀不到、過時、sensor 換號、OLED 拔線都不中斷；<code>sigtimedwait()</code> 收 SIGINT / SIGTERM，清空畫面後結束。百分比照廠商公式，只看電壓。</p></li>
     <li><a class="toc-title" href="step11.html">Step 11 · STM32F103：自己寫一顆 I2C 周邊（Blue Pill firmware，0x42）</a><p class="toc-desc">Jetson 是 controller、Blue Pill 的 I2C1 是 target：DEVICE_ID、版本、LED_CONTROL 四個 register，不合法的寫入 ACK 後丟掉。protocol 是不碰硬體的 state machine，在 Jetson 上測；SPL 中斷只翻譯旗標。PlatformIO 不指定 framework 自帶 SPL；用 SWD 讀暫存器找出把整條 bus 拉低的那條線。</p></li>
+    <li><a class="toc-title" href="step12a.html">Step 12-a · register map v1.0：把 demo 變成契約</a><p class="toc-desc">同一顆 Blue Pill、沒有新接線：位址分區、PROTOCOL_VERSION（major / minor 規則）、auto-increment 只在一筆 transaction 裡（TXE 多取的那個 byte 因此無害）、write-1-to-clear 的 STATUS 回報被丟掉的寫入，bus error 後 SWRST 重設 I2C1。四個故意改壞的 firmware 都燒進板子，證明測試抓得到。</p></li>
   </ol>
 </main>
 <script id="inline-js">
