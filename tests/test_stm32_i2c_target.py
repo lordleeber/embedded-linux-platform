@@ -1,7 +1,8 @@
-"""Checks for the Step 11 STM32F103 I2C target firmware (firmware/stm32f103/).
+"""Checks for the STM32F103 I2C target firmware (firmware/stm32f103/, Step 11 and 12-a).
 
-The Jetson is the I2C controller; the Blue Pill's I2C1 answers at 0x42 with four registers
-(DEVICE_ID, FW_MAJOR, FW_MINOR, LED_CONTROL). The protocol lives in Core/Src/i2c_target.c
+The Jetson is the I2C controller; the Blue Pill's I2C1 answers at 0x42 with register map v1.0
+(Step 12-a: identification, PROTOCOL_VERSION, LED_CONTROL, STATUS, WATCHDOG_STATUS; reads and
+writes auto-increment inside a transaction). The protocol lives in Core/Src/i2c_target.c
 without any SPL call and is tested on the host by tests/test_i2c_target.cpp; main.c only
 turns I2C1 interrupts into i2c_target_* calls and drives the PC13 LED.
 The firmware build needs PlatformIO (~/.platformio/penv/bin/pio or PIO=...) and is skipped
@@ -54,22 +55,47 @@ class VectorsTest(unittest.TestCase):
 
 
 class RegisterMapTest(unittest.TestCase):
-    """docs/register-map.md is what the Jetson side (Step 12-13) will be written from."""
+    """docs/register-map.md is what the Jetson side (Step 13) will be written from."""
 
     def setUp(self):
         self.d = defines(HEADER.read_text())
+        self.text = REGMAP.read_text()
         self.rows = {int(a, 16): (name, acc, int(v, 16)) for a, name, acc, v in
-                     re.findall(r"^\| (0x[0-9A-F]{2}) \| (\w+) \| (RO|RW) \| (0x[0-9A-F]{2}) \|",
-                                REGMAP.read_text(), re.M)}
+                     re.findall(r"^\| (0x[0-9A-F]{2}) \| (\w+) \| (RO|RW|RW1C) \| (0x[0-9A-F]{2}) \|",
+                                self.text, re.M)}
 
     def test_every_register_in_the_header_is_documented_with_its_value(self):
+        d = self.d
         want = {
-            self.d["REG_DEVICE_ID"]: ("DEVICE_ID", "RO", self.d["DEVICE_ID_VALUE"]),
-            self.d["REG_FW_MAJOR"]: ("FW_MAJOR", "RO", self.d["FW_VERSION_MAJOR"]),
-            self.d["REG_FW_MINOR"]: ("FW_MINOR", "RO", self.d["FW_VERSION_MINOR"]),
-            self.d["REG_LED_CONTROL"]: ("LED_CONTROL", "RW", 0),
+            d["REG_DEVICE_ID"]: ("DEVICE_ID", "RO", d["DEVICE_ID_VALUE"]),
+            d["REG_FW_MAJOR"]: ("FW_MAJOR", "RO", d["FW_VERSION_MAJOR"]),
+            d["REG_FW_MINOR"]: ("FW_MINOR", "RO", d["FW_VERSION_MINOR"]),
+            d["REG_PROTOCOL_VERSION"]: ("PROTOCOL_VERSION", "RO", d["PROTOCOL_VERSION_VALUE"]),
+            d["REG_LED_CONTROL"]: ("LED_CONTROL", "RW", 0),
+            d["REG_STATUS"]: ("STATUS", "RW1C", d["STATUS_RESET"]),
+            d["REG_WATCHDOG_STATUS"]: ("WATCHDOG_STATUS", "RO", d["WATCHDOG_STATUS_VALUE"]),
         }
         self.assertEqual(self.rows, want)
+        self.assertEqual((d["PROTOCOL_VERSION_VALUE"], d["FW_VERSION_MAJOR"], d["FW_VERSION_MINOR"]),
+                         (0x10, 0, 2))
+
+    def test_status_bits_are_documented(self):
+        bits = {int(b): name for b, name in re.findall(r"^\| (\d) \| (\w+) \|", self.text, re.M)}
+        want = {self.d[k].bit_length() - 1: k.removeprefix("STATUS_") for k in
+                ("STATUS_RO_WRITE", "STATUS_UNMAPPED_WRITE", "STATUS_BAD_VALUE",
+                 "STATUS_BUS_ERROR", "STATUS_RESET")}
+        self.assertEqual(bits, want)
+
+    def test_layout_byte_order_and_versioning_rules_are_written_down(self):
+        for s in ("0x00–0x0F", "0x10–0x1F", "0x20–0x2F", "0x30–0x3F",
+                  "auto-increment", "little-endian", "write-1-to-clear", "major", "minor"):
+            self.assertIn(s, self.text)
+
+    def test_bus_error_is_not_documented_as_a_rollback(self):
+        # PR #21 review: bytes received before a bus error have already been applied (pointer,
+        # data); the map must say so instead of calling the transaction void.
+        self.assertNotIn("作廢", self.text)
+        self.assertIn("已經生效", self.text)
 
     def test_address_and_unmapped_value(self):
         text = REGMAP.read_text()
@@ -96,25 +122,48 @@ class FirmwareSourceTest(unittest.TestCase):
         self.assertIn("GPIO_Pin_13", self.main)
         self.assertRegex(self.main, r"GPIO_ResetBits\(GPIOC, GPIO_Pin_13\)")
 
+    def handler(self, name):
+        body = self.main[self.main.index(f"void {name}(void)"):]
+        return body[:body.index("\n}")]
+
     def test_interrupt_handlers_feed_the_core(self):
         for s in ("void I2C1_EV_IRQHandler(void)", "void I2C1_ER_IRQHandler(void)",
-                  "i2c_target_write_start(", "i2c_target_rx(", "i2c_target_tx(", "i2c_target_stop("):
+                  "i2c_target_write_start(", "i2c_target_read_start(", "i2c_target_rx(",
+                  "i2c_target_tx(", "i2c_target_stop(", "i2c_target_bus_error("):
             self.assertIn(s, self.main)
+
+    def test_read_start_comes_before_the_first_transmit(self):
+        # ADDR and TXE can be in the same SR1 snapshot; the first byte of a read must come from
+        # the stored pointer, so read_start() has to run before tx().
+        ev = self.handler("I2C1_EV_IRQHandler")
+        self.assertLess(ev.index("i2c_target_read_start("), ev.index("i2c_target_tx("))
+
+    def test_bus_errors_are_recorded_and_reset_the_peripheral(self):
+        # PR #17 review: after BERR / ARLO nothing reset I2C1, so a stuck BUSY (ES096) needed the
+        # RESET button. AF is the normal end of a read and must not count as a bus error.
+        er = self.handler("I2C1_ER_IRQHandler")
+        self.assertIn("i2c_target_bus_error(", er)
+        for flag in ("I2C_SR1_BERR", "I2C_SR1_ARLO", "I2C_SR1_OVR"):
+            self.assertIn(flag, er)
+        self.assertRegex(self.main, r"I2C_SoftwareResetCmd\(I2C1, ENABLE\)")
+        self.assertRegex(self.main, r"I2C_SoftwareResetCmd\(I2C1, DISABLE\)")
+        self.assertIn("i2c1_regs_init(", er)
+        af = er[er.index("I2C_SR1_AF"):]
+        self.assertNotIn("bus_error", af[:af.index(";")])
 
     def test_pending_byte_is_taken_before_a_new_address(self):
         # PR #17 review: one SR1 snapshot can hold RXNE (the last data byte, not read yet) and
         # ADDR (a repeated START). write_start() first would turn that data byte into a pointer.
-        ev = self.main[self.main.index("void I2C1_EV_IRQHandler(void)"):]
-        ev = ev[:ev.index("\n}")]
+        ev = self.handler("I2C1_EV_IRQHandler")
         self.assertLess(ev.index("I2C_SR1_RXNE"), ev.index("I2C_SR1_ADDR"))
 
     def test_read_ends_on_the_controllers_nack(self):
         # A read ends with the controller's NACK (AF), not STOPF (RM0008 slave transmitter):
         # AF must be cleared and must end the transaction, or the error interrupt never stops.
-        self.assertIn("I2C_IT_AF", self.main)
-        er = self.main[self.main.index("void I2C1_ER_IRQHandler(void)"):]
-        self.assertIn("I2C_ClearITPendingBit(I2C1", er[:er.index("\n}")])
-        self.assertIn("i2c_target_stop(", er[:er.index("\n}")])
+        er = self.handler("I2C1_ER_IRQHandler")
+        self.assertIn("I2C_SR1_AF", er)
+        self.assertIn("I2C_ClearITPendingBit(I2C1", er)
+        self.assertIn("i2c_target_stop(", er)
 
     def test_transmit_is_driven_by_txe(self):
         # Step 11 measured that TXE with BUF always on returns no stale byte (docs/baseline.md);
@@ -128,9 +177,10 @@ class FirmwareSourceTest(unittest.TestCase):
         self.assertNotIn("__WFI", self.main)
         self.assertNotIn("__WFE", self.main)
 
-    def test_scope_step11_only(self):
-        # phase05 Step 11 "這一步不做": no ADC, watchdog, SPI, DMA, no Jetson kernel driver.
-        for name in ("ADC", "IWDG", "WWDG", "SPI", "DMA"):
+    def test_scope_step12a_only(self):
+        # phase05 Step 12-a "這一步不做": no ADC / button (12-b), no real watchdog (Phase 6),
+        # no SPI, no DMA, no Jetson kernel driver (Step 13).
+        for name in ("ADC", "BUTTON", "IWDG", "WWDG", "SPI", "DMA"):
             for path in (CORE_C, MAIN_C, HEADER, FW / "Core" / "Inc" / "stm32f10x_conf.h"):
                 self.assertNotRegex(code_only(path.read_text()), rf"\b{name}\w*", f"{name} in {path.name}")
         self.assertFalse((REPO / "kernel" / "edge_ctrl").exists())
@@ -222,47 +272,129 @@ def put(reg, value):
         raise AssertionError(f"i2cset {hex(reg)} {hex(value)}: {r.stderr.strip()}")
 
 
+def xfer(*msgs):
+    """i2ctransfer -y BUS msgs...; the bytes read, as ints."""
+    r = i2c("i2ctransfer", "-y", BUS, *msgs)
+    if r.returncode:
+        raise AssertionError(f"i2ctransfer {' '.join(msgs)}: {r.stderr.strip()}")
+    return [int(b, 16) for b in r.stdout.split()]
+
+
+# Register map v1.0 as the Jetson expects it (docs/register-map.md), written out here rather
+# than taken from i2c_target.h so a wrong header does not pass by agreeing with itself.
+RO = {0x00: 0xED, 0x01: 0x00, 0x02: 0x02, 0x03: 0x10, 0x31: 0x00}
+LED, STATUS = 0x20, 0x30
+RO_WRITE, UNMAPPED_WRITE, BAD_VALUE = 0x01, 0x02, 0x04
+
+
 @unittest.skipUnless(HW, "set EDGE_STM32_HW=1 (scripts/verify_stm32_i2c.sh) to talk to the board")
 class HardwareTest(unittest.TestCase):
+    def setUp(self):
+        # PR #21 review: start from LED off too, so a test run on its own does not depend on
+        # what the board was left with.
+        put(LED, 0)
+        put(STATUS, 0xFF)
+
     def tearDown(self):
-        put(0x20, 0)
+        put(LED, 0)
+        put(STATUS, 0xFF)
+
+    def assertStatus(self, want, msg=None):
+        self.assertEqual(get(STATUS), want, msg)
+        put(STATUS, 0xFF)
 
     def test_identification(self):
-        self.assertEqual([get(r) for r in (0x00, 0x01, 0x02)], [0xED, 0x00, 0x01])
+        self.assertEqual([get(r) for r in (0x00, 0x01, 0x02, 0x03)], [0xED, 0x00, 0x02, 0x10])
+
+    def test_every_register_reads_as_documented(self):
+        for reg in range(0x100):
+            want = RO.get(reg, {LED: 0, STATUS: 0}.get(reg, 0xFF))
+            self.assertEqual(get(reg), want, hex(reg))
+        self.assertStatus(0, "reading, even unmapped registers, is not an error")
+
+    def test_every_write_that_must_be_dropped_is_reported(self):
+        for reg in range(0x100):
+            if reg in (LED, STATUS):
+                continue
+            put(reg, 0x55)
+            self.assertEqual(get(reg), RO.get(reg, 0xFF), hex(reg))
+            self.assertStatus(RO_WRITE if reg in RO else UNMAPPED_WRITE, hex(reg))
+        self.assertEqual(get(LED), 0, "no dropped write reached LED_CONTROL")
 
     def test_led_control_round_trip_and_invalid_values(self):
         for v in (1, 0, 1):
-            put(0x20, v)
-            self.assertEqual(get(0x20), v)
-        put(0x20, 2)
-        self.assertEqual(get(0x20), 1, "invalid value must leave LED_CONTROL alone")
+            put(LED, v)
+            self.assertEqual(get(LED), v)
+        self.assertStatus(0)
+        for bad in (2, 0x80, 0xFF):
+            put(LED, bad)
+            self.assertEqual(get(LED), 1, f"{bad:#x} must leave LED_CONTROL alone")
+            self.assertStatus(BAD_VALUE, hex(bad))
 
-    def test_read_only_and_unmapped(self):
-        put(0x00, 0x55)
-        self.assertEqual(get(0x00), 0xED)
-        self.assertEqual(get(0x10), 0xFF)
+    def test_status_is_write_one_to_clear(self):
+        put(0x00, 1)
+        put(LED, 9)
+        self.assertEqual(get(STATUS), RO_WRITE | BAD_VALUE)
+        self.assertEqual(get(STATUS), RO_WRITE | BAD_VALUE, "reading must not clear")
+        put(STATUS, RO_WRITE)
+        self.assertEqual(get(STATUS), BAD_VALUE)
+        put(STATUS, 0)
+        self.assertEqual(get(STATUS), BAD_VALUE)
+        self.assertStatus(BAD_VALUE)
+        self.assertEqual(get(STATUS), 0)
 
-    def test_alternating_registers_never_return_the_previous_byte(self):
-        # The stale-preload bug would make each read return the register read before it.
-        put(0x20, 1)
-        want = {0x00: 0xED, 0x01: 0x00, 0x02: 0x01, 0x20: 0x01}
-        for _ in range(25):
-            for reg, value in want.items():
-                self.assertEqual(get(reg), value, hex(reg))
+    def test_status_survives_a_read_that_runs_into_it(self):
+        # TXE fetches 0x30 while 0x2F is being sent; that STATUS byte never reaches the Jetson.
+        put(LED, 7)
+        self.assertEqual(xfer(f"w1@{ADDR}", "0x2f", f"r1@{ADDR}"), [0xFF])
+        self.assertStatus(BAD_VALUE)
+
+    def test_multi_byte_read_auto_increments(self):
+        self.assertEqual(xfer(f"w1@{ADDR}", "0x00", f"r4@{ADDR}"), [0xED, 0x00, 0x02, 0x10])
+        self.assertEqual(xfer(f"w1@{ADDR}", "0x03", f"r2@{ADDR}"), [0x10, 0xFF])
+        self.assertEqual(xfer(f"w1@{ADDR}", "0x30", f"r2@{ADDR}"), [0x00, 0x00])
+        self.assertEqual(xfer(f"w1@{ADDR}", "0xff", f"r2@{ADDR}"), [0xFF, 0xED])
+
+    def test_reads_never_move_the_pointer(self):
+        # Step 11 carried this over: with auto-increment, the byte TXE loads ahead of the NACK
+        # would push the pointer one register further on every read. Only writes move it.
+        for n in (1, 2, 3, 4):
+            xfer(f"w1@{ADDR}", "0x01", f"r{n}@{ADDR}")
+            self.assertEqual(xfer(f"r1@{ADDR}"), [0x00], f"after r{n}")
+            self.assertEqual(xfer(f"r3@{ADDR}"), [0x00, 0x02, 0x10], f"after r{n}")
+
+    def test_write_then_read_in_one_transaction_reads_the_pointer(self):
+        # The data byte moves the cursor to 0x21; the read after the repeated START must start
+        # at the stored pointer (0x20) again.
+        for v in (1, 0):
+            self.assertEqual(xfer(f"w2@{ADDR}", "0x20", hex(v), f"r1@{ADDR}"), [v])
+        self.assertStatus(0)
+
+    def test_write_auto_increments(self):
+        xfer(f"w3@{ADDR}", "0x1f", "0x00", "0x01")  # 0x1F (unmapped) = 0, 0x20 = 1
+        self.assertEqual(get(LED), 1)
+        self.assertStatus(UNMAPPED_WRITE)
+        xfer(f"w3@{ADDR}", "0x20", "0x00", "0x00")  # LED = 0, then 0x21 (unmapped)
+        self.assertEqual(get(LED), 0)
+        self.assertStatus(UNMAPPED_WRITE)
+
+    def test_alternating_reads_never_return_a_stale_byte(self):
+        # Single- and multi-byte reads mixed: a byte left over from the read before, or a
+        # pointer moved by a read, shows up as a wrong value here.
+        put(LED, 1)
+        for i in range(25):
+            self.assertEqual(xfer(f"w1@{ADDR}", "0x00", f"r4@{ADDR}"), [0xED, 0x00, 0x02, 0x10], i)
+            self.assertEqual(get(LED), 1, i)
+            self.assertEqual(xfer(f"w1@{ADDR}", "0x30", f"r2@{ADDR}"), [0x00, 0x00], i)
+            self.assertEqual(get(0x02), 0x02, i)
 
     def test_read_after_the_value_changed(self):
         # PR #17 review: TXE loads a byte before the controller's NACK. A value can only change
         # through a write, whose bytes land in the same DR, so the next read must see the new value.
         for i in range(20):
-            put(0x20, i % 2)
-            self.assertEqual(get(0x20), i % 2, f"round {i}")
-            r = i2c("i2ctransfer", "-y", BUS, f"r1@{ADDR}")  # no pointer write
-            self.assertEqual(r.stdout.split(), [f"0x0{i % 2}"], f"round {i}: {r.stderr}")
-
-    def test_multi_byte_read_repeats_the_register(self):
-        r = i2c("i2ctransfer", "-y", BUS, f"w1@{ADDR}", "0x02", f"r3@{ADDR}")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.split(), ["0x01", "0x01", "0x01"])
+            put(LED, i % 2)
+            self.assertEqual(get(LED), i % 2, f"round {i}")
+            self.assertEqual(xfer(f"r1@{ADDR}"), [i % 2], f"round {i}: no pointer write")
 
 
 class VerifyScriptTest(unittest.TestCase):
@@ -286,6 +418,12 @@ class VerifyScriptTest(unittest.TestCase):
         self.assertRegex(self.src, r"trap .*EXIT")
         self.assertIn("0x20 0", self.src)
         self.assertIn("EDGE_STM32_HW=1", self.src)
+
+    def test_checks_register_map_v1(self):
+        # Step 12-a: PROTOCOL_VERSION, STATUS after each dropped write, auto-increment both
+        # ways, and reads that must not move the pointer.
+        for s in ("0x03 0x10", "STATUS", "0x30 0xff", "r4@", "w3@", "pointer"):
+            self.assertIn(s, self.src)
 
     def test_shared_bus_still_has_the_oled(self):
         self.assertIn("3c", self.src)

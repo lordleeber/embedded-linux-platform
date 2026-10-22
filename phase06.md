@@ -125,6 +125,10 @@ FAULT
 - heartbeat 恢復後，是否自動恢復要明確定義
 - sequence 卡住時是否算有效 heartbeat，也要定義
 
+### 從 Step 12-a 帶過來的
+
+- STM32 端 I2C1 卡住的完整復原（PR #21 code review）：12-a 在 BERR / ARLO / OVR 之後只做 SWRST + 重新設定，不是 ES096 對「analog filter 讓 BUSY 卡住」的完整解法（PE = 0、SCL / SDA 切成 GPIO open-drain、手動切換電位確認讀回、切回 AF、SWRST）。這一步做 supervisor 時，順便決定 firmware 要怎麼偵測「BUSY 卡住、0x42 不再回應」（例如 BUSY 持續一段時間且沒有事件），再補完整解法。現在沒有重現方法，要先找到重現方式或照實標「未實測」
+
 ### 這一步不做
 
 - 不直接 reset Jetson

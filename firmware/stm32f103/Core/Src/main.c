@@ -1,4 +1,4 @@
-/* Step 11: Blue Pill (STM32F103C8T6) as an I2C target at 0x42 with the SPL.
+/* Step 11 / 12-a: Blue Pill (STM32F103C8T6) as an I2C target at 0x42 with the SPL.
  *
  * I2C1 on PB6 (SCL) / PB7 (SDA) answers the Jetson; the register protocol is in i2c_target.c.
  * Everything happens in the two I2C1 interrupts; main() just spins. The on-board LED on PC13 is
@@ -30,10 +30,24 @@ static void led_init(void)
     led_apply();
 }
 
+/* I2C1's own registers; also run again after a software reset, which clears all of them. */
+static void i2c1_regs_init(void)
+{
+    I2C_InitTypeDef i2c;
+
+    I2C_StructInit(&i2c);
+    i2c.I2C_Mode = I2C_Mode_I2C;
+    i2c.I2C_OwnAddress1 = I2C_TARGET_ADDR << 1; /* OAR1 holds the address in bits 7:1 */
+    i2c.I2C_Ack = I2C_Ack_Enable;
+    i2c.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+    i2c.I2C_ClockSpeed = 100000; /* only used as a controller; I2C_Init requires a value */
+    I2C_Init(I2C1, &i2c);
+    I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE);
+}
+
 static void i2c1_target_init(void)
 {
     GPIO_InitTypeDef gpio;
-    I2C_InitTypeDef i2c;
     NVIC_InitTypeDef nvic;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
@@ -44,14 +58,6 @@ static void i2c1_target_init(void)
     gpio.GPIO_Mode = GPIO_Mode_AF_OD;
     GPIO_Init(GPIOB, &gpio);
 
-    I2C_StructInit(&i2c);
-    i2c.I2C_Mode = I2C_Mode_I2C;
-    i2c.I2C_OwnAddress1 = I2C_TARGET_ADDR << 1; /* OAR1 holds the address in bits 7:1 */
-    i2c.I2C_Ack = I2C_Ack_Enable;
-    i2c.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
-    i2c.I2C_ClockSpeed = 100000; /* only used as a controller; I2C_Init requires a value */
-    I2C_Init(I2C1, &i2c);
-
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     nvic.NVIC_IRQChannelPreemptionPriority = 1;
     nvic.NVIC_IRQChannelSubPriority = 0;
@@ -61,7 +67,7 @@ static void i2c1_target_init(void)
     nvic.NVIC_IRQChannel = I2C1_ER_IRQn;
     NVIC_Init(&nvic);
 
-    I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE);
+    i2c1_regs_init();
 }
 
 void I2C1_EV_IRQHandler(void)
@@ -76,11 +82,16 @@ void I2C1_EV_IRQHandler(void)
         i2c_target_rx(&target, I2C_ReceiveData(I2C1));
         led_apply();
     }
-    if ((ev & I2C_SR1_ADDR) && !reading)
-        i2c_target_write_start(&target);
-    /* TXE: DR is empty. TXE also loads one byte ahead of the controller's NACK; that byte is the
-     * same register, and pointer and value only change through a write, whose received bytes
-     * go through the same DR. Measured in Step 11: no read ever returned an older byte. */
+    /* ADDR before TXE: the first byte of a read comes from the stored pointer. */
+    if (ev & I2C_SR1_ADDR) {
+        if (reading)
+            i2c_target_read_start(&target);
+        else
+            i2c_target_write_start(&target);
+    }
+    /* TXE: DR is empty. TXE also loads one byte ahead of the controller's NACK; that byte is
+     * fetched and never sent, and reads do not move the pointer (i2c_target.h). Step 11
+     * measured that it never shows up in the next read. */
     if (reading && (ev & I2C_SR1_TXE))
         I2C_SendData(I2C1, i2c_target_tx(&target));
     if (ev & I2C_SR1_STOPF) {
@@ -91,10 +102,23 @@ void I2C1_EV_IRQHandler(void)
 
 void I2C1_ER_IRQHandler(void)
 {
-    /* AF is the controller's NACK after the last byte of a read: the normal end of a read
-     * (RM0008: a slave transmitter gets AF, not STOPF). BERR / ARLO / OVR also end it. */
+    uint16_t sr1 = I2C1->SR1;
+
     I2C_ClearITPendingBit(I2C1, I2C_IT_AF | I2C_IT_BERR | I2C_IT_ARLO | I2C_IT_OVR);
-    i2c_target_stop(&target);
+    if (sr1 & (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_OVR)) {
+        /* Record it, then reset I2C1 with SWRST; that clears every I2C1 register, so the setup
+         * runs again. This is not ES096's full workaround for a stuck BUSY flag (toggle SCL /
+         * SDA as GPIO before SWRST): not done. A transaction starting in these few
+         * microseconds gets a NACK and fails; retrying is up to the Jetson side. */
+        i2c_target_bus_error(&target);
+        I2C_SoftwareResetCmd(I2C1, ENABLE);
+        I2C_SoftwareResetCmd(I2C1, DISABLE);
+        i2c1_regs_init();
+    } else if (sr1 & I2C_SR1_AF) {
+        /* The controller's NACK after the last byte of a read: the normal end of a read
+         * (RM0008: a slave transmitter gets AF, not STOPF). */
+        i2c_target_stop(&target);
+    }
 }
 
 int main(void)

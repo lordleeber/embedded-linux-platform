@@ -259,12 +259,12 @@ write 0x20 = 0 → LED 滅
 - protocol：寫入的第 1 個 byte 是 pointer、第 2 個是資料、之後丟掉；讀取不 auto-increment（每個 byte 都是同一個 register）；pointer 保留到下次寫入。RO / 沒定義的 register 與 LED 值不是 0 / 1 的寫入：bus 上照樣 ACK，然後丟掉；沒定義的 register 讀到 0xFF。DEVICE_ID 0xED、版本 0.1
 - 主迴圈不用 `__WFI()`：DBGMCU_CR.DBG_SLEEP 被斷電清掉之後，睡在 WFI 的 F1 讓 SWD 讀不到記憶體，無法再燒錄（見 baseline 踩坑）
 - 規模（非空白行，和 Step 10-b / 10-c 同一種算法；不含 vendor 檔與文件）：PR 開出時 754 行，code review 修正後 **796 行**：產品碼 285（`main.c` 96、`i2c_target.c` 53、`i2c_target.h` 55、`stm32f10x_conf.h` 10、`platformio.ini` 47，其餘是 CMake、`.gitattributes`、`.gitignore`、`vendor.sha256`）、測試 407（C++ 172、Python 235）、驗收腳本 104。動工前估約 730
-- 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；若 BUSY 卡住（ES096），0x42 不會再 ACK，只能按 RESET。排進 Step 12，和 STATUS register 一起做（先能觀測錯誤，再處理復原）
+- 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；若 BUSY 卡住（ES096），0x42 不會再 ACK，只能按 RESET。排進 Step 12-a，和 STATUS register 一起做（先能觀測錯誤，再處理復原）
 
 ### 從 Step 11 帶到後面的
 
-- Step 12：多 byte 讀取（ADC_LOW / HIGH）需要定義 auto-increment；Step 11 實測 F103 在 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取（變異測試見 baseline），auto-increment 時要重新驗證：預先放的那個 byte 會讓 pointer 多前進一格
-- Step 12：寫入失敗沒有回報管道（F103 硬體先 ACK），STATUS register 補上
+- Step 12-a：多 byte 讀取（ADC_LOW / HIGH）需要定義 auto-increment；Step 11 實測 F103 在 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取（變異測試見 baseline），auto-increment 時要重新驗證：預先放的那個 byte 會讓 pointer 多前進一格
+- Step 12-a：寫入失敗沒有回報管道（F103 硬體先 ACK），STATUS register 補上
 - Step 13：target 把 SDA / SCL 拉住時（Step 11 實測：B6 在麵包板上誤接 GND），Tegra controller 一直 `I2C transfer timed out`，同 bus 的 ina3221 / fusb301 一起讀不到；線放開之後 bus 自己恢復（第二次沒有 unbind / bind `c240000.i2c` 也恢復了）。driver 的錯誤路徑要考慮「整條 bus 都 timeout」：那不是這顆晶片的錯
 - 未處理：F1 errata（ES096）的 I2C analog filter 讓 BUSY 卡住；Step 11 沒遇到
 
@@ -308,75 +308,179 @@ read FW version
 write LED control
 ```
 
-### Step 12 — 自訂 register map + ADC / GPIO
+### Step 12-a — 正式 register map：分區、auto-increment、STATUS、版本規則
 
 **目標**
 
-把 protocol 從 demo 擴充成可用 peripheral contract。
+把 Step 11 的 demo protocol 擴充成可以維護的 peripheral contract。這一步只處理 protocol 本身，不碰新的周邊，**不需要新接線**（接線同 Step 11）。
+
+**規模目標**
+
+```text
+預估新增 code：600–750 lines（含測試與驗收腳本；Step 11 只有 4 個 register 就用了 796 行）
+```
 
 **實作範圍**
 
-- 正式 register map
-- ADC value
-- button state
-- status
-- watchdog status placeholder
+- 正式 register map 與分區
+- PROTOCOL_VERSION
+- 多 byte 讀取的 auto-increment
+- STATUS register（不合法寫入、bus error 的回報與清除）
+- WATCHDOG_STATUS placeholder
+- BERR / ARLO 之後的周邊復原
 - versioning rules
 
 
 <!-- STEP_DETAIL_START -->
 ### 這一步到底要做什麼
 
-Step 11 只有最小 4 個 register。這一步才把它擴充成一個真正可維護的 peripheral register map。
+Step 11 只有最小 4 個 register。這一步把它擴充成一個真正可維護的 peripheral register map，但先只放「protocol 本身」需要的 register；ADC 與按鍵這些輸入留給 Step 12-b。
 
 建議把 register 分區：
 
 ```text
 0x00–0x0F  identification / version
-0x10–0x1F  sensor / input
+0x10–0x1F  sensor / input（Step 12-b 才填）
 0x20–0x2F  output control
 0x30–0x3F  health / watchdog
 ```
 
-例如：
+這一步要有的 register：
 
 ```text
 0x00 DEVICE_ID
 0x01 FW_MAJOR
 0x02 FW_MINOR
 0x03 PROTOCOL_VERSION
-0x10 ADC_LOW
-0x11 ADC_HIGH
-0x12 BUTTON_STATE
 0x20 LED_CONTROL
 0x30 STATUS
-0x31 WATCHDOG_STATUS
+0x31 WATCHDOG_STATUS   （placeholder，Step 14–15 才有意義）
 ```
 
 要明確定義：
 
 - 每個 register 是 RO/RW
 - byte width
-- endian
+- endian（這一步還沒有多 byte 的值，但規則要先寫，Step 12-b 的 ADC 照用）
 - reset default
-- invalid write 行為
-- protocol versioning
+- invalid write 行為：寫 RO / 沒定義的 register、LED 寫 0 / 1 以外的值，要在 STATUS 留下哪個 bit
+- STATUS 的清除方式（read-to-clear 或 write-1-to-clear，落地時裁決並寫進文件）
+- protocol versioning：什麼改動要升 PROTOCOL_VERSION、什麼只升 FW 版本
 
-ADC 若超過 8-bit，不能模糊寫「ADC Value」，要明確定義兩個 byte 或 multi-byte read 的順序。
+### 從 Step 11 帶過來的
+
+- 多 byte 讀取要定義 auto-increment。Step 11 實測 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取；auto-increment 時「預先放的那個 byte」會讓 pointer 多前進一格，要先寫出會紅的向量與硬體測試再實作
+- 寫入失敗沒有回報管道（F103 硬體先 ACK）：由 STATUS 補上
+- 錯誤後周邊的復原（PR #17 code review）：`I2C1_ER_IRQHandler` 只清旗標，BERR / ARLO 之後沒有 SWRST 或重新初始化；BUSY 卡住（ES096）時 0x42 不再 ACK，只能按 RESET。順序：先讓錯誤在 STATUS 看得到，再做復原。Step 11 沒有重現方法，這一步若仍找不到，就照實標「只有 host 向量、未實測」
+- **結案（Step 12-a）**：auto-increment 只在 transaction 內有效、讀取不移動 pointer，預先放的 byte 從設計上就不影響下一次讀取（變異「讀取移動 pointer」實機紅）；寫入錯誤由 STATUS 的三個 bit 回報；`I2C1_ER_IRQHandler` 遇到 BERR / ARLO / OVR 設 BUS_ERROR、SWRST、重新設定 I2C1。重設程序用「每次讀取結束都重設」的測試用 firmware 實測（實機測試與驗收腳本全綠）；**真正的 bus error 仍沒有重現方法，偵測那一段未實測**
+
+### 實作決策（Step 12-a 落地時裁決）
+
+- 誰和誰互動：同 Step 11（Jetson `i2c-1` controller → Blue Pill I2C1 target 0x42 → PC13 LED），Jetson 端仍只用 i2c-tools，沒有新的 C++ tool；沒有新接線
+- register map v1.0：0x00 DEVICE_ID、0x01 / 0x02 FW 0.2、0x03 PROTOCOL_VERSION 0x10、0x20 LED_CONTROL、0x30 STATUS（RW1C，reset 0x80）、0x31 WATCHDOG_STATUS（RO，固定 0）。分區照規劃，0x10–0x1F 留給 12-b
+- auto-increment：讀寫都遞增、過 0xFF 回 0x00，但**只在同一筆 transaction 裡**；pointer 只由寫入的第 1 個 byte 設定，讀取（包括 TXE 預先取的那個 byte）不移動它。沒先寫 pointer 的讀取、寫完資料後 repeated START 的讀取，都從 pointer 開始。換來的代價：Jetson 不能「連續讀下去」接著上次的位置，每次都要從 pointer 開始
+- 寫入：每個資料 byte 各自寫到下一個位址、各自檢查；Step 11 的「之後的 byte 丟掉」改掉了（所以算 protocol major 改變）
+- STATUS：bit 0 RO_WRITE、1 UNMAPPED_WRITE、2 BAD_VALUE、3 BUS_ERROR、7 RESET，4–6 保留。**write-1-to-clear，不用 read-to-clear**：讀 0x2F 時 TXE 會順便取 0x30，那個 byte 不會送到 Jetson（變異「read-to-clear」實機紅：旗標在 Jetson 讀之前就被清掉）。讀取任何位址都不算錯誤，因為多 byte 讀取本來就會讀過 register 尾端
+- 版本規則：PROTOCOL_VERSION 高 4 bit major（不相容）、低 4 bit minor（只增加）；FW 版本每次發佈都改。Step 11 的 firmware 讀 0x03 得 0xFF
+- 錯誤中斷：BERR / ARLO / OVR → `i2c_target_bus_error()` + SWRST + `i2c1_regs_init()`（SWRST 清掉 I2C1 的全部 register，所以位址、ACK、中斷要重設）；AF 照舊是讀取的正常結束。ES096 建議的「把 SCL / SDA 切成 GPIO 打 clock」沒做
+- 規模（非空白行，同 Step 11 的算法）：PR 開出時新增 545 行，code review 修正後 **566 行**：產品碼 143（`i2c_target.h` 57、`i2c_target.c` 46、`main.c` 40）、測試 361（C++ 197、Python 164）、驗收腳本 62。動工前估 600–750
+- code review（PR #21，medium）8 項的分流：
+  - 改 code：cursor 回到 pointer 只在 `read_start()` 做（`stop()` 不再做，同一條規則不寫兩次）；實機測試的 `setUp` 也把 LED 關掉；ER handler 的註解不再宣稱 SWRST 能處理 ES096
+  - 改文件、加向量：bus error 沒有 rollback，出錯前的 byte（包括 pointer）已經生效，Jetson 重送整筆；所有可寫 register 重送都沒有副作用（之後加的也要維持）
+  - 寫明是刻意的：驗收腳本開頭與結束寫 `0xff` 會連 RESET 一起清
+  - 記進 baseline 的未實測：每次 BERR 都完整重設，同 bus 其他裝置的毛刺會不會讓 F103 的 BERR 亮、造成 0x42 短暫 NACK
+  - 排到後面：ES096 的完整解法 → phase06 Step 14；唯讀規則改成一張表、「讀取時鎖住」與 TXE 預先取的衝突 → Step 12-b
+
+### 預期檔案（Step 12-a 實際）
+
+```text
+firmware/stm32f103/Core/Inc/i2c_target.h、Core/Src/i2c_target.c、Core/Src/main.c（改）
+firmware/stm32f103/docs/register-map.md、README.md（改）
+tests/test_i2c_target.cpp、tests/test_stm32_i2c_target.py、scripts/verify_stm32_i2c.sh（改）
+```
 
 ### 驗證
 
-建立一個 Jetson userspace test，逐一讀寫所有 register，並對 invalid address / invalid value 做 negative test。
+- host 向量（`build/test_i2c_target`）：auto-increment、pointer 跨 transaction、預先放 byte 的影響、每種不合法寫入對應的 STATUS bit、清除方式
+- Jetson userspace test：逐一讀寫所有 register，對 invalid address / invalid value 做 negative test，並檢查 STATUS
+- Step 11 的 400 次交替讀照樣全對（不回歸）
 
 ### 這一步不做
 
-- 不寫 Linux kernel driver
+- 不做 ADC、按鍵（Step 12-b）
+- 不做真正的 watchdog（Phase 6）
+- 不寫 Linux kernel driver（Step 13）
 - 不做 SPI transport
 <!-- STEP_DETAIL_END -->
 
 **驗收條件**
 
-protocol 有明確文件，Jetson 端可穩定讀寫多個 register。
+register map 文件定義完整（分區、RO/RW、寬度、endian、reset 值、錯誤行為、版本規則），Jetson 端可穩定讀寫所有 register，不合法的寫入能從 STATUS 看到。
+
+### Step 12-b — ADC 與按鍵輸入
+
+**目標**
+
+在 Step 12-a 的 register map 上加入真正的輸入：ADC 值與按鍵狀態。
+
+**規模目標**
+
+```text
+預估新增 code：450–650 lines（含測試與驗收腳本）
+```
+
+**實作範圍**
+
+- ADC value（ADC_LOW / ADC_HIGH）
+- button state
+- 多 byte 值的一致性（兩個 byte 來自同一次轉換）
+- FW 版本升級（照 12-a 的 versioning rules）
+
+
+<!-- STEP_DETAIL_START -->
+### 這一步到底要做什麼
+
+把 sensor / input 區填起來：
+
+```text
+0x10 ADC_LOW
+0x11 ADC_HIGH
+0x12 BUTTON_STATE
+```
+
+ADC 超過 8-bit，不能模糊寫「ADC Value」，要明確定義兩個 byte 的順序與讀取方式：
+
+- byte 順序照 12-a 寫下的 endian 規則
+- 一次 2 byte 的 auto-increment 讀取，兩個 byte 必須來自同一次轉換，分兩次讀時的行為也要寫清楚
+- ⚠ **「讀取時鎖住」會撞上 TXE 預先取的 byte**（PR #21 code review）：12-a 的 auto-increment 安全，完全是因為讀取沒有副作用。若做成「讀 ADC_LOW 時把 HIGH 鎖住」，讀 0x0F 的 1 個 byte 時 TXE 就會順便取 0x10、觸發鎖存，Jetson 卻沒讀到 LOW。鎖存的時機要選不靠「讀了哪個 byte」的做法（例如在 ADC 轉換完成時一次更新 LOW / HIGH 兩個 byte、更新過程中不讓 TXE 拿到一半），並寫出會紅的向量與實機測試（讀 0x0F 之後再讀 0x10 / 0x11）
+- 12-a 的唯讀規則寫在 `read_only()` 與 `read_reg()` 的 switch 兩個地方（PR #21 code review）；加 ADC、按鍵時很容易漏改一邊，改成一張「位址 → 讀取來源、唯讀或可寫」的表
+- 取樣方式（連續轉換或讀取時觸發）、解析度（F103 是 12-bit）與參考電壓寫進文件
+
+按鍵：Blue Pill 的 GPIO 內部上拉可用（不像 Jetson header 經過 TXB0108），firmware 自己 debounce；BUTTON_STATE 的值與 bit 定義寫進 register map。
+
+### 接線（新增）
+
+- ADC 輸入：可變電阻或分壓接到一支 ADC pin（例如 PA0），兩端接 Blue Pill 的 3.3 V 與 GND；驗收用接 GND / 接 3.3 V 兩個端點值
+- 按鍵：一支 GPIO（例如 PA1）→ 按鍵 → GND
+- 實際 pin 落地時決定，寫進 README 與 register map
+
+### 驗證
+
+- host 向量：ADC 兩個 byte 的鎖存、byte 順序、按鍵 debounce
+- Jetson userspace test：ADC 接 GND 時接近 0、接 3.3 V 時接近 4095（容差落地時定）；按鍵按下 / 放開（要有人按，同 Step 5 的做法提供 `--no-press`）
+- Step 12-a 的全部 register 測試不回歸
+
+### 這一步不做
+
+- 不寫 Linux kernel driver（Step 13）
+- 不做 SPI transport
+- 不做按鍵的中斷通知 Jetson（target 不能主動發 I2C；之後若需要另接 GPIO）
+- 不做 DMA
+<!-- STEP_DETAIL_END -->
+
+**驗收條件**
+
+protocol 有明確文件，Jetson 端可穩定讀寫多個 register，ADC 兩個 byte 一致、按鍵狀態正確。
 
 ### Step 13 — Jetson edge_ctrl I2C driver
 

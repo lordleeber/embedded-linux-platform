@@ -1,7 +1,7 @@
-# STM32F103 I2C target firmware（Step 11）
+# STM32F103 I2C target firmware（Step 11、12-a）
 
 Blue Pill（STM32F103C8T6）用 Standard Peripheral Library 寫成的 I2C target。
-Jetson 是 controller，Blue Pill 是 target，位址 **0x42**；register 定義在 [docs/register-map.md](docs/register-map.md)。
+Jetson 是 controller，Blue Pill 是 target，位址 **0x42**；register map v1.0（分區、auto-increment、STATUS、版本規則）定義在 [docs/register-map.md](docs/register-map.md)。
 
 ```text
 Jetson i2c-1 (c240000.i2c, controller)
@@ -47,8 +47,13 @@ i2cdetect -y -r 1          # 0x42
 i2cget -y 1 0x42 0x00      # 0xed
 i2cset -y 1 0x42 0x20 1    # LED 亮
 i2cset -y 1 0x42 0x20 0    # LED 滅
+i2ctransfer -y 1 w1@0x42 0x00 r4@0x42   # 0xed 0x00 0x02 0x10（auto-increment）
+i2cget -y 1 0x42 0x30      # STATUS；0x80 = 開機後還沒清過
+i2cset -y 1 0x42 0x30 0xff # 清 STATUS（write-1-to-clear）
 ```
 
-## 這一步不做
+## 進度
 
-ADC、watchdog、SPI、DMA、Jetson kernel driver（Step 12–13 起）。
+- 已實測：Step 11 的四個 register；Step 12-a 的 register map v1.0（PROTOCOL_VERSION、STATUS、auto-increment、讀取不移動 pointer）。
+- BERR / ARLO / OVR 之後重設 I2C1：重設程序本身實測過（測試用 firmware 每次讀取結束都重設，實機測試全綠），**真正的 bus error 沒有重現過**。
+- 還沒做：ADC、按鍵（Step 12-b）、watchdog（Phase 6）、SPI、DMA、Jetson kernel driver（Step 13）。
