@@ -383,7 +383,13 @@ Step 11 只有最小 4 個 register。這一步把它擴充成一個真正可維
 - STATUS：bit 0 RO_WRITE、1 UNMAPPED_WRITE、2 BAD_VALUE、3 BUS_ERROR、7 RESET，4–6 保留。**write-1-to-clear，不用 read-to-clear**：讀 0x2F 時 TXE 會順便取 0x30，那個 byte 不會送到 Jetson（變異「read-to-clear」實機紅：旗標在 Jetson 讀之前就被清掉）。讀取任何位址都不算錯誤，因為多 byte 讀取本來就會讀過 register 尾端
 - 版本規則：PROTOCOL_VERSION 高 4 bit major（不相容）、低 4 bit minor（只增加）；FW 版本每次發佈都改。Step 11 的 firmware 讀 0x03 得 0xFF
 - 錯誤中斷：BERR / ARLO / OVR → `i2c_target_bus_error()` + SWRST + `i2c1_regs_init()`（SWRST 清掉 I2C1 的全部 register，所以位址、ACK、中斷要重設）；AF 照舊是讀取的正常結束。ES096 建議的「把 SCL / SDA 切成 GPIO 打 clock」沒做
-- 規模（非空白行，同 Step 11 的算法）：新增 **545 行**（另刪 159）：產品碼 142（`i2c_target.h` 57、`i2c_target.c` 45、`main.c` 40）、測試 344（C++ 188、Python 156）、驗收腳本 59。動工前估 600–750
+- 規模（非空白行，同 Step 11 的算法）：PR 開出時新增 545 行，code review 修正後 **566 行**：產品碼 143（`i2c_target.h` 57、`i2c_target.c` 46、`main.c` 40）、測試 361（C++ 197、Python 164）、驗收腳本 62。動工前估 600–750
+- code review（PR #21，medium）8 項的分流：
+  - 改 code：cursor 回到 pointer 只在 `read_start()` 做（`stop()` 不再做，同一條規則不寫兩次）；實機測試的 `setUp` 也把 LED 關掉；ER handler 的註解不再宣稱 SWRST 能處理 ES096
+  - 改文件、加向量：bus error 沒有 rollback，出錯前的 byte（包括 pointer）已經生效，Jetson 重送整筆；所有可寫 register 重送都沒有副作用（之後加的也要維持）
+  - 寫明是刻意的：驗收腳本開頭與結束寫 `0xff` 會連 RESET 一起清
+  - 記進 baseline 的未實測：每次 BERR 都完整重設，同 bus 其他裝置的毛刺會不會讓 F103 的 BERR 亮、造成 0x42 短暫 NACK
+  - 排到後面：ES096 的完整解法 → phase06 Step 14；唯讀規則改成一張表、「讀取時鎖住」與 TXE 預先取的衝突 → Step 12-b
 
 ### 預期檔案（Step 12-a 實際）
 
@@ -445,7 +451,9 @@ register map 文件定義完整（分區、RO/RW、寬度、endian、reset 值�
 ADC 超過 8-bit，不能模糊寫「ADC Value」，要明確定義兩個 byte 的順序與讀取方式：
 
 - byte 順序照 12-a 寫下的 endian 規則
-- 一次 2 byte 的 auto-increment 讀取，兩個 byte 必須來自同一次轉換（例如讀 ADC_LOW 時把 HIGH 鎖住），分兩次讀時的行為也要寫清楚
+- 一次 2 byte 的 auto-increment 讀取，兩個 byte 必須來自同一次轉換，分兩次讀時的行為也要寫清楚
+- ⚠ **「讀取時鎖住」會撞上 TXE 預先取的 byte**（PR #21 code review）：12-a 的 auto-increment 安全，完全是因為讀取沒有副作用。若做成「讀 ADC_LOW 時把 HIGH 鎖住」，讀 0x0F 的 1 個 byte 時 TXE 就會順便取 0x10、觸發鎖存，Jetson 卻沒讀到 LOW。鎖存的時機要選不靠「讀了哪個 byte」的做法（例如在 ADC 轉換完成時一次更新 LOW / HIGH 兩個 byte、更新過程中不讓 TXE 拿到一半），並寫出會紅的向量與實機測試（讀 0x0F 之後再讀 0x10 / 0x11）
+- 12-a 的唯讀規則寫在 `read_only()` 與 `read_reg()` 的 switch 兩個地方（PR #21 code review）；加 ADC、按鍵時很容易漏改一邊，改成一張「位址 → 讀取來源、唯讀或可寫」的表
 - 取樣方式（連續轉換或讀取時觸發）、解析度（F103 是 12-bit）與參考電壓寫進文件
 
 按鍵：Blue Pill 的 GPIO 內部上拉可用（不像 Jetson header 經過 TXB0108），firmware 自己 debounce；BUTTON_STATE 的值與 bit 定義寫進 register map。

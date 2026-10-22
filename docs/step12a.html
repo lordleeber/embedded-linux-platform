@@ -187,7 +187,7 @@ pre, code { font-variant-ligatures: none; }
       <h2>一次 <code>i2ctransfer w1@0x42 0x00 r4@0x42</code></h2>
       <p>先看這一步的核心：寫 pointer <code>0x00</code>，接著讀 4 個 byte。Step 11 的 11.5 留了一個伏筆：F103 用 TXE 送資料時，會在 Jetson 回 NACK <b>之前</b>先把下一個 byte 放進 DR。讀 4 個 byte，firmware 其實被問了 5 次：</p>
       <figure class="figure">
-        <svg viewBox="0 0 720 400" role="img" aria-label="時序圖，三欄：Jetson、I2C1 的資料暫存器 DR、firmware 的 tx 呼叫與 cursor。開頭 Jetson 寫入 pointer 0x00，firmware 設定 ptr 與 cursor 為 0x00。接著 repeated START 讀取，read_start 讓 cursor 等於 ptr。第一次 TXE，tx 讀 cursor 0x00 得 0xED，送給 Jetson，Jetson 回 ACK。第二次 0x01 得 0x00，ACK。第三次 0x02 得 0x02，ACK。第四次 0x03 得 0x10，Jetson 回 NACK。第五次 TXE 在 NACK 之前就發生，tx 讀 0x04 得 0xFF，放進 DR 但沒有送出。AF 之後 stop 把 cursor 放回 ptr，ptr 仍然是 0x00。">
+        <svg viewBox="0 0 720 400" role="img" aria-label="時序圖，三欄：Jetson、I2C1 的資料暫存器 DR、firmware 的 tx 呼叫與 cursor。開頭 Jetson 寫入 pointer 0x00，firmware 設定 ptr 與 cursor 為 0x00。接著 repeated START 讀取，read_start 讓 cursor 等於 ptr。第一次 TXE，tx 讀 cursor 0x00 得 0xED，送給 Jetson，Jetson 回 ACK。第二次 0x01 得 0x00，ACK。第三次 0x02 得 0x02，ACK。第四次 0x03 得 0x10，Jetson 回 NACK。第五次 TXE 在 NACK 之前就發生，tx 讀 0x04 得 0xFF，放進 DR 但沒有送出。AF 之後 stop 結束 transaction，ptr 仍然是 0x00；下一次讀取由 read_start 把 cursor 放回 ptr。">
           <defs>
             <marker id="m12aR" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
           </defs>
@@ -228,10 +228,10 @@ pre, code { font-variant-ligatures: none; }
           <text class="s-mono" x="620" y="312" text-anchor="middle">tx #5 · 0x04 → 0xFF</text>
           <text class="s-sm" x="370" y="338" text-anchor="middle" style="fill: var(--bad)">留在 DR，沒有送出</text>
 
-          <text class="s-lbl" x="620" y="366" text-anchor="middle">AF → stop()：cursor = ptr</text>
+          <text class="s-lbl" x="620" y="366" text-anchor="middle">AF → stop()：IDLE</text>
           <text class="s-key" x="620" y="386" text-anchor="middle">ptr 仍是 0x00</text>
         </svg>
-        <figcaption>圖 12.1 — Jetson 收到 4 個 byte，firmware 的 <code>tx()</code> 卻被呼叫了 5 次：第 5 次發生在 tx #4 的 byte 開始送出時（TXE），那時 Jetson 還沒回 NACK。這一章的兩個設計決定都是為了讓這個「取了沒送」的 byte 無害：讀取不移動 pointer（12a.4）、STATUS 不用 read-to-clear（12a.5）。</figcaption>
+        <figcaption>圖 12.1 — Jetson 收到 4 個 byte，firmware 的 <code>tx()</code> 卻被呼叫了 5 次：第 5 次發生在 tx #4 的 byte 開始送出時（TXE），那時 Jetson 還沒回 NACK。這一章的兩個設計決定都是為了讓這個「取了沒送」的 byte 無害：讀取不移動 pointer，下一次讀取由 <code>read_start()</code> 從 pointer 重新開始（12a.4）、STATUS 不用 read-to-clear（12a.5）。</figcaption>
       </figure>
       <p>firmware 分不出哪一次 <code>tx()</code> 的 byte 會真的送出去：TXE 中斷只說「DR 空了」，不說「上一個 byte 被 ACK 了」。所以規格要寫成「多取一個 byte 也沒關係」，而不是靠 firmware 去數。</p>
     </div>
@@ -305,7 +305,7 @@ pre, code { font-variant-ligatures: none; }
       <h2>auto-increment 只活在一筆 transaction 裡</h2>
       <p>EEPROM 常見的做法是 pointer 跟著讀寫一直往前走：讀了 0x01，下一次不寫 pointer 直接讀，就拿到 0x02。這顆周邊如果照做，圖 12.1 那個多取的 byte 每次都會讓 pointer <b class="hl-bad">多走一格</b>：</p>
       <figure class="figure">
-        <svg viewBox="0 0 720 210" role="img" aria-label="兩種 pointer 規則的比較。上排是 pointer 跟著讀取往前走的做法：寫 pointer 0x01 讀 1 個 byte，Jetson 拿到 0x00，但 firmware 取了 0x01 和 0x02 兩次，pointer 停在 0x03；下一次不寫 pointer 的讀取拿到 0x10，Jetson 原本期待 0x02，錯了。下排是這一步的做法：讀取不移動 pointer，pointer 仍是 0x01，下一次讀取從 0x01 開始，拿到 0x00，和規格一致。">
+        <svg viewBox="0 0 720 210" role="img" aria-label="兩種 pointer 規則的比較。上排是 pointer 跟著讀取往前走的做法：寫 pointer 0x01 讀 1 個 byte，Jetson 拿到 0x00，但 firmware 取了 0x01 和 0x02 兩次，pointer 停在 0x03；下一次不寫 pointer 的讀取拿到 0x10，Jetson 原本期待 0x02，錯了。下排是這一步的做法：讀取不移動 pointer，pointer 仍是 0x01，下一次讀取由 read_start 從 0x01 開始，拿到 0x00，和規格一致。">
           <text class="s-mono" x="14" y="30">pointer 跟著讀取走（沒採用）</text>
           <rect class="s-box" x="14" y="42" width="190" height="48" rx="8" style="stroke: var(--user)"/>
           <text class="s-lbl" x="109" y="62" text-anchor="middle">w1 0x01 · r1</text>
@@ -325,16 +325,16 @@ pre, code { font-variant-ligatures: none; }
           <text class="s-sm" x="109" y="180" text-anchor="middle">收到 0x00</text>
           <rect class="s-box" x="250" y="142" width="210" height="48" rx="8" style="stroke: var(--drv)"/>
           <text class="s-lbl" x="355" y="162" text-anchor="middle">tx 0x01、tx 0x02（預先取）</text>
-          <text class="s-sm" x="355" y="180" text-anchor="middle">stop()：cursor = ptr = 0x01</text>
+          <text class="s-sm" x="355" y="180" text-anchor="middle">pointer 不動，仍是 0x01</text>
           <rect class="s-box" x="506" y="142" width="200" height="48" rx="8" style="stroke: var(--ok)"/>
           <text class="s-lbl" x="606" y="162" text-anchor="middle">下一次 r1</text>
-          <text class="s-sm" x="606" y="180" text-anchor="middle" style="fill: var(--ok)">收到 0x00（從 pointer 開始）</text>
+          <text class="s-sm" x="606" y="180" text-anchor="middle" style="fill: var(--ok)">read_start() 從 0x01 開始：0x00</text>
           <line class="sv-down" x1="204" y1="166" x2="246" y2="166"/>
           <line class="sv-down" x1="460" y1="166" x2="502" y2="166"/>
         </svg>
         <figcaption>圖 12.3 — 上排是 Step 11 結尾預告的問題，也是變異測試實際燒進板子的寫法（12a.7）：<code>test_reads_never_move_the_pointer</code> 在實機上紅。下排的規則讓多取的 byte 從規格上就不可能影響下一次讀取，不必去數 TXE。</figcaption>
       </figure>
-      <p>所以規則是：<b class="hl-key">pointer 只由寫入的第 1 個 byte 設定</b>；transaction 裡另外有一個 <code>cursor</code> 往前走，transaction 一結束就回到 pointer。代價寫進了 register map：Jetson 不能「接著上次的地方」繼續讀，每次都從 pointer 開始。對 driver 來說這不是限制：它本來就會每次先寫 pointer。</p>
+      <p>所以規則是：<b class="hl-key">pointer 只由寫入的第 1 個 byte 設定</b>；transaction 裡另外有一個 <code>cursor</code> 往前走；每次讀取開始時，<code>i2c_target_read_start()</code> 把它放回 pointer。代價寫進了 register map：Jetson 不能「接著上次的地方」繼續讀，每次都從 pointer 開始。對 driver 來說這不是限制：它本來就會每次先寫 pointer。</p>
       <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:43–58 — 寫入：第 1 個 byte 同時設 pointer 與 cursor，之後每個資料 byte 寫到 cursor、cursor 加 1</figcaption>
 <pre data-start="43" data-hot="47,48,52">void i2c_target_rx(struct i2c_target *t, uint8_t byte)
 {
@@ -353,8 +353,15 @@ pre, code { font-variant-ligatures: none; }
     }
 }</pre>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:82–93 — 讀取：只動 cursor；transaction 結束時 cursor 回到 pointer</figcaption>
-<pre data-start="82" data-hot="86,91">uint8_t i2c_target_tx(struct i2c_target *t)
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:18–22 — 讀取開始：cursor 回到 pointer，全檔只有這裡這樣做</figcaption>
+<pre data-start="18" data-hot="20">void i2c_target_read_start(struct i2c_target *t)
+{
+    t-&gt;cursor = t-&gt;ptr;
+    t-&gt;state = I2C_TARGET_READING;
+}</pre>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:82–94 — 讀取只動 cursor；transaction 結束時也不碰它</figcaption>
+<pre data-start="82" data-hot="86,91-93">uint8_t i2c_target_tx(struct i2c_target *t)
 {
     /* Reading has no side effect besides the cursor, so a byte fetched and never sent (the
      * one TXE loads ahead of the NACK) changes nothing the next transaction can see. */
@@ -363,12 +370,13 @@ pre, code { font-variant-ligatures: none; }
 
 void i2c_target_stop(struct i2c_target *t)
 {
-    t-&gt;cursor = t-&gt;ptr;
+    /* The cursor is left where it is: read_start() is the one place that puts it back on the
+     * pointer, so a read cannot work by accident when read_start() is not called. */
     t-&gt;state = I2C_TARGET_IDLE;
 }</pre>
       </figure>
       <p><code>cursor</code> 是 <code>uint8_t</code>，過了 <code>0xFF</code> 自然回到 <code>0x00</code>，這個「繞回」也寫進了規格，有向量和實機測試。Step 11 的 <code>DISCARD</code> 狀態不見了：多出來的資料 byte 不再丟掉，而是寫到下一個位址，各自檢查。<code>i2ctransfer w3@0x42 0x20 0x01 0x00</code> 會把 LED 打開，再因為 0x21 沒定義在 STATUS 留一個 bit。</p>
-      <p>讀取開始時由 <code>i2c_target_read_start()</code> 把 cursor 放回 pointer。乍看多餘（<code>stop()</code> 已經放回去了），12a.7 會看到它只在一種情況下有差別，而第一版的測試沒有抓到那種情況。下面的模擬器是同一套規則的 JavaScript 版，「讀」會把多取的那個 byte 也列出來：</p>
+      <p>「cursor 回到 pointer」只寫在 <code>read_start()</code> 一個地方是刻意的。第一版在 <code>stop()</code> 也寫了一次，結果把 <code>read_start()</code> 拿掉，測試幾乎都還是綠的（12a.7）：同一件事寫在兩個地方，一個壞了，另一個會把它蓋住。下面的模擬器是同一套規則的 JavaScript 版，「讀」會把多取的那個 byte 也列出來：</p>
       <div class="sim" aria-label="模擬器">
         <div class="sim-label">模擬：瀏覽器裡的 i2c_target.c（JavaScript 改寫），不是實機</div>
         <div class="sim-ctl">
@@ -475,9 +483,9 @@ void i2c_target_stop(struct i2c_target *t)
 
     I2C_ClearITPendingBit(I2C1, I2C_IT_AF | I2C_IT_BERR | I2C_IT_ARLO | I2C_IT_OVR);
     if (sr1 &amp; (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_OVR)) {
-        /* Record it, then reset I2C1 so a BUSY flag stuck after the error (ES096) cannot keep
-         * the target off the bus until someone presses RESET. SWRST clears every I2C1
-         * register, so the setup runs again. A transaction starting in these few
+        /* Record it, then reset I2C1 with SWRST; that clears every I2C1 register, so the setup
+         * runs again. This is not ES096's full workaround for a stuck BUSY flag (toggle SCL /
+         * SDA as GPIO before SWRST): not done. A transaction starting in these few
          * microseconds gets a NACK and fails; retrying is up to the Jetson side. */
         i2c_target_bus_error(&amp;target);
         I2C_SoftwareResetCmd(I2C1, ENABLE);
@@ -493,7 +501,8 @@ void i2c_target_stop(struct i2c_target *t)
       <ul>
         <li><b>先存 SR1 再清</b>：<code>I2C_ClearITPendingBit()</code> 會把這些 bit 寫成 0，之後再讀就分不出剛才是哪一種了。</li>
         <li><b>SWRST 清掉所有 I2C1 暫存器</b>，包括自己的位址 OAR1、ACK、中斷致能。所以原本的初始化拆成兩半：GPIO、時脈、NVIC 只做一次（<code>i2c1_target_init()</code>），I2C1 自己的暫存器放進 <code>i2c1_regs_init()</code>，重設後再跑一次。忘了這件事，重設完 0x42 就永遠不會 ACK 了。</li>
-        <li><b>沒做的</b>：ES096 對「BUSY 卡住」建議的完整做法，是把 SCL / SDA 暫時切成 GPIO、手動打幾個 clock 再切回來。這一步只做 SWRST，因為沒有重現方法，加了也驗不了。</li>
+        <li><b>沒做的</b>：ES096 對「BUSY 卡住」建議的完整做法，是把 SCL / SDA 暫時切成 GPIO、手動切換電位，再 SWRST。這一步只做 SWRST，<b>不保證能解開 ES096 那種卡住</b>；沒有重現方法，加了也驗不了，所以排到後面的 Step（Phase 6 的 Step 14）。第一版的註解寫成 SWRST 就能處理 ES096，code review 指出說過頭了，已改。</li>
+        <li><b>沒有 rollback</b>：bus error 之前收到的 byte 已經生效了（pointer、已經寫進去的資料），之後的 byte 不算。Jetson 看到 BUS_ERROR，就把那一筆寫入整筆重送。目前可寫的只有 LED_CONTROL 和 STATUS（write-1-to-clear），重送都沒有副作用，所以這樣就夠了。第一版的 register map 寫成「這筆 transaction 作廢」，也是 code review 指出的。</li>
       </ul>
       <div class="callout"><p><b>這段怎麼驗？</b>Jetson 的 controller 只會送合法的 transaction，沒辦法從 Jetson 故意製造 BERR。所以把問題拆成兩半。<b>重設程序本身</b>：燒一個測試用的 firmware，讓<b>每次讀取結束（AF）都 SWRST + 重新設定</b>，再跑完整的實機測試和驗收腳本（500 筆 transaction）。結果 <b class="hl-ok">全綠</b>，表示重設後 0x42 照樣 ACK、中斷照樣進來、protocol 狀態正確，而且是在幾百次重設之後。<b>偵測 BERR / ARLO / OVR 那一段</b>：<b class="hl-bad">沒有實測</b>，只有 host 向量（<code>i2c_target_bus_error()</code> 設 bit、結束 transaction）與原始碼測試（ER handler 看這三個旗標、AF 不算錯誤）。</p></div>
     </div>
@@ -505,7 +514,7 @@ void i2c_target_stop(struct i2c_target *t)
       <h2>測試：先寫規格，再故意把 firmware 改壞</h2>
       <ul>
         <li><b><code>tests/test_i2c_target.cpp</code></b>：16 組向量（Step 11 是 11 組）。新的包括：每個 RO register 被寫時設 RO_WRITE、10 個沒定義的位址先讀（不算錯）再寫（UNMAPPED_WRITE）、STATUS 的 write-1-to-clear、被預先取不會被清、bus error、讀取 auto-increment 與繞回、讀取不移動 pointer、寫入 auto-increment、寫入後同一筆 transaction 讀回。測試的讀取 helper 每次都多呼叫一次 <code>tx()</code>，模擬那個多取的 byte。</li>
-        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">40</span> 個。register-map.md 對 header（多了 STATUS 的 bit 表，和「分區、little-endian、write-1-to-clear、major / minor」這些規則有沒有寫進文件）；原始碼檢查多了 <code>read_start()</code> 在 <code>tx()</code> 之前、ER handler 看三個錯誤旗標並 SWRST、AF 不算錯誤；硬體測試 12 個，其中兩個逐一走過全部 256 個位址：每個都讀一次對照規格，每個 RO / 沒定義的位址都寫一次、檢查值沒變和 STATUS 的 bit。硬體測試的預期值寫在測試檔裡，<b>不從 header 讀</b>：header 錯了，測試不會跟著錯。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">41</span> 個。register-map.md 對 header（多了 STATUS 的 bit 表，和「分區、little-endian、write-1-to-clear、major / minor」這些規則有沒有寫進文件）；原始碼檢查多了 <code>read_start()</code> 在 <code>tx()</code> 之前、ER handler 看三個錯誤旗標並 SWRST、AF 不算錯誤；硬體測試 12 個，其中兩個逐一走過全部 256 個位址：每個都讀一次對照規格，每個 RO / 沒定義的位址都寫一次、檢查值沒變和 STATUS 的 bit。硬體測試的預期值寫在測試檔裡，<b>不從 header 讀</b>：header 錯了，測試不會跟著錯。</li>
       </ul>
       <h3>先紅</h3>
       <p>先寫 header（介面就是規格）與空的 stub，讓向量在「行為」上失敗，而不是編譯錯誤：<b class="hl-bad">56 個 check 失敗</b>。Python 那邊，靜態、文件與腳本的測試紅了 8 個；Step 11 的 firmware 上，實機測試 11 個紅了 10 個。沒紅的是 <code>test_read_after_the_value_changed</code>，它是不回歸的守門測試，本來就該綠。</p>
@@ -516,14 +525,15 @@ void i2c_target_stop(struct i2c_target *t)
         <tbody>
           <tr><td>讀取移動 pointer（EEPROM 式，圖 12.3 上排）</td><td>向量 3 個 check、實機 2 個測試紅（<code>test_reads_never_move_the_pointer</code>、<code>test_read_after_the_value_changed</code>）</td></tr>
           <tr><td>STATUS 改成 read-to-clear</td><td>向量 5 個 check、實機 3 個紅，包括「讀 0x2F 之後旗標還在」：<b>證實 TXE 真的會預先取 0x30</b></td></tr>
-          <tr><td>EV handler 不呼叫 <code>read_start()</code></td><td><b class="hl-bad">第一次全綠</b>，見下</td></tr>
+          <tr><td>EV handler 不呼叫 <code>read_start()</code></td><td><b class="hl-bad">第一次全綠</b>；補測試後實機 1 個紅；code review 後實機 3 個紅，見下</td></tr>
           <tr><td>每次讀取結束都 SWRST + 重新設定</td><td>不是錯誤，是用來驗證重設程序：實機 12 個與驗收腳本全綠</td></tr>
         </tbody>
       </table>
-      <p>第三種最有意思。<code>stop()</code> 和寫 pointer 都會把 cursor 放回 pointer，所以絕大多數情況下，<code>read_start()</code> 做的事早就做好了。只有一種情況分得出來：<b>同一筆 transaction 先寫了資料，再 repeated START 讀</b>。資料 byte 讓 cursor 走到 reg+1，沒有 <code>read_start()</code> 的話，讀回來的是下一個 register：</p>
+      <p>第三種最有意思。第一版的 <code>stop()</code> 和寫 pointer 都會把 cursor 放回 pointer，所以絕大多數情況下，<code>read_start()</code> 做的事早就做好了。只有一種情況分得出來：<b>同一筆 transaction 先寫了資料，再 repeated START 讀</b>。資料 byte 讓 cursor 走到 reg+1，沒有 <code>read_start()</code> 的話，讀回來的是下一個 register：</p>
 <pre class="cmd">i2ctransfer -y 1 w2@0x42 0x20 0x01 r1@0x42</pre>
 <pre class="out">0x01</pre>
       <p>規格說讀取從 pointer（0x20）開始，所以要讀到剛寫的 <code>0x01</code>；拿掉 <code>read_start()</code> 會讀到 0x21 的 <code>0xFF</code>。補上這個情況的向量、實機測試和驗收腳本一行之後，這個變異版<b class="hl-ok">實機 1 個紅、向量 1 個 check 紅</b>。教訓和 Step 11 的「測試只看 LED」一樣：寫測試時要問「這行 code 拿掉，哪個測試會紅？」，答不出來就是還缺一個。</p>
+      <p>只紅 1 個還是太薄。code review 指出根本原因：同一條規則寫在 <code>stop()</code> 和 <code>read_start()</code> 兩個地方。把 <code>stop()</code> 裡那行拿掉，只留 <code>read_start()</code>，同一個變異版在 host 端從 1 個 check 變成 <b class="hl-ok">5 個</b>，燒進板子變成 <b class="hl-ok">實機 3 個紅</b>（包括「讀取不移動 pointer」和「LED 切換後讀回」）。補測試只是把洞補上；拿掉重複，才讓一個錯誤在很多地方都看得到。</p>
       <p>不想接板子也能跑 protocol 的測試，只需要 CMake（在 repo 根目錄）：</p>
 <pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target test_i2c_target &amp;&amp; build/test_i2c_target</pre>
 <pre class="out">all i2c_target vectors passed</pre>
@@ -541,7 +551,7 @@ Flash: [          ]   3.2% (used 2120 bytes from 65536 bytes)
 ...
 ** Verified OK **
 ========================= [SUCCESS] Took 1.76 seconds =========================</pre>
-      <p>flash 從 Step 11 的 1912 byte 變成 2120 byte。驗收用 Step 11 的同一支 <code>scripts/verify_stm32_i2c.sh</code>：原本的檢查都留著，只改預期值（FW 0.2、多 byte 讀取改成遞增），另外加上 STATUS 與 auto-increment 的檢查。</p>
+      <p>flash 從 Step 11 的 1912 byte 變成 2120 byte（code review 修正後是 2112 byte）。驗收用 Step 11 的同一支 <code>scripts/verify_stm32_i2c.sh</code>：原本的檢查都留著，只改預期值（FW 0.2、多 byte 讀取改成遞增），另外加上 STATUS 與 auto-increment 的檢查。</p>
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
@@ -624,7 +634,7 @@ PASS test_stm32_i2c_target.py (OK)
         <div class="pit"><h4>STATUS 用 read-to-clear</h4><dl><dt>症狀</dt><dd>讀了 0x2F 之後，STATUS 的旗標不見了。</dd><dt>後果</dt><dd>錯誤被一個沒送出的 byte 清掉，Jetson 永遠看不到。</dd><dt>正解</dt><dd class="fix">write-1-to-clear，讀取沒有副作用。</dd></dl></div>
         <div class="pit"><h4>把「讀沒定義的位址」當錯誤</h4><dl><dt>症狀</dt><dd>每次多 byte 讀取讀過區塊尾端，就多一個錯誤旗標。</dd><dt>後果</dt><dd>STATUS 一直有雜訊，真正的錯誤被淹沒。</dd><dt>正解</dt><dd class="fix">只有被丟掉的寫入與 bus error 算錯誤。</dd></dl></div>
         <div class="pit"><h4>SWRST 之後忘了重新設定</h4><dl><dt>症狀</dt><dd>bus 出錯一次之後，0x42 永遠不再 ACK。</dd><dt>後果</dt><dd>本來要避免的「只能按 RESET」，換個方式發生。</dd><dt>正解</dt><dd class="fix">SWRST 清掉 OAR1、ACK、中斷致能；把 I2C1 自己的設定拆成 <code>i2c1_regs_init()</code>，重設後再跑。</dd></dl></div>
-        <div class="pit"><h4>測試沒抓到 read_start</h4><dl><dt>症狀</dt><dd>把 <code>read_start()</code> 從 EV handler 拿掉，向量和實機全綠。</dd><dt>後果</dt><dd>「寫完資料同一筆讀回」讀到下一個 register，沒人發現。</dd><dt>正解</dt><dd class="fix">對每行 code 問「拿掉哪個測試會紅」；補 <code>w2@ 0x20 0x01 r1@</code> 這個情況。</dd></dl></div>
+        <div class="pit"><h4>測試沒抓到 read_start</h4><dl><dt>症狀</dt><dd>把 <code>read_start()</code> 從 EV handler 拿掉，向量和實機全綠。</dd><dt>後果</dt><dd>「寫完資料同一筆讀回」讀到下一個 register，沒人發現。</dd><dt>正解</dt><dd class="fix">補 <code>w2@ 0x20 0x01 r1@</code> 這個情況；再把重複的規則拿掉，只留在 <code>read_start()</code>。</dd></dl></div>
         <div class="pit"><h4>註解寫得比實測多</h4><dl><dt>症狀</dt><dd>ER handler 的註解原本寫「the Jetson retries」。</dd><dt>後果</dt><dd>讀者以為重設期間的 transaction 會自動重送；i2c-tools 不會。</dd><dt>正解</dt><dd class="fix">改成「失敗；要不要重試由 Jetson 端決定」。寫進教材前，每句宣稱都要有出處。</dd></dl></div>
       </div>
     </div>
@@ -638,7 +648,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">register map v1.0：分區、七個 register、STATUS 的 bit、little-endian 的多 byte 規則、版本規則，寫在 <code>register-map.md</code> 和 <code>i2c_target.h</code>，測試讓兩份一致。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：protocol 有明確文件，Jetson 端穩定讀寫多個 register（500 筆混合讀取全對），不合法的寫入能從 STATUS 看到。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">Step 11 帶過來的三件事：多取的 byte 不再影響 pointer（從規格上消失）、寫入失敗有 STATUS 回報、bus error 後重設 I2C1（重設程序實測過）。</li>
-        <li class="y">測試：16 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">40</span> 個 Python 測試；四個變異版都燒進板子驗過。規模：非空白新增 545 行（產品碼 142、測試 344、驗收腳本 59）。</li>
+        <li class="y">測試：16 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">41</span> 個 Python 測試；四個變異版都燒進板子驗過。規模：非空白新增 566 行（產品碼 143、測試 361、驗收腳本 62，含 code review 的修正）。</li>
         <li class="n">沒有實測：真正的 bus error 偵測、ES096 的 BUSY 卡住、400 kHz。</li>
       </ul>
       <p>Step 12-b 把 0x10–0x1F 填起來：ADC_LOW / ADC_HIGH 與 BUTTON_STATE，需要新接線（可變電阻與按鍵）。ADC 是第一個多 byte 的值，會用到這一章的 little-endian 和 auto-increment；兩個 byte 還要來自同一次轉換，否則一次讀取可能拿到新的低位元組和舊的高位元組。PROTOCOL_VERSION 會變成 1.1。</p>
@@ -700,7 +710,7 @@ document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
     if (r <= 0x03 || r === 0x31) { t.status |= RO_WRITE; return '：丟掉，STATUS |= RO_WRITE'; }
     t.status |= UNMAPPED_WRITE; return '：丟掉，STATUS |= UNMAPPED_WRITE';
   }
-  function stop() { t.cursor = t.ptr; t.state = 0; }
+  function stop() { t.state = 0; }
   function log(s) { var l = $('simLog'); l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
   function show() {
     $('simState').textContent = NAMES[t.state];
@@ -732,10 +742,10 @@ document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
       else log('  tx() ' + hex(r) + ' → ' + hex(v) + '  （TXE 預先取，沒送出）');
     }
     stop();
-    log('AF → stop(): cursor = ptr = ' + hex(t.ptr) + '；Jetson 收到 ' + got.join(' '));
+    log('AF → stop(): IDLE（cursor 停在 ' + hex(t.cursor) + '，pointer 仍是 ' + hex(t.ptr) + '）；Jetson 收到 ' + got.join(' '));
     show();
   });
-  $('simStop').addEventListener('click', function () { stop(); log('STOP  → stop(): IDLE，cursor = ptr'); show(); });
+  $('simStop').addEventListener('click', function () { stop(); log('STOP  → stop(): IDLE'); show(); });
   $('simReset').addEventListener('click', function () { init(); $('simLog').textContent = ''; log('reset：i2c_target_init()，STATUS = 0x80'); show(); });
   init();
   log('reset：i2c_target_init()，STATUS = 0x80');

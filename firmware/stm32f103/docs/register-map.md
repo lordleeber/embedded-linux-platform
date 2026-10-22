@@ -46,6 +46,7 @@ bit 4–6 保留，讀到 0，寫入時忽略。
   如果讀取會清旗標，錯誤就在沒人看到的情況下消失。
 - 旗標會累積，直到 Jetson 清掉。同一個 bit 在兩次讀取之間發生兩次，看起來和一次一樣。
 - 讀取任何位址（包括沒定義的）都不算錯誤：多 byte 讀取本來就可能讀過 register 的尾端。
+- 誰寫 `0xFF` 都會連 RESET 一起清掉，`scripts/verify_stm32_i2c.sh` 也是（開頭與結束各一次）。要用 RESET 判斷「板子重開過」的程式，不要和驗收腳本同時用。
 
 ## Transaction
 
@@ -71,10 +72,13 @@ bit 4–6 保留，讀到 0，寫入時忽略。
 | 寫沒定義的位址 | ACK | 丟掉，STATUS bit 1 |
 | LED_CONTROL 寫 0、1 以外的值 | ACK | 丟掉，LED 保持原狀，STATUS bit 2 |
 | 讀沒定義的位址 | ACK | 回 0xFF，不算錯誤 |
-| bus error（BERR / ARLO / OVR） | — | 這筆 transaction 作廢，STATUS bit 3，I2C1 重設 |
+| bus error（BERR / ARLO / OVR） | — | transaction 在這裡結束：出錯前收到的 byte（包括 pointer 與已寫入的資料）已經生效，之後的 byte 不算；STATUS bit 3，I2C1 重設 |
 
 F103 的 I2C 在 firmware 看到 byte 之前就已經由硬體回 ACK，所以 target 沒辦法用 NACK 拒絕一個值；
 錯誤改由 STATUS 回報。
+
+bus error 沒有 rollback：Jetson 看到 BUS_ERROR，就把那一筆寫入整筆重送。目前所有可寫的 register
+（LED_CONTROL、STATUS 的 write-1-to-clear）重送都沒有副作用，所以這樣做就夠了；之後加的可寫 register 也要維持這一點。
 
 ## 版本規則
 

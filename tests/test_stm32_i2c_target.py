@@ -91,6 +91,12 @@ class RegisterMapTest(unittest.TestCase):
                   "auto-increment", "little-endian", "write-1-to-clear", "major", "minor"):
             self.assertIn(s, self.text)
 
+    def test_bus_error_is_not_documented_as_a_rollback(self):
+        # PR #21 review: bytes received before a bus error have already been applied (pointer,
+        # data); the map must say so instead of calling the transaction void.
+        self.assertNotIn("作廢", self.text)
+        self.assertIn("已經生效", self.text)
+
     def test_address_and_unmapped_value(self):
         text = REGMAP.read_text()
         self.assertEqual(self.d["I2C_TARGET_ADDR"], 0x42)
@@ -284,6 +290,9 @@ RO_WRITE, UNMAPPED_WRITE, BAD_VALUE = 0x01, 0x02, 0x04
 @unittest.skipUnless(HW, "set EDGE_STM32_HW=1 (scripts/verify_stm32_i2c.sh) to talk to the board")
 class HardwareTest(unittest.TestCase):
     def setUp(self):
+        # PR #21 review: start from LED off too, so a test run on its own does not depend on
+        # what the board was left with.
+        put(LED, 0)
         put(STATUS, 0xFF)
 
     def tearDown(self):

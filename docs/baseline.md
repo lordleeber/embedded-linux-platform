@@ -528,4 +528,13 @@
 
 - 原本以為 auto-increment 照一般 EEPROM 的做法「讀完 pointer 停在下一個」就好。F103 的 TXE 在對方 NACK 前會多取一個 byte，firmware 分不出那個 byte 有沒有送出去，pointer 會多走一格。改成「pointer 只由寫入設定、讀取不移動」，問題從規格上消失，不必去數 TXE 的次數。代價寫進 register map：Jetson 不能接著上次讀到的地方繼續讀。
 - 原本以為 STATUS 用 read-to-clear 最省事（Jetson 讀一次就清）。同一個 TXE 預先取的 byte 會讓 firmware「讀過」STATUS，Jetson 卻沒收到；變異實測旗標真的會不見。改用 write-1-to-clear。
-- 原本以為 `i2c_target_read_start()` 是必要的，有它的測試就守住了。把它從 EV handler 拿掉，向量和實機全綠：`stop()` 與寫 pointer 都已經把游標放回 pointer。只有「同一筆 transaction 寫了資料、repeated START 再讀」時游標在 reg+1，才分辨得出來。補了這個情況的向量、實機測試與驗收腳本一行。
+- 原本以為 `i2c_target_read_start()` 是必要的，有它的測試就守住了。（code review 後的結果見下一節。）把它從 EV handler 拿掉，向量和實機全綠：`stop()` 與寫 pointer 都已經把游標放回 pointer。只有「同一筆 transaction 寫了資料、repeated START 再讀」時游標在 reg+1，才分辨得出來。補了這個情況的向量、實機測試與驗收腳本一行。
+- code review（PR #21，medium）找出 8 項，分流見 phase05 的 Step 12-a 實作決策。原本都以為沒事：
+  - 原本以為「`stop()` 和 `read_start()` 都把 cursor 放回 pointer」只是多一層保險。它讓 `read_start()` 拿掉時幾乎沒有測試會紅（第一次全綠，補測試後實機也只紅 1 個）。改成只有 `read_start()` 做之後，同一個變異在 host 從 1 個 check 變成 **5 個**，燒進板子 **實機 3 個紅**。
+  - 原本以為實機測試的 `tearDown` 關 LED 就夠了。單獨跑 `test_every_register_reads_as_documented`、LED 剛好亮著時，正確的 firmware 也 fail（實測：`AssertionError: 1 != 0 : 0x20`）；`setUp` 補 `put(LED, 0)` 後，先把 LED 打開再跑整組實機測試，12 個通過。
+  - 原本以為 register map 寫「bus error：這筆 transaction 作廢」是對的。實作收到 byte 就生效，pointer 與已經寫入的資料都不會還原；改文件（沒有 rollback、Jetson 重送整筆），加一個向量固定這個行為（這個向量一寫就綠，因為行為沒變；文件檢查 `test_bus_error_is_not_documented_as_a_rollback` 先紅）。
+  - 原本以為 SWRST 就能處理 ES096 的 BUSY 卡住（註解這樣寫）。errata 的解法還要先把 SCL / SDA 切成 GPIO 手動切換電位；註解改成「沒做」，完整解法排到 phase06 Step 14。
+  - 寫明是刻意的：驗收腳本開頭與結束寫 `0xff` 會連 RESET 清掉。
+  - **未實測**（記錄，不改行為）：每次 BERR 都完整 SWRST + 重新設定。同 bus 上 OLED、ina3221 的 START / STOP 毛刺會不會讓 F103 的 BERR 亮起來、讓 0x42 在重設期間 NACK，沒有查證，也沒有重現方法。
+  - 排到 Step 12-b：唯讀規則寫在兩處；「讀 ADC_LOW 時鎖住 HIGH」會被 TXE 預先取觸發（12-b 規劃原本舉的就是這個例子）。
+- 修正後重燒（flash 2120 → **2112 byte**），`bash scripts/verify_stm32_i2c.sh --no-look` `=== 0 failure(s)`，500 筆 1.4 s 全對；實機 12 個通過。全套 411 → **412** 個，`OK (skipped=77)`；`test_stm32_i2c_target.py` 40 → 41。規模 545 → **566** 行（非空白）。

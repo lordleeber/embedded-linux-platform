@@ -88,7 +88,8 @@ uint8_t i2c_target_tx(struct i2c_target *t)
 
 void i2c_target_stop(struct i2c_target *t)
 {
-    t->cursor = t->ptr;
+    /* The cursor is left where it is: read_start() is the one place that puts it back on the
+     * pointer, so a read cannot work by accident when read_start() is not called. */
     t->state = I2C_TARGET_IDLE;
 }
 

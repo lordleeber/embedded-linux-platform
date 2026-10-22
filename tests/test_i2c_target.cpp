@@ -214,6 +214,16 @@ void test_bus_error()
     check_eq("next transaction works", t.led, 1);
     write(t, {REG_STATUS, STATUS_BUS_ERROR});
     check_eq("BUS_ERROR clears", read_reg(t, REG_STATUS), 0);
+
+    // PR #21 review: no rollback. What arrived before the error has taken effect (the pointer,
+    // and data bytes already written); the Jetson sees BUS_ERROR and sends the whole write again.
+    i2c_target u = clean();
+    i2c_target_write_start(&u);
+    i2c_target_rx(&u, REG_LED_CONTROL);
+    i2c_target_rx(&u, 1);
+    i2c_target_bus_error(&u);
+    check_eq("data byte before the error was applied", u.led, 1);
+    check_bytes("pointer from the interrupted write stays", read_here(u, 1), {1});
 }
 
 void test_read_auto_increments()

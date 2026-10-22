@@ -106,9 +106,9 @@ void I2C1_ER_IRQHandler(void)
 
     I2C_ClearITPendingBit(I2C1, I2C_IT_AF | I2C_IT_BERR | I2C_IT_ARLO | I2C_IT_OVR);
     if (sr1 & (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_OVR)) {
-        /* Record it, then reset I2C1 so a BUSY flag stuck after the error (ES096) cannot keep
-         * the target off the bus until someone presses RESET. SWRST clears every I2C1
-         * register, so the setup runs again. A transaction starting in these few
+        /* Record it, then reset I2C1 with SWRST; that clears every I2C1 register, so the setup
+         * runs again. This is not ES096's full workaround for a stuck BUSY flag (toggle SCL /
+         * SDA as GPIO before SWRST): not done. A transaction starting in these few
          * microseconds gets a NACK and fails; retrying is up to the Jetson side. */
         i2c_target_bus_error(&target);
         I2C_SoftwareResetCmd(I2C1, ENABLE);

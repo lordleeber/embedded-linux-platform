@@ -12,7 +12,9 @@
 # unless --no-look), multi-byte reads and writes (auto-increment) and that reads never move the
 # pointer, N rounds of mixed single- and multi-byte reads (a byte left over from the previous
 # read, or a pointer moved by a read, would show here), then the unit tests against the board.
-# The LED is switched off and STATUS cleared on exit.
+# The LED is switched off and STATUS cleared on exit. Clearing writes 0xff, which also clears
+# STATUS's RESET bit (0x80): on purpose, the script resets the board's state at both ends, and
+# its value at the start is printed first (INFO line).
 # Exit status: 0 = all checks passed, 1 = a check failed, 2 = environment/usage problem.
 set -uo pipefail
 
