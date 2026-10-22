@@ -108,7 +108,7 @@ expect_status 0x04 "two errors, then clearing only bit 0"
 echo "== LED_CONTROL"
 put 0x20 1 >/dev/null
 expect 0x20 0x01 "LED_CONTROL = 1"
-(( LOOK )) && check_ask "Is the Blue Pill's green LED (PC13) ON"
+(( LOOK )) && check_ask "Is the Blue Pill's blue LED (PC13) ON"
 put 0x20 2 >/dev/null
 expect 0x20 0x01 "LED_CONTROL after the invalid value 2"
 expect_status 0x04 "LED_CONTROL = 2 (BAD_VALUE)"
