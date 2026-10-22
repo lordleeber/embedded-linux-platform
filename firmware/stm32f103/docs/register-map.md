@@ -18,7 +18,7 @@ Controller（master）是 Jetson，target（slave）是 Blue Pill 的 I2C1（PB6
 ```
 
 - 寫入的第 1 個 byte 是 register pointer，第 2 個 byte 是資料，之後的 byte 都丟掉。
-- 讀取時每個 byte 都是同一個 register（Step 11 **不做 auto-increment**；多 byte 讀取在 Step 12 才定義）。
+- 讀取時每個 byte 都是同一個 register（Step 11 **不做 auto-increment**；多 byte 讀取在 Step 12-a 才定義）。
 - 每次寫入都會改 pointer；之後的讀取如果沒先寫 pointer，就讀上次選的那個 register。
 
 ## 不合法的存取
@@ -31,4 +31,4 @@ Controller（master）是 Jetson，target（slave）是 Blue Pill 的 I2C1（PB6
 | 讀沒定義的 register | ACK | 回 0xFF |
 
 F103 的 I2C 在 firmware 看到 byte 之前就已經由硬體回 ACK，所以 target 沒辦法用 NACK 拒絕一個值。
-Jetson 要確認寫入有沒有生效，就把 register 讀回來看。Step 12 會加 STATUS register 回報錯誤。
+Jetson 要確認寫入有沒有生效，就把 register 讀回來看。Step 12-a 會加 STATUS register 回報錯誤。

@@ -29,7 +29,7 @@
 | 02 | GPIO + LED + Interrupt | 4-a, 4-b, 5-a, 5-b | [phase02.md](phase02.md) |
 | 03 | INA219 I2C Driver | 6-a, 6-b, 7, 8 | [phase03.md](phase03.md) |
 | 04 | OLED Driver | 9, 10-a, 10-b, 10-c | [phase04.md](phase04.md) |
-| 05 | STM32F103 自製 Peripheral | 11, 12, 13 | [phase05.md](phase05.md) |
+| 05 | STM32F103 自製 Peripheral | 11, 12-a, 12-b, 13 | [phase05.md](phase05.md) |
 | 06 | Hardware Watchdog | 14, 15 | [phase06.md](phase06.md) |
 | 07 | Jetson ↔ STM32 SPI | 16, 17-a, 17-b, 18-a, 18-b | [phase07.md](phase07.md) |
 | 08 | poll / epoll / blocking I/O | 19, 20 | [phase08.md](phase08.md) |

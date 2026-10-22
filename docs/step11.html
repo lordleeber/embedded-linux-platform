@@ -143,7 +143,7 @@ pre, code { font-variant-ligatures: none; }
 </head>
 <body>
 <main class="page">
-  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12 →</span></nav>
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12-a →</span></nav>
   <header class="top">
     <div class="eyebrow">Jetson Orin Nano · Step 11 · STM32F103 I2C target</div>
     <h1>STM32F103：自己寫一顆 I2C 周邊</h1>
@@ -257,9 +257,9 @@ pre, code { font-variant-ligatures: none; }
       <ul>
         <li>寫 RO register、寫沒定義的 register、LED_CONTROL 寫 0 / 1 以外的值：<b>bus 上照樣 ACK，然後丟掉</b>。</li>
         <li>讀沒定義的 register：回 <code>0xFF</code>。</li>
-        <li>讀取<b>不 auto-increment</b>：一次讀 3 個 byte，3 個都是同一個 register。多 byte 的 register（ADC）在 Step 12 才出現，到時候再定義順序。</li>
+        <li>讀取<b>不 auto-increment</b>：一次讀 3 個 byte，3 個都是同一個 register。多 byte 的讀取方式（auto-increment、byte 順序）在 Step 12-a 定義，第一個多 byte 的 register（ADC）在 Step 12-b 出現。</li>
       </ul>
-      <p>為什麼不用 NACK 拒絕不合法的值？F103 的 I2C1 在 <code>ACK</code> 位元打開時，收到 byte 就由硬體自動回 ACK，firmware 在中斷裡看到這個 byte 時，ACK 早就送出去了。所以 Jetson 要確認寫入有沒有生效，得把 register 讀回來看；Step 12 會加一個 STATUS register 回報錯誤。這份規格有兩份拷貝：人看的 <code>firmware/stm32f103/docs/register-map.md</code>，和程式用的 header：</p>
+      <p>為什麼不用 NACK 拒絕不合法的值？F103 的 I2C1 在 <code>ACK</code> 位元打開時，收到 byte 就由硬體自動回 ACK，firmware 在中斷裡看到這個 byte 時，ACK 早就送出去了。所以 Jetson 要確認寫入有沒有生效，得把 register 讀回來看；Step 12-a 會加一個 STATUS register 回報錯誤。這份規格有兩份拷貝：人看的 <code>firmware/stm32f103/docs/register-map.md</code>，和程式用的 header：</p>
       <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h:26–36 — 位址、register 與值；register-map.md 是它的文字版，一條測試逐欄比對兩者</figcaption>
 <pre data-start="26" data-hot="26,31,33">#define I2C_TARGET_ADDR 0x42 /* 7-bit address, the project's choice */
 
@@ -756,16 +756,16 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">測試：11 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">29</span> 個 Python 測試；故意出錯的 firmware 證明交替讀、LED 切換後讀回兩條測試抓得到舊 byte。</li>
         <li class="n">沒有實測：OLED 同時在 bus 上、reset 後的預設值、400 kHz、長時間存取。規模：非空白 796 行（不含 vendor 檔），含 code review 的修正。</li>
       </ul>
-      <p>Step 12 把這四個 register 擴充成正式的 register map：分區（識別 / 輸入 / 輸出 / 健康狀態）、ADC 這種超過 1 byte 的值（要定義 auto-increment 與 byte 順序）、STATUS register 回報不合法的寫入，以及 protocol 版本規則。那時候「預先放好的 byte」就不再無害：多讀一個 byte 會讓 pointer 多前進一格，要重新驗證。</p>
+      <p>Step 12-a 把這四個 register 擴充成正式的 register map：分區（識別 / 輸入 / 輸出 / 健康狀態）、超過 1 byte 的值要怎麼讀（auto-increment 與 byte 順序，Step 12-b 的 ADC 會用到）、STATUS register 回報不合法的寫入，以及 protocol 版本規則。那時候「預先放好的 byte」就不再無害：多讀一個 byte 會讓 pointer 多前進一格，要重新驗證。</p>
       <details class="quiz"><summary>1. 為什麼讀 register 要先「寫」一個 byte？</summary><p>I2C 只有「寫一串 byte」與「讀一串 byte」。target 要知道該回哪個 register，controller 只能先寫一個 byte 當 pointer，再用 repeated START 改成讀。這個「第一個 byte 是 pointer」是我們自己的 protocol 規定的，I2C 本身沒有。</p></details>
-      <details class="quiz"><summary>2. LED_CONTROL 寫 2，Jetson 怎麼知道失敗了？</summary><p>bus 上看不出來：F103 收到 byte 時硬體就自動回 ACK 了。只能讀回 LED_CONTROL，發現還是原來的值。Step 12 會加 STATUS register 直接回報。</p></details>
+      <details class="quiz"><summary>2. LED_CONTROL 寫 2，Jetson 怎麼知道失敗了？</summary><p>bus 上看不出來：F103 收到 byte 時硬體就自動回 ACK 了。只能讀回 LED_CONTROL，發現還是原來的值。Step 12-a 會加 STATUS register 直接回報。</p></details>
       <details class="quiz"><summary>3. 只在 STOPF 時呼叫 <code>i2c_target_stop()</code>，會出什麼事？</summary><p>寫入沒事，但讀取以 controller 的 NACK 結束，target 收到的是錯誤中斷裡的 AF，不是 STOPF。不處理 AF 的話旗標清不掉，錯誤中斷會一直進來；狀態也回不到 IDLE。</p></details>
       <details class="quiz"><summary>4. 整條 bus 都 timeout，怎麼判斷是不是 STM32 在拉住 SCL？</summary><p>用 SWD 停住 CPU，讀 I2C1 的 SR1 / SR2：SR1 是 0 就表示周邊沒卡在任何事件上。再關掉 I2C1、把 PB6 改成輸入，讀 GPIOB 的 IDR：還是 0，就是外部拉低的。這一章的答案是麵包板上一條接到 GND 的線。</p></details>
       <details class="quiz"><summary>把 PB7（SDA）誤設成 <code>GPIO_Mode_AF_PP</code>（推挽）會怎樣？4 個 bit 會變成多少？</summary><p>4 個 bit 從 <code>0xF</code> 變成 <code>0xB</code>（CNF <code>10</code>、MODE <code>11</code>）。推挽會主動把線推到 3.3 V；Jetson 要把 SDA 拉低（ACK、資料 0）時，兩邊一個推高、一個拉低，等於短路，訊號也錯。I2C 的線一律用開汲極，高電位交給上拉電阻。</p></details>
     </div>
   </section>
 
-  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12 →</span></nav>
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step10c.html">← Step 10-c</a><span class="disabled">Step 12-a →</span></nav>
 </main>
 
 <script>
