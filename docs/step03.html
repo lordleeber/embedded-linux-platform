@@ -161,7 +161,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 3 · Linux kernel module</div>
     <h1>ioctl：給 edge_test 一條控制通道</h1>
     <p class="lede"><code>read()</code>/<code>write()</code> 搬的是資料；要「設定一個值」或「問現在的狀態」，該走的是 <code>ioctl()</code>。這一步在 <code>edge_test</code> 裡加一個 32-bit 的 value，用兩個 ioctl 命令讀寫它，並寫第一支 C++ userspace 程式來控制它。重點是那個 32-bit 的命令號碼：它是 kernel 和 userspace 之間的 ABI，一旦發佈就不能改。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">include/edge_test_ioctl.h</span>、<span class="new">apps/edge_test_cli.cpp</span>、<span class="new">CMakeLists.txt</span>、<span class="new">tests/test_edge_device.cpp</span>、<span class="new">tests/test_edge_test_cli.py</span>、<span class="new">scripts/check_listings.py</span>；修改 kernel/edge_test/{edge_test.c, Makefile}、scripts/verify_edge_test.sh</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">include/edge_test_ioctl.h</span>、<span class="new">apps/edge_test_cli.cpp</span>、<span class="new">CMakeLists.txt</span>、<span class="new">tests/test_edge_device.cpp</span>、<span class="new">tests/test_edge_test_cli.py</span>、<span class="new">scripts/check_listings.py</span>；修改 kernel/edge_test/{edge_test.c, Makefile}、scripts/verify_edge_test.sh · 本章程式碼停在 <code>538e595</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（syscall、VFS）</span>
@@ -236,7 +236,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <figcaption>圖 3.1 — 對 kernel 來說，命令就是 <code>ioctl()</code> 第二個參數那個 32-bit 數字；VFS 不看它的意思，只負責把它和指標原封不動交給 driver 的 <code>edge_test_ioctl()</code>。</figcaption>
       </figure>
       <p>命令號碼定義在一份 kernel 和 userspace 共用的 header 裡。共用很重要：兩邊只要對號碼的理解差一個 bit，命令就會落進 <code>default</code>。</p>
-      <figure class="listing"><figcaption>include/edge_test_ioctl.h:17–25 — 兩個命令的定義</figcaption>
+      <figure class="listing"><figcaption>include/edge_test_ioctl.h@538e595:17–25 — 兩個命令的定義</figcaption>
 <pre data-start="17" data-hot="20,23,25">#include &lt;linux/ioctl.h&gt;
 #include &lt;linux/types.h&gt;
 
@@ -312,7 +312,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <li>L4T 的 kernel headers 套件沒附那份登記表，所以先搜尋本機所有 uapi header 裡的 <code>_IO*</code> 定義與 magic 常數，<code>0xEB</code> 一次都沒出現；再對照上游 v5.15 的登記表，也沒有 <code>0xEB</code>。</li>
       </ul>
       <p>號碼一旦發佈就是 ABI：之後新增命令只能往後加 nr，不能改既有命令的號碼或參數大小。測試裡用 <code>static_assert</code> 把兩個數值釘死，數字是照位元格式手算的，不是從實作抄的：</p>
-      <figure class="listing"><figcaption>tests/test_edge_device.cpp:18–23 — 把 ABI 釘死的 static_assert</figcaption>
+      <figure class="listing"><figcaption>tests/test_edge_device.cpp@538e595:18–23 — 把 ABI 釘死的 static_assert</figcaption>
 <pre data-start="18" data-hot="22-23">// ABI contract: fixed-size argument, and numbers that must never change.
 // _IOR/_IOW = dir(2 bits) &lt;&lt; 30 | size(14) &lt;&lt; 16 | type(8) &lt;&lt; 8 | nr(8).
 static_assert(sizeof(__u32) == 4, "ioctl argument must be a fixed 32-bit type");
@@ -326,7 +326,7 @@ static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</
     <div class="rail"><span class="no">3.4</span><b>driver</b><span class="dot" style="background: var(--drv)"></span>unlocked_ioctl</div>
     <div class="content">
       <h2>kernel 端：一個 switch</h2>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:110–133 — edge_test_ioctl()</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c@538e595:110–133 — edge_test_ioctl()</figcaption>
 <pre data-start="110" data-hot="116,121,124-125,130-131">static long edge_test_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
@@ -352,12 +352,12 @@ static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</
 	}
 }</pre></figure>
       <ul>
-        <li><b>不認得的命令一律回 <code>-ENOTTY</code></b>（第 <span data-ref="kernel/edge_test/edge_test.c:130-131" data-expect="default:…return -ENOTTY;">130–131</span> 行）。這是 ioctl 的慣例錯誤碼，意思是「這個檔案不支援這個命令」；不要回 <code>-EINVAL</code>，那留給「命令認得、但參數值不對」。</li>
+        <li><b>不認得的命令一律回 <code>-ENOTTY</code></b>（第 <span data-ref="kernel/edge_test/edge_test.c@538e595:130-131" data-expect="default:…return -ENOTTY;">130–131</span> 行）。這是 ioctl 的慣例錯誤碼，意思是「這個檔案不支援這個命令」；不要回 <code>-EINVAL</code>，那留給「命令認得、但參數值不對」。</li>
         <li><code>get_user()</code> / <code>put_user()</code> 是搬單一個整數用的 <code>copy_from_user()</code> / <code>copy_to_user()</code>，同樣會檢查位址、碰到壞指標回 <code>-EFAULT</code>。NULL 也算壞指標。</li>
-        <li><b class="hl-key">先讀進區域變數，成功才改狀態</b>（第 <span data-ref="kernel/edge_test/edge_test.c:124-125" data-expect="if (get_user(val, uptr))…return -EFAULT;">124–125</span> 行）：Step 2 的 <code>copy_from_user()</code> 坑換了個樣子出現，SET 給了壞指標時 value 必須不變——測試「failed SET leaves the value unchanged」守著這件事。</li>
+        <li><b class="hl-key">先讀進區域變數，成功才改狀態</b>（第 <span data-ref="kernel/edge_test/edge_test.c@538e595:124-125" data-expect="if (get_user(val, uptr))…return -EFAULT;">124–125</span> 行）：Step 2 的 <code>copy_from_user()</code> 坑換了個樣子出現，SET 給了壞指標時 value 必須不變——測試「failed SET leaves the value unchanged」守著這件事。</li>
         <li>讀寫 <code>edge_test_value</code> 都在 Step 2 那把 <code>edge_test_lock</code> 底下；但 <code>put_user()</code> 在鎖外，因為它可能因 page fault 睡眠，沒必要讓別人等。</li>
       </ul>
-      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c:135–143 — file_operations 表多了兩行</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_test/edge_test.c@538e595:135–143 — file_operations 表多了兩行</figcaption>
 <pre data-start="135" data-hot="141-142">static const struct file_operations edge_test_fops = {
 	.owner		= THIS_MODULE,
 	.open		= edge_test_open,
@@ -367,11 +367,11 @@ static_assert(EDGE_TEST_SET_VALUE == 0x4004EB02u, "SET_VALUE number changed");</
 	.unlocked_ioctl	= edge_test_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 };</pre></figure>
-      <p>第 <span data-ref="kernel/edge_test/edge_test.c:141" data-expect=".unlocked_ioctl">141</span> 行把 handler 掛上去。第 <span data-ref="kernel/edge_test/edge_test.c:142" data-expect=".compat_ioctl">142</span> 行的 <code>compat_ioctl</code> 給 32-bit 程式用：64-bit kernel 上跑的 32-bit 程式，指標只有 32 位元，<code>compat_ptr_ioctl</code> 把它轉成 kernel 的指標後，呼叫同一個 <code>edge_test_ioctl()</code>。能這樣共用，前提就是參數只用固定大小的 <code>__u32</code>，兩種程式看到的號碼和排列完全一樣。這台的 kernel 有開 <code>CONFIG_COMPAT=y</code>，但沒有 32-bit 的編譯器，<b>這條路徑沒有實測</b>。</p>
-      <figure class="listing"><figcaption>kernel/edge_test/Makefile:4–5 — 讓 module 找得到共用 header</figcaption>
+      <p>第 <span data-ref="kernel/edge_test/edge_test.c@538e595:141" data-expect=".unlocked_ioctl">141</span> 行把 handler 掛上去。第 <span data-ref="kernel/edge_test/edge_test.c@538e595:142" data-expect=".compat_ioctl">142</span> 行的 <code>compat_ioctl</code> 給 32-bit 程式用：64-bit kernel 上跑的 32-bit 程式，指標只有 32 位元，<code>compat_ptr_ioctl</code> 把它轉成 kernel 的指標後，呼叫同一個 <code>edge_test_ioctl()</code>。能這樣共用，前提就是參數只用固定大小的 <code>__u32</code>，兩種程式看到的號碼和排列完全一樣。這台的 kernel 有開 <code>CONFIG_COMPAT=y</code>，但沒有 32-bit 的編譯器，<b>這條路徑沒有實測</b>。</p>
+      <figure class="listing"><figcaption>kernel/edge_test/Makefile@538e595:4–5 — 讓 module 找得到共用 header</figcaption>
 <pre data-start="4" data-hot="5">obj-m := edge_test.o
 ccflags-y := -I$(src)/../../include</pre></figure>
-      <p>kernel module 不會自動去 repo 的 <code>include/</code> 找 header，第 <span data-ref="kernel/edge_test/Makefile:5" data-expect="ccflags-y">5</span> 行用 <code>ccflags-y</code> 把它加進搜尋路徑；<code>$(src)</code> 是 kbuild 提供的「這個 module 的原始碼目錄」。</p>
+      <p>kernel module 不會自動去 repo 的 <code>include/</code> 找 header，第 <span data-ref="kernel/edge_test/Makefile@538e595:5" data-expect="ccflags-y">5</span> 行用 <code>ccflags-y</code> 把它加進搜尋路徑；<code>$(src)</code> 是 kbuild 提供的「這個 module 的原始碼目錄」。</p>
     </div>
   </section>
 
@@ -380,7 +380,7 @@ ccflags-y := -I$(src)/../../include</pre></figure>
     <div class="content">
       <h2>C++ 端：<code>edge_test_cli</code></h2>
       <p>CLI 只做兩件事：檢查參數，然後呼叫一次 <code>ioctl()</code>。檢查很嚴格，因為 <code>std::stoul</code> 之類的標準函式太寬鬆：在這台實測，<code>-1</code> 會變成 18446744073709551615、<code>12x</code> 變成 12、<code>0x10</code> 變成 0（只讀到 <code>x</code> 前面），而且都不報錯。使用者會以為設成了某個值，實際上是另一個：</p>
-      <figure class="listing"><figcaption>apps/edge_test_cli.cpp:32–46 — 嚴格的十進位解析</figcaption>
+      <figure class="listing"><figcaption>apps/edge_test_cli.cpp@538e595:32–46 — 嚴格的十進位解析</figcaption>
 <pre data-start="32" data-hot="35,39,43">// Strict decimal parse: digits only, no sign, no hex, must fit in 32 bits.
 std::optional&lt;__u32&gt; parse_u32(const std::string &amp;s)
 {
@@ -396,7 +396,7 @@ std::optional&lt;__u32&gt; parse_u32(const std::string &amp;s)
         return std::nullopt;
     return static_cast&lt;__u32&gt;(v);
 }</pre></figure>
-      <figure class="listing"><figcaption>apps/edge_test_cli.cpp:86–99 — 真正呼叫 ioctl 的地方</figcaption>
+      <figure class="listing"><figcaption>apps/edge_test_cli.cpp@538e595:86–99 — 真正呼叫 ioctl 的地方</figcaption>
 <pre data-start="86" data-hot="89,95">    int rc = 0;
     if (cmd == "get") {
         __u32 v = 0;
@@ -412,7 +412,7 @@ std::optional&lt;__u32&gt; parse_u32(const std::string &amp;s)
     close(fd);
     return rc;</pre></figure>
       <p>結束碼有固定的意思：<b>0</b> 成功、<b>1</b> 裝置打不開或 ioctl 失敗（錯誤訊息帶裝置路徑和 <code>strerror</code>）、<b>2</b> 用法錯誤（同時印 usage）。腳本可以靠結束碼分辨「我打錯指令」和「裝置有問題」。這套慣例和 Step 1 的 <code>check_host_env.sh</code> 一致。</p>
-      <figure class="listing"><figcaption>CMakeLists.txt@f8728e8:1–16 — userspace 的建置（Step 11 改了第 <span data-ref="CMakeLists.txt@f8728e8:2" data-expect="project(embedded_linux_platform CXX)">2</span> 行，見下方說明）</figcaption>
+      <figure class="listing"><figcaption>CMakeLists.txt@538e595:1–16 — userspace 的建置</figcaption>
 <pre data-start="1" data-hot="12,15">cmake_minimum_required(VERSION 3.16)
 project(embedded_linux_platform CXX)
 
@@ -429,7 +429,6 @@ target_include_directories(edge_test_cli PRIVATE include)
 
 add_executable(test_edge_device tests/test_edge_device.cpp)
 target_include_directories(test_edge_device PRIVATE include)</pre></figure>
-      <p>這段節錄釘在 commit <code>f8728e8</code>。Step 11 要把 STM32 firmware 的 C 檔編進 host 端測試，把第 <span data-ref="CMakeLists.txt@f8728e8:2" data-expect="project(embedded_linux_platform CXX)">2</span> 行改成 <code>project(embedded_linux_platform C CXX)</code>，其餘不變。</p>
       <p><code>-Wall -Wextra -Werror</code> 讓警告直接變成編譯錯誤。兩個執行檔都把 repo 的 <code>include/</code> 加進搜尋路徑，所以和 kernel module 讀的是同一份 header。</p>
     </div>
   </section>
@@ -523,8 +522,8 @@ exit=1 «5»</pre>
     <div class="content">
       <h2>同一支驗收腳本，多驗三件事</h2>
       <p>Step 2 的 <code>scripts/verify_edge_test.sh</code> 照舊重複 load → 測試 → unload，<b>只加不換</b>：迴圈前多一步 CMake build；每一輪多跑 C++ ioctl 測試（root）與 CLI 測試（一般使用者）；從第 2 輪起，多檢查 reload 後 value 是否歸零：</p>
-      <figure class="listing"><figcaption>scripts/verify_edge_test.sh:84–88 — reload 後 value 必須歸零</figcaption>
-<pre data-start="84" data-hot="85-87">    # Step 3: the ioctl value lives in the module, so a reload starts from 0.
+      <figure class="listing"><figcaption>scripts/verify_edge_test.sh@538e595:81–85 — reload 後 value 必須歸零</figcaption>
+<pre data-start="81" data-hot="82-84">    # Step 3: the ioctl value lives in the module, so a reload starts from 0.
     if ((i &gt; 1)); then
         got="$(timeout 10 "$CLI" get 2&gt;&amp;1)"
         if [[ $got == 0 ]]; then pass "cycle $i: ioctl value reset to 0 after reload"; else fail "cycle $i: value after reload is '$got', expected 0"; fi
@@ -560,14 +559,14 @@ PASS dmesg shows 3 load / 3 unload messages
         <li><span class="mk">1</span><span>以呼叫 sudo 的那個使用者身分 build，<code>build/</code> 不會出現 root 所有的檔案。輸出開頭那條 compiler 版本警告和 Step 2 一樣無害，這裡省略。</span></li>
         <li><span class="mk">2</span><span>Step 2 的 12 個行為測試照樣全過：加了 ioctl，資料通道沒有退化。</span></li>
         <li><span class="mk">3</span><span>上一節那 13 項，以 root 執行。</span></li>
-        <li><span class="mk">4</span><span><code>tests/test_edge_test_cli.py</code> 的 <span data-tests="tests/test_edge_test_cli.py">10</span> 個案例，含 set/get 0、123、4294967295 三個值。</span></li>
+        <li><span class="mk">4</span><span><code>tests/test_edge_test_cli.py</code> 的 <span data-tests="tests/test_edge_test_cli.py@538e595">10</span> 個案例，含 set/get 0、123、4294967295 三個值。</span></li>
         <li><span class="mk">5</span><span>上一輪卸載前設的 4242 沒有留下來。</span></li>
       </ol>
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
-          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:<span data-ref="scripts/verify_edge_test.sh:57" data-expect="cmake --build">57</span></code>），而且以你的身分執行。</td></tr>
-          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 <span data-ref="scripts/verify_edge_test.sh:114" data-expect="set 4242">114</span> 行），下一輪自動檢查（第 <span data-ref="scripts/verify_edge_test.sh:84-88" data-expect="# Step 3: the ioctl value lives in the module…fi">84–88</span> 行）。</td></tr>
+          <tr><td>先 <code>cmake</code> build 再跑腳本</td><td>腳本會自己 build（<code>scripts/verify_edge_test.sh:<span data-ref="scripts/verify_edge_test.sh@538e595:54" data-expect="cmake --build">54</span></code>），而且以你的身分執行。</td></tr>
+          <tr><td>手動 <code>set</code> 一個值、reload、再 <code>get</code></td><td>腳本每輪卸載前 <code>set 4242</code>（第 <span data-ref="scripts/verify_edge_test.sh@538e595:114" data-expect="set 4242">114</span> 行），下一輪自動檢查（第 <span data-ref="scripts/verify_edge_test.sh@538e595:81-85" data-expect="# Step 3: the ioctl value lives in the module…fi">81–85</span> 行）。</td></tr>
           <tr><td>用 sudo 跑 CLI 的 Python 測試</td><td>不要：那支測試第一次會跑 CMake，用 root 會在 <code>build/</code> 留下 root 所有的檔案。腳本用 <code>sudo -u "$SUDO_USER"</code> 執行它。</td></tr>
         </tbody>
       </table>

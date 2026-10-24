@@ -148,7 +148,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 11 · STM32F103 I2C target</div>
     <h1>STM32F103：自己寫一顆 I2C 周邊</h1>
     <p class="lede">前十步都在操作別人做好的晶片：INA219、SSD1306 的暫存器是廠商定的，我們只照著 datasheet 讀寫。這一步換邊站：在一塊 Blue Pill（STM32F103C8T6）上寫 firmware，讓它變成 Jetson I2C bus 上 <code>0x42</code> 的一顆周邊，有我們<b class="hl-key">自己設計的 register map</b>：裝置 ID、版本號、一個控制板上 LED 的 register。Jetson 這邊只用 <code>i2cget</code> / <code>i2cset</code>，不寫 driver。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">firmware/stm32f103/</span>（<span class="new">platformio.ini</span>、<span class="new">Core/Src/main.c</span>、<span class="new">Core/Src/i2c_target.c</span>、<span class="new">Core/Inc/i2c_target.h</span>、<span class="new">Core/Inc/stm32f10x_conf.h</span>、<span class="new">docs/register-map.md</span>、<span class="new">README.md</span>、<span class="new">vendor.sha256</span> 與原樣複製的 vendor 檔）、<span class="new">tests/test_i2c_target.cpp</span>、<span class="new">tests/test_stm32_i2c_target.py</span>、<span class="new">scripts/verify_stm32_i2c.sh</span>、<span class="new">.gitattributes</span>、<span class="new">docs/step11.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase05.md、docs/{baseline.md, hardware-wiring.md, step10c.html, index.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">firmware/stm32f103/</span>（<span class="new">platformio.ini</span>、<span class="new">Core/Src/main.c</span>、<span class="new">Core/Src/i2c_target.c</span>、<span class="new">Core/Inc/i2c_target.h</span>、<span class="new">Core/Inc/stm32f10x_conf.h</span>、<span class="new">docs/register-map.md</span>、<span class="new">README.md</span>、<span class="new">vendor.sha256</span> 與原樣複製的 vendor 檔）、<span class="new">tests/test_i2c_target.cpp</span>、<span class="new">tests/test_stm32_i2c_target.py</span>、<span class="new">scripts/verify_stm32_i2c.sh</span>、<span class="new">.gitattributes</span>、<span class="new">docs/step11.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase05.md、docs/{baseline.md, hardware-wiring.md, step10c.html, index.html} · 本章程式碼停在 <code>eae43a1</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式（i2c-tools）</span>
       <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
@@ -443,7 +443,7 @@ void I2C1_ER_IRQHandler(void)
         </tbody>
       </table>
       <p>欄位定義依 STM32F103 的 reference manual（RM0008）。這張表在 SPL 的原始碼裡就看得到，因為 <code>GPIO_Mode_*</code> 的數值就是照這些欄位編碼的：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.h:58–79 — 速度就是 MODE 的值；模式的低 4 bit 是 CNF 放在 bit 3:2，0x10 表示「輸出」</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.h@eae43a1:58–79 — 速度就是 MODE 的值；模式的低 4 bit 是 CNF 放在 bit 3:2，0x10 表示「輸出」</figcaption>
 <pre data-start="58" data-hot="60-62,73,75-79">typedef enum
 { 
   GPIO_Speed_10MHz = 1,
@@ -467,7 +467,7 @@ typedef enum
   GPIO_Mode_AF_OD = 0x1C,
   GPIO_Mode_AF_PP = 0x18</pre></figure>
       <p><code>GPIO_Init()</code> 把這兩個值組成那 4 個 bit：模式先取低 4 bit；是輸出的話（<code>0x10</code>），再把速度 OR 進 <code>MODE</code>。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c:183–190 — 輸入時 MODE 留 00；輸出時把速度放進 MODE</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c@eae43a1:183–190 — 輸入時 MODE 留 00；輸出時把速度放進 MODE</figcaption>
 <pre data-start="183" data-hot="183,184,189">  currentmode = ((uint32_t)GPIO_InitStruct-&gt;GPIO_Mode) &amp; ((uint32_t)0x0F);
   if ((((uint32_t)GPIO_InitStruct-&gt;GPIO_Mode) &amp; ((uint32_t)0x10)) != 0x00)
   { 
@@ -477,7 +477,7 @@ typedef enum
     currentmode |= (uint32_t)GPIO_InitStruct-&gt;GPIO_Speed;
   }</pre></figure>
       <p>接著清掉那根腳的 4 個 bit、寫入新值。上拉、下拉輸入（<code>IPU</code> = <code>0x48</code>、<code>IPD</code> = <code>0x28</code>）的低 4 bit 一樣都是 <code>0x8</code>，差別只在 <code>0x40</code> / <code>0x20</code> 這兩個旗標：<code>GPIO_Init()</code> 依它們用 <code>BSRR</code> 或 <code>BRR</code> 把 <code>ODR</code> 那一位設成 1 或 0，這就是上拉和下拉的分別：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c:203–221 — 每根腳 4 bit：先清再寫；上下拉方向寫在 ODR</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Library/stm32f10x_gpio.c@eae43a1:203–221 — 每根腳 4 bit：先清再寫；上下拉方向寫在 ODR</figcaption>
 <pre data-start="203" data-hot="205,206,208,212,219">        pos = pinpos &lt;&lt; 2;
         /* Clear the corresponding low control register bits */
         pinmask = ((uint32_t)0x0F) &lt;&lt; pos;
@@ -539,7 +539,7 @@ typedef enum
     <div class="content">
       <h2>PlatformIO，但不用它的 SPL</h2>
       <p>PlatformIO 是建置工具：負責下載 toolchain、編譯、連結、呼叫 OpenOCD 燒錄。它的設定可以寫 <code>framework = spl</code>，讓它提供 SPL，但 PlatformIO 的 <code>framework-spl</code> 套件<b class="hl-bad">沒有 STM32F1</b>（只有 F0 / F3 / F4 / L1），Blue Pill 會得到 <code>This board doesn't support spl framework</code>。所以照這個專案作者自己的 SPL 課程（VS Code + PlatformIO）的做法：<b class="hl-key">不指定 framework</b>，CMSIS 與 SPL 原始檔放在專案目錄裡，PlatformIO 只負責編譯它們。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/platformio.ini:14–48 — 沒有 framework；toolchain 釘在有 aarch64 版的 GCC 12.3.1；warning 一律當錯誤；只編四個用到的 SPL 驅動</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/platformio.ini@eae43a1:14–48 — 沒有 framework；toolchain 釘在有 aarch64 版的 GCC 12.3.1；warning 一律當錯誤；只編四個用到的 SPL 驅動</figcaption>
 <pre data-start="14" data-hot="15,21,32,33,34,40,41,42">[platformio]
 src_dir = .
 

@@ -149,7 +149,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · 補充章 · Linux Device Tree</div>
     <h1>Device Tree 入門：kernel 怎麼知道板子上有什麼</h1>
     <p class="lede">Step 2、3 的 <code>edge_test</code> 不碰任何硬體，所以不需要問「裝置在哪裡」。從 Step 4 開始，每個 driver 都要知道暫存器在哪個位址、用哪根 GPIO、接哪條中斷、掛在哪條 I2C bus 的哪個位址。在 ARM 板子上，這些資訊不是 driver 自己找出來的，而是寫在一份叫 <b class="hl-key">Device Tree</b> 的資料結構裡，開機時交給 kernel。這一章不寫任何 code，只在板子上讀現成的 Device Tree，把之後每一章都會用到的語法和機制先講清楚：節點與屬性、<code>reg</code> 和位址 cell、<code>phandle</code>、<code>compatible</code> 配對，以及一個節點怎麼變成 <code>/sys</code> 底下的一個 device；最後把 4-a 會遇到的 pad、pinmux、pinctrl 三個詞分清楚。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html, uefi.html}。不新增 code，所有指令只讀不寫、不需要 root</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · DTC 1.6.1 · 新增 <span class="new">docs/devicetree.html</span>；修改 docs/{index.html, step03.html, step04a.html, step04b.html, uefi.html}。不新增 code，所有指令只讀不寫、不需要 root · 本章程式碼停在 <code>44fe852</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（OF core、platform bus、i2c core）</span>
@@ -484,7 +484,7 @@ grep -n -A1 'define TEGRA234_MAIN_GPIO(' /lib/modules/$(uname -r)/build/include/
       <p>所以原始碼裡這一格是 <code>TEGRA234_MAIN_GPIO(G, 0)</code>，展開成 6 × 8 + 0 = 48。下一章 4-a 要點亮的 pin 29 是 <code>TEGRA234_MAIN_GPIO(Q, 5)</code> = 15 × 8 + 5 = 125，line 卻是 105，道理相同。</p>
       <h3>原始碼裡寫的是名字，不是數字</h3>
       <p>寫 <code>.dts</code> 的人不會手填 <code>0xf3</code>。原始碼在節點前面加一個<b>標籤</b>（<code>gpio: gpio@2200000 { … }</code>），引用時寫 <code>&amp;gpio</code>，dtc 編譯時才分配 phandle 數字、填進去。4-b 的 overlay 就是這樣寫的，先看一眼長相（細節 4-b 再講）：</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:31–41 — 4-b 的 overlay 用標籤引用原廠樹的 GPIO controller 和自己的 pinctrl 狀態</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@44fe852:31–41 — 4-b 的 overlay 用標籤引用原廠樹的 GPIO controller 和自己的 pinctrl 狀態</figcaption>
 <pre data-start="31" data-hot="36,38">	fragment@0 {
 		target-path = "/";
 		__overlay__ {
@@ -664,7 +664,7 @@ waiting_for_supplier</pre>
         <li><b>引用的一方</b>用 <code>pinctrl-names</code> 列出狀態名稱，<code>pinctrl-0</code>、<code>pinctrl-1</code>… 依序是各狀態的設定節點（phandle）。名稱叫 <code>"default"</code> 的狀態，driver core 會在 driver 的 <code>probe()</code> 被呼叫之前自動套用。</li>
       </ul>
       <p>4-b 的 overlay 就是這樣寫的：<code>fragment@1</code> 在 pinmux 節點底下加一個設定節點，DT.6 節錄的 <code>fragment@0</code> 裡 <code>edge-led</code> 的 <code>pinctrl-0 = &lt;&amp;edge_led_pins&gt;</code> 引用它：</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:43–55 — 4-b 加在 pinmux 底下的 pad 設定：關掉 tristate 和 input、不上拉</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@44fe852:43–55 — 4-b 加在 pinmux 底下的 pad 設定：關掉 tristate 和 input、不上拉</figcaption>
 <pre data-start="43" data-hot="48,49,50,51">	fragment@1 {
 		target = &lt;&amp;pinmux&gt;;
 		__overlay__ {

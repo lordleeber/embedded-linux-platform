@@ -588,6 +588,7 @@ footer.chap-footer {
 </header>
 <main>
   <p>所有指令都假設你已經 clone 這個 repo，並在 <b>repo 根目錄</b>（有 <code>ROADMAP.md</code> 的那一層）執行，除非章裡另外註明。</p>
+  <p>每一章停在它那個 Step 合併時的樣子，之後的 Step 改了 code 也不回頭改：節錄、行號、測試數和實測輸出都是當時的。章首的 meta 行寫著「本章程式碼停在 <code>xxxxxxx</code>」；要照章重現時，先 <code>git checkout</code> 那個 commit（或用 <code>git worktree add</code> 另開一份），在最新的 repo 上跑，輸出可能不一樣。</p>
   <ol class="toc">
     <li><a class="toc-title" href="step01.html">Step 1 · 建立開發環境基線</a><p class="toc-desc">環境檢查、Jetson 版本快照與接線紀錄。</p></li>
     <li><a class="toc-title" href="step02.html">Step 2 · 最小 character device</a><p class="toc-desc">第一個 kernel module：<code>/dev/edge_test</code>，從 <code>echo</code> 一路追到 driver 的 <code>write()</code>。</p></li>

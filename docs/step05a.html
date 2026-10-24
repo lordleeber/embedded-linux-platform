@@ -142,7 +142,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 5-a · GPIO edge event（userspace）</div>
     <h1>按鍵事件不一定要寫 driver</h1>
     <p class="lede">Step 4 先在 userspace 點亮 LED（4-a），再寫 kernel driver（4-b）。按鍵也照這個順序：這一章不寫任何 kernel code，只用 kernel 本來就有的 GPIO character device，請它在按鍵的邊緣上產生事件。程式呼叫 <code>read()</code> 之後一樣會睡著、一樣不吃 CPU、一樣有 debounce。中斷、佇列、wait queue 都由 kernel 的 <b class="hl-key">gpiolib-cdev</b> 處理；下一章 5-b 再把這些在自己的 driver 裡親手寫一遍。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_button.cpp</span>、<span class="new">scripts/verify_edge_gpio_button.sh</span>、<span class="new">tests/test_edge_gpio_button.py</span>；修改 CMakeLists.txt、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, step05b.html, index.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_button.cpp</span>、<span class="new">scripts/verify_edge_gpio_button.sh</span>、<span class="new">tests/test_edge_gpio_button.py</span>；修改 CMakeLists.txt、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, step05b.html, index.html} · 本章程式碼停在 <code>389af41</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（gpiolib、gpiolib-cdev、IRQ 子系統、VFS）</span>
@@ -235,7 +235,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">5a.4</span><b>請求</b><span class="dot" style="background: var(--user)"></span>ioctl</div>
     <div class="content">
       <h2>請求 line：輸入、低電位有效、雙邊緣、20 ms debounce</h2>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:70–85 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:70–85 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
 <pre data-start="70" data-hot="71,73,74,75,76,77,78,80">    gpio_v2_line_request req{};
     req.offsets[0] = 43;                                   // PH.00 = header pin 33
     req.num_lines = 1;
@@ -294,7 +294,7 @@ event falling(released) seq=1 at request+20884 us «2»</pre>
         <figcaption>圖 5.2 — 請求後的前 20 ms，pin 讀到的不是真實電位，kernel 還把恢復的那一下報成事件。程式等 50 ms（量到約 20 ms，留 2.5 倍餘裕），把這段時間的事件丟掉，再用之後讀到的電位當起點。</figcaption>
       </figure>
       <p>這個現象還有一個規律：line 剛被釋放不久（不到約 0.3 秒）再請求時<b>不會</b>發生，所以連續重跑時看不到，隔一下就看得到。為什麼要 20 ms，我沒有查到原因，這裡只記實測事實。</p>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:87–111 — 啟動後先等 50 ms：丟掉期間的事件，讀穩定後的電位</figcaption>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:87–111 — 啟動後先等 50 ms：丟掉期間的事件，讀穩定後的電位</figcaption>
 <pre data-start="87" data-hot="91,93,95,97,99,100,104,109,111">    // Measured on this board: for ~20 ms after the request the line reads "pressed",
     // then settles, and gpiolib reports that as an edge nobody made. Let it settle,
     // drop what arrived meanwhile, and start from the level read afterwards.
@@ -320,7 +320,7 @@ event falling(released) seq=1 at request+20884 us «2»</pre>
     int last = val.bits &amp; 1;                               // logical: 1 = pressed
     if (ignored)
         std::fprintf(stderr, "ignored %d edge(s) while the line settled\n", ignored);</pre></figure>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:126–135 — 之後：kernel seqno 有缺口就報 lost，只印改變狀態的事件</figcaption>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:126–135 — 之後：kernel seqno 有缺口就報 lost，只印改變狀態的事件</figcaption>
 <pre data-start="126" data-hot="126,127,129,131,132,133,135">        if (ev.seqno != seqno + 1)                         // the kernel queue overflowed
             std::fprintf(stderr, "lost %u event(s) (kernel seqno %u -&gt; %u)\n",
                          ev.seqno - seqno - 1, seqno, ev.seqno);
@@ -359,7 +359,7 @@ interrupted
     <div class="rail"><span class="no">5a.6</span><b>read()</b><span class="dot" style="background: var(--user)"></span>事件迴圈</div>
     <div class="content">
       <h2>讀事件：一次一筆 gpio_v2_line_event</h2>
-      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp:113–140 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
+      <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:113–140 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
 <pre data-start="113" data-hot="117,119,120,131,136">    int rc = 0;
     long printed = 0;
     while (printed &lt; count) {
@@ -416,7 +416,7 @@ interrupted
     <div class="rail"><span class="no">5a.8</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>不按按鍵能測的，先寫成測試</h2>
-      <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py">15</span> 個案例。</p>
+      <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py@389af41">15</span> 個案例。</p>
       <ul>
         <li><b>原始碼契約（8）</b>：期望值照 <code>&lt;linux/gpio.h&gt;</code> 的定義寫，不是從程式抄的。用 v2 uAPI、line 43、不依賴 libgpiod；四個旗標都在；debounce 20000 µs；rising 印成 pressed；整筆讀 <code>gpio_v2_line_event</code>；signal 只設旗標、<code>sa_flags</code> 沒有 <code>SA_RESTART</code>；印出的 seq 不是 kernel 的 <code>seqno</code>、kernel <code>seqno</code> 有缺口要報 <code>lost</code>（code review 後補，先紅再修）。</li>
         <li><b>CLI（2）</b>：參數錯誤回 2；chip 不存在（<code>EDGE_GPIO_CHIP</code> 指到不存在的路徑）回 1。</li>
