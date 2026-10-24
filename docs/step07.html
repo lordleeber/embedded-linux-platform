@@ -134,8 +134,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 7 · I2C（kernel，自己的 client driver）</div>
     <h1>自製 INA219 I2C kernel driver</h1>
     <p class="lede">6-b 在 userspace 用 <code>/dev/i2c-7</code> 自己讀 register；這一步把同一件事搬進 kernel。在 overlay 裡為 header 的 I2C 控制器加一個 <code>ina219@41</code> 子節點，kernel 開機時就會建立一個 <b class="hl-key">I2C client</b>；我們寫的 <code>edge_ina219.ko</code> 註冊一個 <code>struct i2c_driver</code>，compatible 相符時 kernel 呼叫它的 <code>probe()</code>。之後 userspace 只要 <code>cat</code> 一個 sysfs 檔，driver 就去讀晶片、換算好再回傳。驗收的標準是：<b class="hl-key">driver 讀到的值和 6-b 的 <code>ina219_raw</code> 一致</b>。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ina219/{edge_ina219.c, Makefile, README.md}</span>、<span class="new">include/edge_ina219_conv.h</span>、<span class="new">tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py}</span>、<span class="new">scripts/verify_edge_ina219.sh</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, ina219-registers.md, step06b.html, index.html}</p>
-    <div class="callout"><p>這一章整章是 <b>Step 7 當時</b>（commit <code>c818fea</code>）的樣子：程式碼節錄（外框標 <code>@c818fea</code>）、測試數、要你跑的指令和它們的輸出都是。Step 8 拿掉了這裡講的五個私有屬性（<code>bus_mv</code> 等），改成 hwmon，見下一章；<code>probe()</code>、helper 與換算沒有變，行號移動了。在現在的 repo 跑 7.10 的驗收腳本，印出來的是 hwmon 版（Step 8 的 8.9），不是這章的輸出；<code>cat …/7-0041/bus_mv</code> 這類指令會得到 <code>No such file or directory</code>。</p></div>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ina219/{edge_ina219.c, Makefile, README.md}</span>、<span class="new">include/edge_ina219_conv.h</span>、<span class="new">tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py}</span>、<span class="new">scripts/verify_edge_ina219.sh</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, ina219-registers.md, step06b.html, index.html} · 本章程式碼停在 <code>c818fea</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（sysfs、I2C core、i2c-tegra）</span>
@@ -211,7 +210,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2>在 header I2C 底下加一個 ina219@41</h2>
       <p>INA219 不會自己報到：I2C 沒有「列舉」機制，kernel 不知道 bus 上有什麼，得有人告訴它「這個位址有一顆什麼晶片」，kernel 才會建立 client、driver 才有東西可以 probe。告訴它的方法不只一種（本節最後比較），這一步用 Device Tree。節點加在 4-b / 5-b 用的同一份 overlay 裡，第五個 fragment：</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:97–114 — 掛在 hdr40_i2c1 底下，reg 就是 7-bit 位址</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@c818fea:97–114 — 掛在 hdr40_i2c1 底下，reg 就是 7-bit 位址</figcaption>
 <pre data-start="97" data-hot="104,106,107,109,110,111">	/*
 	 * Step 7: the INA219 on the UPS Power Module (C), header pins 3 (SDA) /
 	 * 5 (SCL). hdr40_i2c1 is the base tree's label for /bus@0/i2c@c250000,

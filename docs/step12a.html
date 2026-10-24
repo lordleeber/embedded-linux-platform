@@ -148,7 +148,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 12-a · register map v1.0</div>
     <h1>register map v1.0：把 demo 變成契約</h1>
     <p class="lede">Step 11 的四個 register 能動，但只是 demo：多 byte 怎麼讀沒定義，寫錯了 Jetson 也不會知道，firmware 改版時 driver 不知道能不能繼續用。這一步不加任何新周邊、不接新線，只把 <b class="hl-key">protocol 本身</b>定成一份可以維護的契約：位址分區、版本號、auto-increment、回報錯誤的 STATUS register，以及 bus 出錯後讓 I2C1 自己恢復。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">docs/step12a.html</span>；修改 firmware/stm32f103/{Core/Inc/i2c_target.h, Core/Src/i2c_target.c, Core/Src/main.c, docs/register-map.md, README.md}、tests/{test_i2c_target.cpp, test_stm32_i2c_target.py}、scripts/verify_stm32_i2c.sh、CLAUDE.md、ROADMAP.md、phase05.md、docs/{baseline.md, step11.html, index.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">docs/step12a.html</span>；修改 firmware/stm32f103/{Core/Inc/i2c_target.h, Core/Src/i2c_target.c, Core/Src/main.c, docs/register-map.md, README.md}、tests/{test_i2c_target.cpp, test_stm32_i2c_target.py}、scripts/verify_stm32_i2c.sh、CLAUDE.md、ROADMAP.md、phase05.md、docs/{baseline.md, step11.html, index.html} · 本章程式碼停在 <code>07435b6</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式（i2c-tools）</span>
       <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
@@ -251,7 +251,7 @@ pre, code { font-variant-ligatures: none; }
           <tr><td><code>0x30–0x3F</code></td><td>健康狀態：STATUS、WATCHDOG_STATUS</td></tr>
         </tbody>
       </table>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h:45–67 — register、值與 STATUS 的 bit；docs/register-map.md 是它的文字版，測試逐欄比對兩者</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h@07435b6:45–67 — register、值與 STATUS 的 bit；docs/register-map.md 是它的文字版，測試逐欄比對兩者</figcaption>
 <pre data-start="45" data-hot="48,50,51,55,56,61-65">#define REG_DEVICE_ID 0x00        /* RO */
 #define REG_FW_MAJOR 0x01         /* RO */
 #define REG_FW_MINOR 0x02         /* RO */
@@ -335,7 +335,7 @@ pre, code { font-variant-ligatures: none; }
         <figcaption>圖 12.3 — 上排是 Step 11 結尾預告的問題，也是變異測試實際燒進板子的寫法（12a.7）：<code>test_reads_never_move_the_pointer</code> 在實機上紅。下排的規則讓多取的 byte 從規格上就不可能影響下一次讀取，不必去數 TXE。</figcaption>
       </figure>
       <p>所以規則是：<b class="hl-key">pointer 只由寫入的第 1 個 byte 設定</b>；transaction 裡另外有一個 <code>cursor</code> 往前走；每次讀取開始時，<code>i2c_target_read_start()</code> 把它放回 pointer。代價寫進了 register map：Jetson 不能「接著上次的地方」繼續讀，每次都從 pointer 開始。對 driver 來說這不是限制：它本來就會每次先寫 pointer。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:43–58 — 寫入：第 1 個 byte 同時設 pointer 與 cursor，之後每個資料 byte 寫到 cursor、cursor 加 1</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c@07435b6:43–58 — 寫入：第 1 個 byte 同時設 pointer 與 cursor，之後每個資料 byte 寫到 cursor、cursor 加 1</figcaption>
 <pre data-start="43" data-hot="47,48,52">void i2c_target_rx(struct i2c_target *t, uint8_t byte)
 {
     switch (t-&gt;state) {
@@ -353,14 +353,14 @@ pre, code { font-variant-ligatures: none; }
     }
 }</pre>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:18–22 — 讀取開始：cursor 回到 pointer，全檔只有這裡這樣做</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c@07435b6:18–22 — 讀取開始：cursor 回到 pointer，全檔只有這裡這樣做</figcaption>
 <pre data-start="18" data-hot="20">void i2c_target_read_start(struct i2c_target *t)
 {
     t-&gt;cursor = t-&gt;ptr;
     t-&gt;state = I2C_TARGET_READING;
 }</pre>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:82–94 — 讀取只動 cursor；transaction 結束時也不碰它</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c@07435b6:82–94 — 讀取只動 cursor；transaction 結束時也不碰它</figcaption>
 <pre data-start="82" data-hot="86,91-93">uint8_t i2c_target_tx(struct i2c_target *t)
 {
     /* Reading has no side effect besides the cursor, so a byte fetched and never sent (the
@@ -431,7 +431,7 @@ void i2c_target_stop(struct i2c_target *t)
         </svg>
         <figcaption>圖 12.4 — STATUS 的 bit。開機後是 <code>0x80</code>：RESET 讓 Jetson 分得出「板子在兩次讀取之間重開過」，例如 ST-Link 被拔掉又插回。保留的 bit 讀到 0，之後新增 bit 只會讓 minor 加 1。</figcaption>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:29–41 — 每一種被丟掉的寫入都設一個 bit；寫 STATUS 就是清掉寫成 1 的那些 bit</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c@07435b6:29–41 — 每一種被丟掉的寫入都設一個 bit；寫 STATUS 就是清掉寫成 1 的那些 bit</figcaption>
 <pre data-start="29" data-hot="35,37,39">static void write_reg(struct i2c_target *t, uint8_t reg, uint8_t value)
 {
     if (reg == REG_LED_CONTROL) {
@@ -461,7 +461,7 @@ void i2c_target_stop(struct i2c_target *t)
     <div class="content">
       <h2>main.c：讀取開始的時機、bus 出錯後重設 I2C1</h2>
       <p>EV handler 只多了一件事：ADDR 而且是讀取（<code>TRA = 1</code>）時呼叫 <code>read_start()</code>，而且要在 TXE 之前。同一份 SR1 快照可能同時有 ADDR 和 TXE，順序反了，第一個 byte 就會用舊的 cursor 去取。這條順序有原始碼測試守著。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:85–96 — ADDR 先決定方向（讀就把 cursor 放回 pointer），TXE 才送 byte</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c@07435b6:85–96 — ADDR 先決定方向（讀就把 cursor 放回 pointer），TXE 才送 byte</figcaption>
 <pre data-start="85" data-hot="86-88,95,96">    /* ADDR before TXE: the first byte of a read comes from the stored pointer. */
     if (ev &amp; I2C_SR1_ADDR) {
         if (reading)
@@ -476,7 +476,7 @@ void i2c_target_stop(struct i2c_target *t)
         I2C_SendData(I2C1, i2c_target_tx(&amp;target));</pre>
       </figure>
       <p>錯誤中斷原本對所有旗標都一樣處理：清掉、結束 transaction。現在分兩路。AF 照舊是讀取的正常結束；BERR / ARLO / OVR 是真的出錯，記進 STATUS，接著用 SWRST 把 I2C1 整個重設：</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:103–122 — 先存下 SR1 再清旗標；bus error 才重設，AF 只是結束讀取</figcaption>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c@07435b6:103–122 — 先存下 SR1 再清旗標；bus error 才重設，AF 只是結束讀取</figcaption>
 <pre data-start="103" data-hot="105,108,113-116,117,120">void I2C1_ER_IRQHandler(void)
 {
     uint16_t sr1 = I2C1-&gt;SR1;
@@ -514,7 +514,7 @@ void i2c_target_stop(struct i2c_target *t)
       <h2>測試：先寫規格，再故意把 firmware 改壞</h2>
       <ul>
         <li><b><code>tests/test_i2c_target.cpp</code></b>：16 組向量（Step 11 是 11 組）。新的包括：每個 RO register 被寫時設 RO_WRITE、10 個沒定義的位址先讀（不算錯）再寫（UNMAPPED_WRITE）、STATUS 的 write-1-to-clear、被預先取不會被清、bus error、讀取 auto-increment 與繞回、讀取不移動 pointer、寫入 auto-increment、寫入後同一筆 transaction 讀回。測試的讀取 helper 每次都多呼叫一次 <code>tx()</code>，模擬那個多取的 byte。</li>
-        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py">41</span> 個。register-map.md 對 header（多了 STATUS 的 bit 表，和「分區、little-endian、write-1-to-clear、major / minor」這些規則有沒有寫進文件）；原始碼檢查多了 <code>read_start()</code> 在 <code>tx()</code> 之前、ER handler 看三個錯誤旗標並 SWRST、AF 不算錯誤；硬體測試 12 個，其中兩個逐一走過全部 256 個位址：每個都讀一次對照規格，每個 RO / 沒定義的位址都寫一次、檢查值沒變和 STATUS 的 bit。硬體測試的預期值寫在測試檔裡，<b>不從 header 讀</b>：header 錯了，測試不會跟著錯。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：<span data-tests="tests/test_stm32_i2c_target.py@07435b6">41</span> 個。register-map.md 對 header（多了 STATUS 的 bit 表，和「分區、little-endian、write-1-to-clear、major / minor」這些規則有沒有寫進文件）；原始碼檢查多了 <code>read_start()</code> 在 <code>tx()</code> 之前、ER handler 看三個錯誤旗標並 SWRST、AF 不算錯誤；硬體測試 12 個，其中兩個逐一走過全部 256 個位址：每個都讀一次對照規格，每個 RO / 沒定義的位址都寫一次、檢查值沒變和 STATUS 的 bit。硬體測試的預期值寫在測試檔裡，<b>不從 header 讀</b>：header 錯了，測試不會跟著錯。</li>
       </ul>
       <h3>先紅</h3>
       <p>先寫 header（介面就是規格）與空的 stub，讓向量在「行為」上失敗，而不是編譯錯誤：<b class="hl-bad">56 個 check 失敗</b>。Python 那邊，靜態、文件與腳本的測試紅了 8 個；Step 11 的 firmware 上，實機測試 11 個紅了 10 個。沒紅的是 <code>test_read_after_the_value_changed</code>，它是不回歸的守門測試，本來就該綠。</p>
@@ -648,7 +648,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">register map v1.0：分區、七個 register、STATUS 的 bit、little-endian 的多 byte 規則、版本規則，寫在 <code>register-map.md</code> 和 <code>i2c_target.h</code>，測試讓兩份一致。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：protocol 有明確文件，Jetson 端穩定讀寫多個 register（500 筆混合讀取全對），不合法的寫入能從 STATUS 看到。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">Step 11 帶過來的三件事：多取的 byte 不再影響 pointer（從規格上消失）、寫入失敗有 STATUS 回報、bus error 後重設 I2C1（重設程序實測過）。</li>
-        <li class="y">測試：16 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py">41</span> 個 Python 測試；四個變異版都燒進板子驗過。規模：非空白新增 566 行（產品碼 143、測試 361、驗收腳本 62，含 code review 的修正）。</li>
+        <li class="y">測試：16 組 C++ 向量、<span data-tests="tests/test_stm32_i2c_target.py@07435b6">41</span> 個 Python 測試；四個變異版都燒進板子驗過。規模：非空白新增 566 行（產品碼 143、測試 361、驗收腳本 62，含 code review 的修正）。</li>
         <li class="n">沒有實測：真正的 bus error 偵測、ES096 的 BUSY 卡住、400 kHz。</li>
       </ul>
       <p>Step 12-b 把 0x10–0x1F 填起來：ADC_LOW / ADC_HIGH 與 BUTTON_STATE，需要新接線（可變電阻與按鍵）。ADC 是第一個多 byte 的值，會用到這一章的 little-endian 和 auto-increment；兩個 byte 還要來自同一次轉換，否則一次讀取可能拿到新的低位元組和舊的高位元組。PROTOCOL_VERSION 會變成 1.1。</p>

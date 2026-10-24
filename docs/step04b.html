@@ -147,7 +147,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 4-b · platform driver + Device Tree</div>
     <h1>讓 Device Tree 描述 LED，driver 去找它</h1>
     <p class="lede">4-a 用 userspace 程式點亮了 pin 29，但 pad 是用 <code>/dev/mem</code> 硬改的，「這根腳接了 LED」也只寫在程式碼裡。這一步把硬體描述移到 <b class="hl-key">Device Tree</b>：一個 overlay 說「這裡有一顆 LED，接在 PQ.05，pad 要這樣設」，kernel 開機後依照 <code>compatible</code> 找到我們的 <b>platform driver</b>，在 <code>probe()</code> 裡拿到 GPIO，再開一個 <code>/dev/edge_gpio</code> 給 userspace 開關。換一根腳、換極性，只改 overlay，不改 C code。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_gpio/{edge_gpio.c, Makefile}</span>、<span class="new">dts/{edge-gpio-overlay.dts, Makefile}</span>、<span class="new">scripts/install_edge_gpio_overlay.py</span>、<span class="new">scripts/verify_edge_gpio.sh</span>、<span class="new">tests/test_edge_gpio_static.py</span>、<span class="new">tests/test_install_overlay.py</span>、<span class="new">tests/test_edge_gpio_device.py</span>；修改 scripts/verify_edge_test.sh、scripts/pad_pin29.py（註解）、.gitignore、CLAUDE.md、phase02.md、docs/{baseline.md, step02.html, step03.html, step04a.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_gpio/{edge_gpio.c, Makefile}</span>、<span class="new">dts/{edge-gpio-overlay.dts, Makefile}</span>、<span class="new">scripts/install_edge_gpio_overlay.py</span>、<span class="new">scripts/verify_edge_gpio.sh</span>、<span class="new">tests/test_edge_gpio_static.py</span>、<span class="new">tests/test_install_overlay.py</span>、<span class="new">tests/test_edge_gpio_device.py</span>；修改 scripts/verify_edge_test.sh、scripts/pad_pin29.py（註解）、.gitignore、CLAUDE.md、phase02.md、docs/{baseline.md, step02.html, step03.html, step04a.html} · 本章程式碼停在 <code>b73b2a9</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（platform bus、pinctrl、gpiolib、VFS）</span>
@@ -278,7 +278,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <figcaption>圖 4.2 — 上排在建置時做一次（<code>make -C dts</code>），下排每次開機都做。kernel 從頭到尾沒看過 <code>.dts</code> 和 <code>.dtbo</code>，它只看到合併好的樹。</figcaption>
       </figure>
       <p>為什麼要先過 <code>cpp</code>（C 前處理器）？<code>dtc</code> 本身不懂 <code>#include</code> 和 <code>#define</code>，而 <code>TEGRA234_MAIN_GPIO</code>、<code>GPIO_ACTIVE_HIGH</code>、<code>TEGRA_PIN_DISABLE</code> 這些名字都來自 kernel 附的 binding header。所以 <code>dts/Makefile</code> 先用 cpp 把它們展開，再把結果用 pipe 交給 dtc：</p>
-      <figure class="listing"><figcaption>dts/Makefile:4–19 — cpp 展開、dtc 編譯；兩種極性各編一個</figcaption>
+      <figure class="listing"><figcaption>dts/Makefile@b73b2a9:4–19 — cpp 展開、dtc 編譯；兩種極性各編一個</figcaption>
 <pre data-start="4" data-hot="6,10,11,16,19">KDIR ?= /lib/modules/$(shell uname -r)/build
 OUT ?= .
 DTC_CPP := cpp -nostdinc -undef -P -x assembler-with-cpp -I$(KDIR)/include
@@ -325,7 +325,7 @@ $(OUT)/edge-gpio-overlay-active-low.dtbo: edge-gpio-overlay.dts
       </table>
       <h3>overlay 原始檔</h3>
       <p>overlay 的開頭先 include 三份 kernel 附的 binding header，把 GPIO 編號、極性、pinctrl 常數都寫成有名字的巨集：</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:14–29 — 前段：/plugin/、binding header、極性與板型</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@b73b2a9:14–29 — 前段：/plugin/、binding header、極性與板型</figcaption>
 <pre data-start="14" data-hot="15,21,22,24,29">/dts-v1/;
 /plugin/;
 
@@ -343,7 +343,7 @@ $(OUT)/edge-gpio-overlay-active-low.dtbo: edge-gpio-overlay.dts
 	overlay-name = "edge_gpio LED on pin 29";
 	compatible = "nvidia,p3768-0000+p3767-0005-super", "nvidia,p3768-0000+p3767-0005";</pre></figure>
       <p><code>/plugin/</code> 表示這是 overlay，不是完整的 DT。頂層的 <code>compatible</code> 是給 bootloader 看的：這份補丁只適用這個板型（和 <code>/proc/device-tree/compatible</code> 的第一個字串一致）。極性由編譯時的巨集決定，<code>dts/Makefile</code> 會同時編出 active-high 和 active-low 兩個版本。</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:31–55 — 兩個 fragment：裝置節點與 pad 狀態</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@b73b2a9:31–55 — 兩個 fragment：裝置節點與 pad 狀態</figcaption>
 <pre data-start="31" data-hot="32,35,36,37,38,44,48,50,51">	fragment@0 {
 		target-path = "/";
 		__overlay__ {
@@ -436,7 +436,7 @@ grep OVERLAYS /boot/extlinux/extlinux.conf</pre>
     <div class="content">
       <h2>driver：認得一個 compatible，要一個 GPIO</h2>
       <p>driver 的最後一段宣告「我認得哪些裝置」：</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:123–142 — 配對表與 platform_driver</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:123–142 — 配對表與 platform_driver</figcaption>
 <pre data-start="123" data-hot="124,127,134,139,142">static const struct of_device_id edge_gpio_of_match[] = {
 	{ .compatible = "edge,gpio-led" },
 	{ }
@@ -458,7 +458,7 @@ static struct platform_driver edge_gpio_driver = {
 };
 module_platform_driver(edge_gpio_driver);</pre></figure>
       <p><code>of_match_table</code> 裡的字串和 overlay 的 <code>compatible</code> 一模一樣，靜態測試會比對兩邊。<code>MODULE_DEVICE_TABLE</code> 把這張表寫進 <code>.ko</code>，讓 udev 之類的工具知道這個 module 支援哪些裝置。<code>module_platform_driver()</code> 展開成 module 載入時註冊 driver、卸載時取消註冊。<code>suppress_bind_attrs</code> 關掉 sysfs 的手動 unbind：unbind 會釋放 driver 的資料，而那時可能還有人開著 <code>/dev/edge_gpio</code>；rmmod 則已經由 <code>.owner</code> 擋住（檔案開著時 module 不能卸載，驗收會測）。</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:78–109 — probe：要 GPIO、開 /dev/edge_gpio</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:78–109 — probe：要 GPIO、開 /dev/edge_gpio</figcaption>
 <pre data-start="78" data-hot="84,89,91,98,99">static int edge_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &amp;pdev-&gt;dev;
@@ -497,7 +497,7 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
         <li><b><code>devm_</code></b> 開頭的資源（記憶體、GPIO）綁在 device 上，<code>remove()</code> 之後或 probe 失敗時由 kernel 自動釋放，所以錯誤路徑可以直接 <code>return</code>。<code>dev_err_probe()</code> 印出錯誤，遇到 <code>-EPROBE_DEFER</code>（GPIO controller 還沒準備好）時則安靜地讓 kernel 稍後重試。</li>
         <li><b><code>misc_register()</code></b> 建立 <code>/dev/edge_gpio</code>。Step 2 是自己配 major 號、建 class；misc device 共用 major 10、自動配 minor，一個簡單的控制節點用它就夠。<code>mode = 0666</code> 讓一般使用者也能開關。</li>
       </ul>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:49–69 — write：解析 0/1，交給 gpiolib</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:49–69 — write：解析 0/1，交給 gpiolib</figcaption>
 <pre data-start="49" data-hot="57,60,61,64">static ssize_t edge_gpio_write(struct file *file, const char __user *ubuf,
 			       size_t count, loff_t *ppos)
 {
@@ -520,7 +520,7 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
 	return count;
 }</pre></figure>
       <p><code>kstrtouint_from_user()</code> 從 userspace 複製字串並解析成整數，會接受結尾的換行（shell 的 <code>echo 1</code> 送來的是 <code>"1\n"</code>），空字串、<code>on</code>、<code>1 1</code> 都回 <code>-EINVAL</code>。先解析到區域變數、檢查範圍，成功才動 GPIO：這是 Step 2 那個 <code>copy_from_user</code> 坑的老規矩，壞的寫入不能改到狀態。<code>gpiod_set_value_cansleep()</code> 收的是邏輯值，極性反相由 gpiolib 處理，所以這段 code 對 active-high、active-low 都一樣。</p>
-      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c:111–121 — remove：先關節點、熄燈，再交還 GPIO</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:111–121 — remove：先關節點、熄燈，再交還 GPIO</figcaption>
 <pre data-start="111" data-hot="115,117,118">static int edge_gpio_remove(struct platform_device *pdev)
 {
 	struct edge_gpio *eg = platform_get_drvdata(pdev);
@@ -542,9 +542,9 @@ module_platform_driver(edge_gpio_driver);</pre></figure>
       <h2>不開機也能測 overlay，開機後再測裝置</h2>
       <p>overlay 要重開機才生效，所以大部分檢查做成不需要硬體的靜態測試：</p>
       <ul>
-        <li><code>tests/test_edge_gpio_static.py</code>：<span data-tests="tests/test_edge_gpio_static.py">14</span> 個案例。用 <code>make -C dts</code> 真的編出 dtbo，再用 dtc 反組譯檢查：前處理器出錯時 make 必須失敗且不留下 dtbo（在 dts 副本加一行 <code>#error</code>：cpp 回 1 但照樣輸出，沒有 <code>pipefail</code> 的話 dtc 會編出一個 dtbo）、binding header 裡 port Q 還是 15、兩種極性都編得出來、板型 compatible、<code>led-gpios</code> 是 125 加 flags 0／1、<code>&amp;gpio</code> 和 <code>&amp;pinmux</code> 留成 fixup、<code>pinctrl-0</code> 指到的狀態節點設了 <code>soc_gpio32_pq5</code> 的 tristate=0／input=0，而且這個 pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 40-pin overlay 的 pin 29 一致。driver 端則檢查 of_match 字串和 overlay 相同、<code>devm_gpiod_get(dev, "led", GPIOD_OUT_LOW)</code>、沒有用舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。期望值來自 binding header 和 NVIDIA 的 overlay，不是從我們的 overlay 抄的。</li>
-        <li><code>tests/test_install_overlay.py</code>：<span data-tests="tests/test_install_overlay.py">12</span> 個案例，對照這台實際的 extlinux.conf 版面做假檔：接在既有 OVERLAYS 後面、只動 DEFAULT label、沒有 OVERLAYS 時補一行、重複安裝不重複、備份是原檔、remove 還原原文、找不到 DEFAULT label 時不動檔案；code review 後補了四個：<code>OVERLAYS</code> 後面是空的時不能把下一行黏上來、值裡有空白時拒絕修改（不另加一行）、remove 要從每個 label 移除、寫入後權限不變且不留暫存檔。</li>
-        <li><code>tests/test_edge_gpio_device.py</code>：<span data-tests="tests/test_edge_gpio_device.py">6</span> 個案例，對真的 <code>/dev/edge_gpio</code>：權限 0666、寫 1/0 讀回、接受結尾換行、重開檔案狀態還在、讀到 2 bytes 後 EOF、<code>2</code> <code>-1</code> <code>on</code> 空字串 <code>\n</code> <code>10</code> <code>1 1</code> 都回 <code>EINVAL</code> 且狀態不變。裝置不存在時 skip；設了 <code>EDGE_GPIO_REQUIRE=1</code> 時改成 fail。</li>
+        <li><code>tests/test_edge_gpio_static.py</code>：<span data-tests="tests/test_edge_gpio_static.py@b73b2a9">14</span> 個案例。用 <code>make -C dts</code> 真的編出 dtbo，再用 dtc 反組譯檢查：前處理器出錯時 make 必須失敗且不留下 dtbo（在 dts 副本加一行 <code>#error</code>：cpp 回 1 但照樣輸出，沒有 <code>pipefail</code> 的話 dtc 會編出一個 dtbo）、binding header 裡 port Q 還是 15、兩種極性都編得出來、板型 compatible、<code>led-gpios</code> 是 125 加 flags 0／1、<code>&amp;gpio</code> 和 <code>&amp;pinmux</code> 留成 fixup、<code>pinctrl-0</code> 指到的狀態節點設了 <code>soc_gpio32_pq5</code> 的 tristate=0／input=0，而且這個 pad 名稱和 <code>/boot</code> 裡 NVIDIA 自家 40-pin overlay 的 pin 29 一致。driver 端則檢查 of_match 字串和 overlay 相同、<code>devm_gpiod_get(dev, "led", GPIOD_OUT_LOW)</code>、沒有用舊式整數 GPIO API、有 <code>suppress_bind_attrs</code>。期望值來自 binding header 和 NVIDIA 的 overlay，不是從我們的 overlay 抄的。</li>
+        <li><code>tests/test_install_overlay.py</code>：<span data-tests="tests/test_install_overlay.py@b73b2a9">12</span> 個案例，對照這台實際的 extlinux.conf 版面做假檔：接在既有 OVERLAYS 後面、只動 DEFAULT label、沒有 OVERLAYS 時補一行、重複安裝不重複、備份是原檔、remove 還原原文、找不到 DEFAULT label 時不動檔案；code review 後補了四個：<code>OVERLAYS</code> 後面是空的時不能把下一行黏上來、值裡有空白時拒絕修改（不另加一行）、remove 要從每個 label 移除、寫入後權限不變且不留暫存檔。</li>
+        <li><code>tests/test_edge_gpio_device.py</code>：<span data-tests="tests/test_edge_gpio_device.py@b73b2a9">6</span> 個案例，對真的 <code>/dev/edge_gpio</code>：權限 0666、寫 1/0 讀回、接受結尾換行、重開檔案狀態還在、讀到 2 bytes 後 EOF、<code>2</code> <code>-1</code> <code>on</code> 空字串 <code>\n</code> <code>10</code> <code>1 1</code> 都回 <code>EINVAL</code> 且狀態不變。裝置不存在時 skip；設了 <code>EDGE_GPIO_REQUIRE=1</code> 時改成 fail。</li>
       </ul>
       <p>紅燈紀錄：靜態和 installer 測試在實作前全紅（11/11、8/8；pinctrl 的 2 個案例是後來加的，在 overlay 加 <code>fragment@1</code> 前也是紅的）。code review 後補的案例中，空 OVERLAYS、含空白、每個 label 移除、<code>#error</code> 這四個先紅再修；「權限不變、不留暫存檔」在修之前就會過（舊版直接覆寫也滿足），只能當守門測試，證明不了寫入真的是原子的。device 測試在 overlay 開機後、insmod 之前用 <code>EDGE_GPIO_REQUIRE=1</code> 跑，6 個全部 failure。變異測試：overlay 的 compatible 改錯、port 改成 P、tristate 改回 enable、pad 名稱寫錯、拿掉 <code>pinctrl-0</code>，<b class="hl-ok">每一種都讓測試失敗</b>。</p>
       <p>其中「空字串回 <code>EINVAL</code>」也順便確認了一件事：寫 0 個 byte 一樣會進到 driver 的 <code>write()</code>，VFS 不會替你擋掉。</p>
@@ -614,7 +614,7 @@ exit=1 «6»
         <li><b>在</b>：從 DT 讀出極性（<code>led-gpios</code> 的第三格），決定「寫 1 時 pin 應該是 hi 還是 lo」，然後跑指定的輪數。</li>
       </ul>
       <p>第 1 輪多做兩件事：讀 pinconf 確認 pad 已被 pinctrl 打開，以及跑 4-a 的 <code>edge_gpio_blink</code>，它必須拿到 busy。這一步用 root 執行：一般使用者若不在 <code>gpio</code> 群組，會先拿到 <code>EACCES</code>（權限不足），被誤判成 driver 的問題（code review 指出後修正）：</p>
-      <figure class="listing"><figcaption>scripts/verify_edge_gpio.sh:111–131 — probe 之後檢查 pad，並確認 userspace 搶不到 line</figcaption>
+      <figure class="listing"><figcaption>scripts/verify_edge_gpio.sh@b73b2a9:111–131 — probe 之後檢查 pad，並確認 userspace 搶不到 line</figcaption>
 <pre data-start="111" data-hot="113,118,125,126">        # Pad config while the driver holds the line (the DT pinctrl "default" state).
         if ((i == 1)); then
             conf="$(pinconf)"

@@ -138,7 +138,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 6-a · I2C（userspace，廠商範例）</div>
     <h1>先讀懂廠商給的 ina219.py</h1>
     <p class="lede">Phase 3 要為 UPS 模組上的 INA219 電流感測器寫 I2C driver。動手之前，先看廠商怎麼用它：Waveshare 附了一支 175 行的 Python 範例，<code>python3 ina219.py</code> 直接就能印出電池電壓、電流、功率、電量。這一章不寫新程式，而是逐行讀懂它<b class="hl-key">對晶片寫了什麼、讀了什麼、怎麼換算</b>。下一步 6-b 拿掉 Python library 自己讀 register，Step 7 再把同一套操作搬進 kernel，到時這份範例就是對照組。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">third_party/waveshare_ups_c/{ina219.py, README.md}</span>、<span class="new">tests/test_ina219_sample.py</span>、<span class="new">scripts/verify_ina219_sample.sh</span>；修改 CLAUDE.md、ROADMAP.md、phase03.md、docs/{baseline.md, hardware-wiring.md, step05b.html, index.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">third_party/waveshare_ups_c/{ina219.py, README.md}</span>、<span class="new">tests/test_ina219_sample.py</span>、<span class="new">scripts/verify_ina219_sample.sh</span>；修改 CLAUDE.md、ROADMAP.md、phase03.md、docs/{baseline.md, hardware-wiring.md, step05b.html, index.html} · 本章程式碼停在 <code>4ce1456</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
@@ -212,7 +212,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">6a.3</span><b>讀寫</b><span class="dot" style="background: var(--user)"></span>16-bit</div>
     <div class="content">
       <h2>每個 register 是 16 bit，高位 byte 先送</h2>
-      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py:41–56 — 建構子打開 bus 7；read / write 都是兩個 byte、高位在前</figcaption>
+      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py@4ce1456:41–56 — 建構子打開 bus 7；read / write 都是兩個 byte、高位在前</figcaption>
 <pre data-start="41" data-hot="42,43,49,52,53,56">class INA219:
     def __init__(self, i2c_bus=7, addr=0x40):
         self.bus = smbus.SMBus(i2c_bus)
@@ -253,7 +253,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">6a.4</span><b>啟動</b><span class="dot" style="background: var(--user)"></span>寫兩個 register</div>
     <div class="content">
       <h2>啟動時寫入的兩個值</h2>
-      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py:128–135 — 先寫 Calibration，再寫 Config</figcaption>
+      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py@4ce1456:128–135 — 先寫 Calibration，再寫 Config</figcaption>
 <pre data-start="128" data-hot="129,132,133,134,135">        # Set Calibration register to 'Cal' calculated above
         self.write(_REG_CALIBRATION, self._cal_value)
 
@@ -283,7 +283,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2>註解說 13434，程式寫 26868</h2>
       <p><code>set_calibration_16V_5A()</code> 裡有一大段註解，一步一步推導校正值。照著讀會發現，註解算出來的數字和下一行程式寫的不一樣：</p>
-      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py:87–101 — 註解和程式各說各話</figcaption>
+      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py@4ce1456:87–101 — 註解和程式各說各話</figcaption>
 <pre data-start="87" data-hot="90,94,96,100,101">        # 4. Choose an LSB between the min and max values
         #    (Preferrably a roundish number close to MinLSB)
         # CurrentLSB = 0.00016 (uA per bit)
@@ -317,7 +317,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">6a.6</span><b>換算</b><span class="dot" style="background: var(--user)"></span>raw → 單位</div>
     <div class="content">
       <h2>四個 getter：位移、符號、乘上 LSB</h2>
-      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py:137–157 — shunt / current / power 當有號數；bus voltage 先右移 3 位</figcaption>
+      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py@4ce1456:137–157 — shunt / current / power 當有號數；bus voltage 先右移 3 位</figcaption>
 <pre data-start="137" data-hot="139,140,145,149,150">    def getShuntVoltage_mV(self):
         value = self.read(_REG_SHUNTVOLTAGE)
         if value &gt; 32767:
@@ -363,7 +363,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">6a.7</span><b>主迴圈</b><span class="dot" style="background: var(--user)"></span>每 2 秒</div>
     <div class="content">
       <h2>主程式：位址 0x41、電量是線性估計</h2>
-      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py:159–175 — 每 2 秒讀一輪；PSU / Shunt 兩行被註解掉</figcaption>
+      <figure class="listing"><figcaption>third_party/waveshare_ups_c/ina219.py@4ce1456:159–175 — 每 2 秒讀一輪；PSU / Shunt 兩行被註解掉</figcaption>
 <pre data-start="159" data-hot="160,166,167,169,170">if __name__ == '__main__':
     ina219 = INA219(addr=0x41)
     while True:
@@ -491,7 +491,7 @@ no I2C client on bus 7 «4»</pre>
     <div class="rail"><span class="no">6a.10</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>把章裡的每個說法寫成測試</h2>
-      <p>這一步沒有新程式，要測的是「章裡對範例的說法」。<code>tests/test_ina219_sample.py</code> 共 <span data-tests="tests/test_ina219_sample.py">24</span> 個案例，期望值照 INA219 datasheet 寫，不是從範例的輸出抄：</p>
+      <p>這一步沒有新程式，要測的是「章裡對範例的說法」。<code>tests/test_ina219_sample.py</code> 共 <span data-tests="tests/test_ina219_sample.py@4ce1456">24</span> 個案例，期望值照 INA219 datasheet 寫，不是從範例的輸出抄：</p>
       <ul>
         <li><b>入庫的副本（2）</b>：SHA-256 和記錄的一致；板上有 <code>~/UPS_Power_Module_C/ina219.py</code> 時，兩份逐 byte 相同。</li>
         <li><b>啟動序列（5）</b>：用假的 <code>smbus</code> 模組（放進 <code>sys.modules</code>，範例 import 到的就是它）記下所有寫入：主程式用 bus 7，讀寫都對位址 0x41；先寫 Calibration <code>[0x68, 0xF4]</code> 再寫 Config <code>[0x0E, 0xEF]</code>；Config 逐欄拆解（拆的是假 bus 記下的那筆寫入，不是測試自己寫的常數）；LSB 常數和 Cal 一致；註解和程式的兩組數字都釘住。</li>

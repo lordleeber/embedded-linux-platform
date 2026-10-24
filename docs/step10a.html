@@ -147,7 +147,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 10-a · SSD1306 OLED（kernel driver 骨架）</div>
     <h1>OLED：把協定搬進 kernel</h1>
     <p class="lede">Step 9 用 userspace 工具證明了「該送哪些 byte」。這一步把同一串 byte 交給一個自己寫的 I2C client driver <code>edge_oled</code>：probe 時初始化面板，driver 持有一份 1024 byte 的畫面，userspace 經 <code>/dev/edge_oled</code> 寫整張畫面、清除、填滿。重點不在畫圖，而在 <b class="hl-key">裝置的生命週期</b>：錯誤怎麼往上回報、OLED 斷電後怎麼恢復、driver 被 unbind 時還開著的檔案怎麼辦。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_oled/{edge_oled.c, Makefile}</span>、<span class="new">include/edge_oled.h</span>、<span class="new">include/edge_oled_proto.h</span>、<span class="new">apps/edge_oled_ctl.cpp</span>、<span class="new">tests/test_edge_oled_{proto.cpp, static.py, device.py}</span>、<span class="new">scripts/verify_edge_oled.sh</span>、<span class="new">docs/step10a.html</span>；修改 dts/edge-gpio-overlay.dts、tools/{oled_probe.cpp, ssd1306.h}、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, ssd1306-notes.md, hardware-wiring.md, step09.html, index.html}</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_oled/{edge_oled.c, Makefile}</span>、<span class="new">include/edge_oled.h</span>、<span class="new">include/edge_oled_proto.h</span>、<span class="new">apps/edge_oled_ctl.cpp</span>、<span class="new">tests/test_edge_oled_{proto.cpp, static.py, device.py}</span>、<span class="new">scripts/verify_edge_oled.sh</span>、<span class="new">docs/step10a.html</span>；修改 dts/edge-gpio-overlay.dts、tools/{oled_probe.cpp, ssd1306.h}、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, ssd1306-notes.md, hardware-wiring.md, step09.html, index.html} · 本章程式碼停在 <code>4479e44</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
       <span style="--c: var(--kern)">kernel 核心（VFS、misc、I2C core、i2c-tegra）</span>
@@ -239,7 +239,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="content">
       <h2>節點掛在 gen2_i2c，不是 INA219 那條 bus</h2>
       <p>和 Step 7 的 INA219 一樣，OLED 用 Device Tree 描述，加在同一份 overlay 裡。差別在 target：OLED 接在 pin 27/28，也就是 <code>/bus@0/i2c@c240000</code>，基底 device tree 給它的 label 是 <code>gen2_i2c</code>。Step 9 已經預告過這個坑：沿用 <code>&amp;hdr40_i2c1</code> 會把節點掛到 INA219 那條 bus（<code>c250000</code>）上。</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:123–134 — fragment@5：target 是 gen2_i2c；compatible 用自己的廠商前綴</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@4479e44:123–134 — fragment@5：target 是 gen2_i2c；compatible 用自己的廠商前綴</figcaption>
 <pre data-start="123" data-hot="124,130">	fragment@5 {
 		target = &lt;&amp;gen2_i2c&gt;;
 		__overlay__ {
@@ -270,7 +270,7 @@ of:NoledT(null)Cedge,edge-ssd1306</pre>
     <div class="content">
       <h2>只收整張畫面</h2>
       <p>phase04 要的最小介面是「clear、fill、寫入 raw framebuffer」。<code>include/edge_oled.h</code> 是 kernel 與 userspace 共用的 header（同 Step 3 的 <code>edge_test_ioctl.h</code>）：</p>
-      <figure class="listing"><figcaption>include/edge_oled.h:31–38 — 畫面大小固定 128x64；兩個 ioctl 和 edge_test 共用 magic 0xEB，編號從 0x10 起</figcaption>
+      <figure class="listing"><figcaption>include/edge_oled.h@4479e44:31–38 — 畫面大小固定 128x64；兩個 ioctl 和 edge_test 共用 magic 0xEB，編號從 0x10 起</figcaption>
 <pre data-start="31" data-hot="34,37,38">#define EDGE_OLED_WIDTH		128
 #define EDGE_OLED_HEIGHT	64
 #define EDGE_OLED_PAGES		(EDGE_OLED_HEIGHT / 8)
@@ -314,7 +314,6 @@ od -Ad -tx1 -v build/frame.bin | grep -v '\( 00\)\{16\}$'</pre>
     <div class="rail"><span class="no">10a.5</span><b>傳輸</b>flush</div>
     <div class="content">
       <h2>一次 flush：失敗了，下次就從頭來</h2>
-      <div class="callout"><p>Step 10-b 改了 <code>edge_oled_flush()</code>：每次 flush 都重送設定，結尾每次都送 Display ON。原因是 OLED 在兩次寫入之間斷電又接回時，下面這一版會讓螢幕一直黑著（實測重現過）。這一章 <code>edge_oled.c</code> 的五段節錄因此釘在 Step 10-a 合併時的 commit（外框標 <code>@4479e44</code>）。現在的寫法見下一章。</p></div>
       <p>所有 I2C 傳輸都經過兩個函式。<code>edge_oled_send()</code> 把 control byte 放在前面、送一個訊息；<code>edge_oled_flush()</code> 決定要送哪些訊息：</p>
       <figure class="listing"><figcaption>kernel/edge_oled/edge_oled.c@4479e44:56–93 — 一個訊息 = control + data；flush 送呼叫者給的 src，需要時先送 init，結尾才 Display ON；任何錯誤都讓 initialized 變 false</figcaption>
 <pre data-start="56" data-hot="63,64,65,66,76,86,88,89,91">/* One I2C write: [control][data]. Returns 0 or a negative errno. */
@@ -533,7 +532,7 @@ static int edge_oled_release(struct inode *inode, struct file *file)
     <div class="content">
       <h2>driver 在的時候，userspace 工具要讓路</h2>
       <p>Step 9 的 code review 指出：<code>oled_probe</code> 用 <code>I2C_RDWR</code>，位址寫在每個訊息裡，從不「佔用」位址，所以 driver 綁定 0x3C 之後它照樣寫得進去，會在 driver 底下重新 init、換掉畫面，而 driver 的 shadow frame 毫不知情。Step 7 的 <code>i2cget</code> 會被 kernel 擋下（<code>EBUSY</code>），是因為它走的 <code>I2C_SLAVE</code> 會檢查位址有沒有 driver；<code>I2C_RDWR</code> 不做這個檢查。所以這次由工具自己檢查：</p>
-      <figure class="listing"><figcaption>tools/oled_probe.cpp:76–88 — client 目錄下的 driver 連結存在，就是有 driver 綁定；連結指向的目錄名就是 driver 名稱</figcaption>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp@4479e44:76–88 — client 目錄下的 driver 連結存在，就是有 driver 綁定；連結指向的目錄名就是 driver 名稱</figcaption>
 <pre data-start="76" data-hot="80,82">std::string bound_driver(long bus, long addr)
 {
     const char *root = std::getenv("OLED_PROBE_SYSFS");
@@ -547,7 +546,7 @@ static int edge_oled_release(struct inode *inode, struct file *file)
     const char *slash = std::strrchr(target, '/');
     return slash ? slash + 1 : target;
 }</pre></figure>
-      <figure class="listing"><figcaption>tools/oled_probe.cpp:118–123 — 有綁定就結束碼 1，沿用 EBUSY 的字樣；--force 才跳過</figcaption>
+      <figure class="listing"><figcaption>tools/oled_probe.cpp@4479e44:118–123 — 有綁定就結束碼 1，沿用 EBUSY 的字樣；--force 才跳過</figcaption>
 <pre data-start="118" data-hot="118,119">    std::string drv = force ? "" : bound_driver(bus, addr);
     if (!drv.empty()) {
         std::fprintf(stderr, "%ld-%04lx is bound to driver %s (%s): use its interface, or --force\n",
@@ -564,10 +563,10 @@ static int edge_oled_release(struct inode *inode, struct file *file)
       <h2>測試：byte 對 Step 9，行為對實機</h2>
       <ul>
         <li><b><code>tests/test_edge_oled_proto.cpp</code></b>：driver 的 header 和 Step 9 的 <code>ssd1306.h</code> 比對。畫面大小、control byte、Display ON/OFF、init 序列逐 byte、window 指令、ioctl 的方向與大小、和 edge_test 的編號不重複、<code>test_picture()</code> 四張圖的點數與位置。五種改法（init 的 <code>C8</code> 改 <code>C0</code>、window 結束欄 <code>7F</code> 改 <code>7E</code>、data control byte 改 <code>0x80</code>、FILL 編號改成 edge_test 的 <code>0x02</code>、CLEAR 改 <code>0x01</code>）每一種都讓它失敗。</li>
-        <li><b><code>tests/test_edge_oled_static.py</code></b>：<span data-tests="tests/test_edge_oled_static.py">41</span> 個，不需要硬體。overlay 6 個（節點在 0x3c、target 是 <code>gen2_i2c</code> 而不是 <code>hdr40_i2c1</code>、和這台開機用的 FDT 合併後節點落在 <code>i2c@c240000</code>、client 名稱沒有 module 認領……）；driver 原始碼契約 11 個（訊息走 <code>i2c_master_send</code> 且錯誤往上傳、flush 與 probe 沒有迴圈或 sleep、失敗後清掉 <code>initialized</code>、<code>memdup_user</code> 在上鎖前、kref 與 <code>-ENODEV</code>、沒有 <code>devm_kzalloc</code>、沒有字型與 INA219……）；module 能對這台 kernel 編譯且沒有 warning、向量通過；<code>edge_oled_ctl</code> 的 CLI 3 個；<code>oled_probe</code> 的綁定檢查 4 個；驗收腳本 9 個；code review（PR #14）找到的問題 6 個（shadow frame 只在完整送出後更新、註冊失敗時關顯示、<code>(ssize_t)count</code>、<code>read()</code> 不配暫存區、header 說明 offset、驗收腳本拔線時檢查讀回）。</li>
-        <li><b><code>tests/test_edge_oled_device.py</code></b>：<span data-tests="tests/test_edge_oled_device.py">8</span> 個，<code>/dev/edge_oled</code> 存在才跑：綁定、mode 0666、寫入後讀回、錯的大小、CLEAR / FILL、未知 ioctl <code>ENOTTY</code>、<code>oled_probe</code> 被拒、連寫 200 張。</li>
+        <li><b><code>tests/test_edge_oled_static.py</code></b>：<span data-tests="tests/test_edge_oled_static.py@4479e44">41</span> 個，不需要硬體。overlay 6 個（節點在 0x3c、target 是 <code>gen2_i2c</code> 而不是 <code>hdr40_i2c1</code>、和這台開機用的 FDT 合併後節點落在 <code>i2c@c240000</code>、client 名稱沒有 module 認領……）；driver 原始碼契約 11 個（訊息走 <code>i2c_master_send</code> 且錯誤往上傳、flush 與 probe 沒有迴圈或 sleep、失敗後清掉 <code>initialized</code>、<code>memdup_user</code> 在上鎖前、kref 與 <code>-ENODEV</code>、沒有 <code>devm_kzalloc</code>、沒有字型與 INA219……）；module 能對這台 kernel 編譯且沒有 warning、向量通過；<code>edge_oled_ctl</code> 的 CLI 3 個；<code>oled_probe</code> 的綁定檢查 4 個；驗收腳本 9 個；code review（PR #14）找到的問題 6 個（shadow frame 只在完整送出後更新、註冊失敗時關顯示、<code>(ssize_t)count</code>、<code>read()</code> 不配暫存區、header 說明 offset、驗收腳本拔線時檢查讀回）。</li>
+        <li><b><code>tests/test_edge_oled_device.py</code></b>：<span data-tests="tests/test_edge_oled_device.py@4479e44">8</span> 個，<code>/dev/edge_oled</code> 存在才跑：綁定、mode 0666、寫入後讀回、錯的大小、CLEAR / FILL、未知 ioctl <code>ENOTTY</code>、<code>oled_probe</code> 被拒、連寫 200 張。</li>
       </ul>
-      <p>實作前先跑 static：24 個 fail、4 個 error（兩個 <code>setUpClass</code> 建置失敗，蓋住 7 個案例）；device 8 個 skip。實作後還紅了兩個<b>測試本身</b>的錯：一個假設腳本寫 <code>ctl clear</code>（實際是 <code>show "問題" clear</code>），改 regex；Step 9 的 <span data-tests="tests/test_oled_probe.py">29</span> 個測試裡，「原始碼不能出現 <code>I2C_SLAVE</code>」被我寫進註解的這個字弄紅，改註解措辭。code review 的 6 個先紅才改：driver 的 5 個在改 driver 前紅；驗收腳本那個是和腳本一起改的，事後拿舊版腳本跑，確認是紅的。<b class="hl-bad">device 測試沒有看過紅燈</b>：driver 載入前它們是 skip。</p>
+      <p>實作前先跑 static：24 個 fail、4 個 error（兩個 <code>setUpClass</code> 建置失敗，蓋住 7 個案例）；device 8 個 skip。實作後還紅了兩個<b>測試本身</b>的錯：一個假設腳本寫 <code>ctl clear</code>（實際是 <code>show "問題" clear</code>），改 regex；Step 9 的 <span data-tests="tests/test_oled_probe.py@4479e44">29</span> 個測試裡，「原始碼不能出現 <code>I2C_SLAVE</code>」被我寫進註解的這個字弄紅，改註解措辭。code review 的 6 個先紅才改：driver 的 5 個在改 driver 前紅；驗收腳本那個是和腳本一起改的，事後拿舊版腳本跑，確認是紅的。<b class="hl-bad">device 測試沒有看過紅燈</b>：driver 載入前它們是 skip。</p>
       <p>在 repo 根目錄跑（不需要 OLED、不需要 root；static 會編一次 module，約 2 秒）：</p>
 <pre class="cmd">cmake -S . -B build &gt;/dev/null &amp;&amp; cmake --build build --target test_edge_oled_proto &gt;/dev/null &amp;&amp; build/test_edge_oled_proto</pre>
 <pre class="out">OK (0 failure(s))</pre>
@@ -714,7 +713,7 @@ PASS probe at 0x3d failed with -EREMOTEIO
         <li class="y"><b class="hl-ok">phase04 的驗收條件成立</b>：driver 載入後，從 userspace 觸發 clear 與固定圖案（fill、pattern、pixel、edge），人眼確認和 Step 9 相同。</li>
         <li class="y">錯誤往上回報（沒 ACK = <code>Remote I/O error</code>）、不重試；斷線再接回後下一次寫入自己重送 init。unbind 時開著的檔案得到 <code>ENODEV</code>，無 Oops。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y"><code>oled_probe</code> 在 driver 綁定時拒絕寫入（<code>--force</code> 例外）。</li>
-        <li class="y">測試：協定向量（5 種改法都會紅）、<span data-tests="tests/test_edge_oled_static.py">41</span> 個 static、<span data-tests="tests/test_edge_oled_device.py">8</span> 個 device。</li>
+        <li class="y">測試：協定向量（5 種改法都會紅）、<span data-tests="tests/test_edge_oled_static.py@4479e44">41</span> 個 static、<span data-tests="tests/test_edge_oled_device.py@4479e44">8</span> 個 device。</li>
         <li class="n">沒有實測：兩次寫入之間斷電、<code>--force</code>、檔案開著時 rmmod、兩片面板、128x32；device 測試沒看過紅燈；這一步的行數超過上限（使用者決定保留不拆）。</li>
       </ul>
       <p>Step 10-b 處理文字：一套最小的 bitmap 字型、<code>draw_char</code> / <code>draw_string</code>、換行與超出範圍。這一步的 shadow frame 就是它要畫上去的地方；10a.5 那個「之間斷電」的盲點也在 10-b 先處理，因為 10-c 會讓螢幕長時間顯示。</p>
