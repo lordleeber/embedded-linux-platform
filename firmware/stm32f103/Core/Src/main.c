@@ -33,6 +33,15 @@ static void led_init(void)
     led_apply();
 }
 
+/* Busy-waits at least n CPU cycles: every pass of the loop takes more than one. */
+static void delay_cycles(uint32_t n)
+{
+    volatile uint32_t i;
+
+    for (i = 0; i < n; i++) {
+    }
+}
+
 /* PA0 (A0) on ADC1 channel 0, converting continuously: 239.5 + 12.5 cycles at 12 MHz is one
  * 12-bit sample every 21 us, against VDDA (3.3 V on the Blue Pill). */
 static void adc_init(void)
@@ -57,6 +66,8 @@ static void adc_init(void)
     ADC_Init(ADC1, &adc);
     ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 1, ADC_SampleTime_239Cycles5);
     ADC_Cmd(ADC1, ENABLE);
+    /* RM0008: ADON for at least two ADC clocks before calibrating; tSTAB is about 1 us. */
+    delay_cycles(SystemCoreClock / 1000000);
     ADC_ResetCalibration(ADC1);
     while (ADC_GetResetCalibrationStatus(ADC1) == SET) {
     }
@@ -77,9 +88,10 @@ static void button_init(void)
     GPIO_Init(GPIOA, &gpio);
     debounce_init(&button);
     SysTick_Config(SystemCoreClock / 1000);
-    /* Same preemption level as I2C1 (1, sub-priority 1 in group 2): neither interrupts the
-     * other, so a read's snapshot never sees button and presses from the middle of an update. */
-    NVIC_SetPriority(SysTick_IRQn, (1 << 2) | 1);
+    /* Same preemption level as I2C1 (1, sub-priority 1): neither interrupts the other, so a
+     * read's snapshot never sees button and presses from the middle of an update. Encoded
+     * against the group main() set, so it stays right if the group changes. */
+    NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 1));
 }
 
 /* I2C1's own registers; also run again after a software reset, which clears all of them. */
@@ -110,7 +122,6 @@ static void i2c1_target_init(void)
     gpio.GPIO_Mode = GPIO_Mode_AF_OD;
     GPIO_Init(GPIOB, &gpio);
 
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     nvic.NVIC_IRQChannelPreemptionPriority = 1;
     nvic.NVIC_IRQChannelSubPriority = 0;
     nvic.NVIC_IRQChannelCmd = ENABLE;
@@ -183,6 +194,8 @@ void I2C1_ER_IRQHandler(void)
 int main(void)
 {
     /* SystemInit() in the startup code has already set 72 MHz from the 8 MHz crystal. */
+    /* Once, before any priority is set: 2 bits preemption, 2 bits sub-priority. */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     i2c_target_init(&target);
     led_init();
     adc_init();

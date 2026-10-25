@@ -41,8 +41,10 @@ PlatformIO Core 裝在 `~/.platformio/penv`（VS Code 的 PlatformIO 擴充也�
 
 ```bash
 bash scripts/verify_stm32_i2c.sh            # 會問 PC13 LED 亮 / 滅（y/n），請人移 A0 的線、按按鍵
-bash scripts/verify_stm32_i2c.sh --no-look --no-touch  # 遠端時：不問 LED、不移線、不按按鍵
+bash scripts/verify_stm32_i2c.sh --no-look --no-touch  # 遠端時：不問 LED、不移線、不按按鍵；A0 要接在中點
 ```
+
+實機測試（`EDGE_STM32_HW=1 python3 -m unittest discover -s tests -p test_stm32_i2c_target.py`）和 `--no-touch` 都假設 A0 接在穩定的電壓（中點）：浮接時 ADC 的兩個實機測試會因雜訊失敗。
 
 手動：
 

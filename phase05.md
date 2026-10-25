@@ -472,7 +472,12 @@ ADC 超過 8-bit，不能模糊寫「ADC Value」，要明確定義兩個 byte �
 - 按鍵：PA1 內部上拉、按下 = 低；SysTick 1 ms 取樣，電位連續 20 ms 不變才改變狀態（`debounce.c`，不碰硬體，host 向量測）。SysTick 的優先權和 I2C 同一個 preemption 等級，兩者不互相打斷，快照不會拿到更新到一半的 button / presses
 - 驗收腳本的人手選項叫 `--no-touch`（規劃寫 `--no-press`；這一步除了按鍵還要移 A0 的線）
 - **錯位的實機檢查要讓輸入跨過 0x800、且讓 ADC_HIGH 是第 3 個 byte**：分壓中點約 2068，從不跨 0x800，讀錯也看不出來；A0 浮接時在 1966–2156 之間跳，會跨。讀 2 byte 時，變異版 2000 次也 0 次錯位（推論：第 1 個 byte 一進 shift register 就 TXE，第 2 個 byte 幾乎同時取）；`w1 0x0f r3` 讓 ADC_HIGH 在第 1 個 byte 送完後（約 90 µs）才取，變異版 2000 次 1131 次錯位。驗收腳本多一步「A0 拔起來浮接」，用這個讀法讀 1000 次
-- 規模（非空白行）：新增 **631 行**（另刪 82）：產品碼 193（`main.c` 67、`i2c_target.c` 62、`debounce.h` 33、`debounce.c` 27、`i2c_target.h` 24、`stm32f10x_conf.h` 2；不含原樣收錄的 `stm32f10x_adc.c/.h`）、測試 315（`test_debounce.cpp` 97、`test_i2c_target.cpp` 93、Python 125）、驗收腳本 119、CMake / ini 4。動工前估 450–650
+- code review（PR #23，medium）8 項的分流：
+  - 改 code：驗收腳本「按一次」的計數檢查先加 256 再取餘數（bash 的 `%` 保留負號，計數從 255 繞回 0 時會誤判）；`ADC_Cmd()` 之後等至少 1 µs 再校正（RM0008：ADON 之後至少兩個 ADC clock，datasheet 的 tSTAB 約 1 µs）；priority group 改在 `main()` 開頭設一次，SysTick 用 `NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 1)`（原本手算的 `(1 << 2) | 1` 只在 group 2 下成立；init 順序本身不影響，寫進去的是原始值）；實機測試的中位數移到迴圈外
+  - 改文件：實機測試與 `--no-touch` 假設 A0 接在穩定的電壓（中點），浮接時兩個 ADC 實機測試會因雜訊失敗
+  - 排到 phase06 Step 14：`write_reg()` 把其他可寫位址都當 STATUS 處理，加 HEARTBEAT 時要先改
+  - 不改：開機時按著算一次按下（設計選擇，register map 已寫）；`REGS[]` 線性搜尋（每 byte 不到 1 µs，一個 byte 傳送約 90 µs）
+- 規模（非空白行，不含原樣收錄的 `stm32f10x_adc.c/.h`）：PR 開出時新增 631 行（另刪 82），code review 修正後 **659 行**：產品碼 205（`main.c` 73、`i2c_target.c` 57、`debounce.h` 26、`debounce.c` 24、`i2c_target.h` 23、`stm32f10x_conf.h` 2）、測試 331（`test_stm32_i2c_target.py` 141、`test_debounce.cpp` 97、`test_i2c_target.cpp` 93）、驗收腳本 119、CMake / ini 4。動工前估 450–650
 
 ### 預期檔案（Step 12-b 實際）
 

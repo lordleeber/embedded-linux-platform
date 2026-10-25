@@ -239,7 +239,7 @@ if (( TOUCH )); then
     wait_enter "Release the button"
     expect 0x12 0x00 "BUTTON_STATE released"
     after=$(( $(get 0x13) ))
-    if (( (after - before) % 256 == 1 )); then pass "BUTTON_PRESSES +1 for one press ($before -> $after)"
+    if (( (after - before + 256) % 256 == 1 )); then pass "BUTTON_PRESSES +1 for one press ($before -> $after)"
     else fail "BUTTON_PRESSES $before -> $after for one press"; fi
     before=$after
     wait_enter "Press the button $PRESS_COUNT times (normal presses, not too fast)"

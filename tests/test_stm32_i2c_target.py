@@ -147,6 +147,22 @@ class FirmwareSourceTest(unittest.TestCase):
         loop = self.main[self.main.index("for (;;)"):]
         self.assertRegex(loop, r"target\.adc = ADC_GetConversionValue\(ADC1\)")
 
+    def test_adc_waits_after_power_up_before_calibrating(self):
+        # PR #23 review: RM0008 wants ADON set for at least two ADC clocks before calibration
+        # (tSTAB, about 1 us, in the datasheet).
+        m = re.search(r"ADC_Cmd\(ADC1, ENABLE\);(.*?)ADC_ResetCalibration\(ADC1\)", self.main, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m[1], r"delay_cycles\(")
+
+    def test_systick_priority_is_encoded_for_the_configured_group(self):
+        # PR #23 review: SysTick must share I2C1's preemption level whatever the group is, so the
+        # group is set once at the start of main() and SysTick's value is encoded against it.
+        body = self.main[self.main.index("int main(void)"):]
+        self.assertLess(body.index("NVIC_PriorityGroupConfig("), body.index("button_init()"))
+        self.assertEqual(self.main.count("NVIC_PriorityGroupConfig("), 1)
+        self.assertIn("NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 1))",
+                      self.main)
+
     def test_button_on_pa1_with_pull_up_debounced_by_systick(self):
         for s in ("GPIO_Pin_1", "GPIO_Mode_IPU", "SysTick_Config(SystemCoreClock / 1000)"):
             self.assertIn(s, self.main)
@@ -464,12 +480,12 @@ class HardwareTest(unittest.TestCase):
 
     def test_adc_after_a_read_that_ran_into_it(self):
         # PR #21 review: reading 0x0F makes TXE fetch 0x10. Nothing may be latched by that.
-        base = adc_reads(50)
+        median = sorted(adc_reads(50))[25]
         for _ in range(50):
             xfer(f"w1@{ADDR}", "0x0f", f"r1@{ADDR}")
             lo, hi = xfer(f"w1@{ADDR}", "0x10", f"r2@{ADDR}")
             v = hi << 8 | lo
-            self.assertLessEqual(abs(v - sorted(base)[25]), ADC_SPREAD_MAX, hex(v))
+            self.assertLessEqual(abs(v - median), ADC_SPREAD_MAX, hex(v))
 
     def test_button_released_and_counter_steady(self):
         # Nobody touches the button during the unit tests.
@@ -521,6 +537,8 @@ class VerifyScriptTest(unittest.TestCase):
                   "ADC_GND_MAX", "ADC_VCC_MIN", "ADC_MID_MIN", "ADC_MID_MAX", "wait_enter"):
             self.assertIn(s, self.src)
         self.assertRegex(self.src, r"wait_enter\(\) \{\n(.*\n)?\s+drain_tty")
+        # PR #23 review: the counter wraps; bash's % keeps the sign, so add 256 first
+        self.assertNotRegex(self.src, r"\(after - before\) % 256")
 
     def test_checks_the_snapshot_with_a_floating_input(self):
         # Step 12-b: the divider never crosses 0x800, so tearing is checked with A0 floating,

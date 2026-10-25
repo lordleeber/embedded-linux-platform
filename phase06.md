@@ -129,6 +129,10 @@ FAULT
 
 - STM32 端 I2C1 卡住的完整復原（PR #21 code review）：12-a 在 BERR / ARLO / OVR 之後只做 SWRST + 重新設定，不是 ES096 對「analog filter 讓 BUSY 卡住」的完整解法（PE = 0、SCL / SDA 切成 GPIO open-drain、手動切換電位確認讀回、切回 AF、SWRST）。這一步做 supervisor 時，順便決定 firmware 要怎麼偵測「BUSY 卡住、0x42 不再回應」（例如 BUSY 持續一段時間且沒有事件），再補完整解法。現在沒有重現方法，要先找到重現方式或照實標「未實測」
 
+### 從 Step 12-b 帶過來的
+
+- `write_reg()` 的最後一個分支把「有定義、可寫、不是 LED_CONTROL」的位址都當成 STATUS 做 write-1-to-clear（PR #23 code review）。現在可寫的只有這兩個，所以沒錯；這一步加 HEARTBEAT（可寫）時，要先替它加自己的分支或在 `REGS[]` 加 setter，並寫一個「寫 HEARTBEAT 不會清 STATUS」的向量（先紅再實作）
+
 ### 這一步不做
 
 - 不直接 reset Jetson

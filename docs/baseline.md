@@ -571,3 +571,8 @@
 - 原本以為 A0 沒接時讀到的分佈（1982–2156、標準差 52.7）是 ADC 的雜訊，開始考慮要不要平均。其實那時只接了 I2C 的線，A0 浮接；接上分壓後標準差 1.6–1.9，不需要平均。
 - 原本以為使用者看到訊息就會開始做：兩次「背景記錄 N 秒、請在這段時間內做完」都沒對上（使用者錯過訊息、兩顆電阻的腳碰在一起把中點拉到 3.3 V）。改成一步一步：說一步、做完回「好」、量完再說下一步；BUTTON_PRESSES 會累加，按鍵也不需要即時監看。
 - 原本以為驗收腳本的中點檢查可以呼叫兩次 `check_adc`（一次下限、一次上限）。那是讀兩輪、印兩次 INFO；改成一輪讀取檢查多個條件。
+- code review（PR #23，medium）8 項，分流見 phase05 的 Step 12-b 實作決策。原本以為沒事的：
+  - 原本以為 `(after - before) % 256` 就處理了繞回。bash 的 `%` 保留被除數的正負號：`$(( (0 - 255) % 256 ))` 是 -255，計數從 255 繞回 0 時正確的 firmware 也會判失敗。先加 256。同一支腳本「按 5 下」那行早就加了，同一件事寫了兩種。
+  - 原本以為 `ADC_Cmd(ENABLE)` 之後可以馬上校正。RM0008 要 ADON 之後至少兩個 ADC clock（datasheet tSTAB 約 1 µs）；板子上重現不出問題，照規格補等待（`delay_cycles(SystemCoreClock / 1000000)`）。原始碼測試先紅。
+  - 原本以為手算的 SysTick 優先權 `(1 << 2) | 1` 沒問題。它只在 group 2 下等於 preemption 1；寫進去的是原始值，init 順序不影響，換 group 才會錯。改成 group 在 `main()` 開頭設一次、SysTick 用 `NVIC_EncodePriority()`。用 OpenOCD 讀回：SysTick `0x50`、I2C1 EV / ER `0x40`、AIRCR PRIGROUP 5，和修改前相同。
+  - 修正後重燒（flash 3000 → **3080 byte**，RAM 484），`--no-look --no-touch` `=== 0 failure(s)`（A0 在中點 2069–2076），實機 15 個通過；`test_stm32_i2c_target.py` 51 → 53 個，全套 422 → **424** 個，`OK (skipped=80)`。規模 631 → **659** 行（非空白；產品碼 205、測試 331、驗收腳本 119、CMake / ini 4）。

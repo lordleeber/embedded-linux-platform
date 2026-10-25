@@ -307,8 +307,8 @@ static const struct reg_def {
     <div class="rail"><span class="no">12b.4</span><b>firmware</b>ADC1</div>
     <div class="content">
       <h2>ADC：連續轉換，主迴圈搬運</h2>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:36–67 — PA0 設成類比輸入，ADC1 連續轉換 channel 0；開機先校正一次</figcaption>
-<pre data-start="36" data-hot="43,47,53,58,60-65,66">/* PA0 (A0) on ADC1 channel 0, converting continuously: 239.5 + 12.5 cycles at 12 MHz is one
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:45–78 — PA0 設成類比輸入，ADC1 連續轉換 channel 0；開機先等 ADC 穩定、校正一次，再開始轉換</figcaption>
+<pre data-start="45" data-hot="52,56,62,67,70,71-76,77">/* PA0 (A0) on ADC1 channel 0, converting continuously: 239.5 + 12.5 cycles at 12 MHz is one
  * 12-bit sample every 21 us, against VDDA (3.3 V on the Blue Pill). */
 static void adc_init(void)
 {
@@ -332,6 +332,8 @@ static void adc_init(void)
     ADC_Init(ADC1, &amp;adc);
     ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 1, ADC_SampleTime_239Cycles5);
     ADC_Cmd(ADC1, ENABLE);
+    /* RM0008: ADON for at least two ADC clocks before calibrating; tSTAB is about 1 us. */
+    delay_cycles(SystemCoreClock / 1000000);
     ADC_ResetCalibration(ADC1);
     while (ADC_GetResetCalibrationStatus(ADC1) == SET) {
     }
@@ -345,11 +347,11 @@ static void adc_init(void)
         <li><b>ADC clock 12 MHz</b>：F103 的 ADC 最高 14 MHz。APB2 是 72 MHz，能選的除數是 2、4、6、8，6 是不超過 14 MHz 的最快選擇。</li>
         <li><b>取樣 239.5 cycles</b>，是最長的一檔。一次轉換是取樣時間加 12.5 cycles，(239.5 + 12.5) / 12 MHz = 21 µs。取樣久一點，內部的取樣電容充得比較滿，對訊號源的阻抗比較寬容。Jetson 一次讀取就要好幾百 µs，再快也沒有意義。</li>
         <li><b>連續轉換</b>：啟動一次之後，ADC1 自己一直轉下去，firmware 不用每次觸發。代價是值一直在變，下一節要處理。</li>
-        <li><b>校正</b>：F103 的 reference manual 建議上電後做一次自我校正，補償內部電容的誤差。</li>
+        <li><b>校正</b>：F103 的 reference manual 建議上電後做一次自我校正，補償內部電容的誤差。它也要求 ADON 設起來之後，至少等兩個 ADC clock 才開始校正（datasheet 的 tSTAB 約 1 µs）。第一版沒有等，板子上也沒出問題，是 code review 對照規格指出的，於是補上 <code>delay_cycles()</code>：72 MHz 下等 72 次迴圈，每次超過一個 cycle，所以至少 1 µs。</li>
         <li><b>參考電壓是 VDDA</b>：讀到的是「PA0 佔 3.3 V 的比例」。分壓中點的比例只看兩顆電阻，3.3 V 本身偏一點，讀數不會跟著變。</li>
       </ul>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:193–198 — 主迴圈：每次轉換完成，就用一次 16-bit 寫入把它發佈出去</figcaption>
-<pre data-start="193" data-hot="196,197">    for (;;) {
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:206–211 — 主迴圈：每次轉換完成，就用一次 16-bit 寫入把它發佈出去</figcaption>
+<pre data-start="206" data-hot="209,210">    for (;;) {
         /* One 16-bit store per conversion: the I2C interrupt copies it whole into a read's
          * snapshot. Reading DR clears EOC. */
         if (ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == SET)
@@ -496,8 +498,8 @@ static uint8_t get_presses(const struct i2c_target *t) { return t-&gt;snap_press
 }</pre>
       </figure>
       <p>這段 code 不碰任何硬體，參數是「這 1 ms 有沒有按著」，所以能在 Jetson 上用 <code>tests/test_debounce.cpp</code> 直接測：差一次取樣不算、撐滿才算、按著不放不會重複計數、彈跳 10 次不算一次按下、257 次按下計數回到 1。</p>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:69–83 — PA1 開內部上拉；SysTick 每 1 ms 一次，優先權和 I2C1 同一級</figcaption>
-<pre data-start="69" data-hot="76,79,82">/* PA1 (A1) with the internal pull-up: the button pulls it to GND. */
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:80–95 — PA1 開內部上拉；SysTick 每 1 ms 一次，優先權和 I2C1 同一級</figcaption>
+<pre data-start="80" data-hot="87,90,94">/* PA1 (A1) with the internal pull-up: the button pulls it to GND. */
 static void button_init(void)
 {
     GPIO_InitTypeDef gpio;
@@ -508,13 +510,14 @@ static void button_init(void)
     GPIO_Init(GPIOA, &amp;gpio);
     debounce_init(&amp;button);
     SysTick_Config(SystemCoreClock / 1000);
-    /* Same preemption level as I2C1 (1, sub-priority 1 in group 2): neither interrupts the
-     * other, so a read's snapshot never sees button and presses from the middle of an update. */
-    NVIC_SetPriority(SysTick_IRQn, (1 &lt;&lt; 2) | 1);
+    /* Same preemption level as I2C1 (1, sub-priority 1): neither interrupts the other, so a
+     * read's snapshot never sees button and presses from the middle of an update. Encoded
+     * against the group main() set, so it stays right if the group changes. */
+    NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 1));
 }</pre>
       </figure>
-      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:125–130 — 低電位 = 按著，把結果放進 target 給 I2C 那邊讀</figcaption>
-<pre data-start="125" data-hot="127">void SysTick_Handler(void)
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:136–141 — 低電位 = 按著，把結果放進 target 給 I2C 那邊讀</figcaption>
+<pre data-start="136" data-hot="138">void SysTick_Handler(void)
 {
     debounce_tick(&amp;button, GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_1) == Bit_RESET);
     target.button = button.pressed ? BUTTON_PRESSED : 0;
@@ -523,7 +526,7 @@ static void button_init(void)
       </figure>
       <ul>
         <li><b>內部上拉在這裡有用</b>。Step 5-b 在 Jetson 的 header 上必須外加 330 Ω 上拉，因為那支腳經過 TXB0108 電位轉換器，SoC 的內部上拉推不動它。Blue Pill 的 PA1 直接是 MCU 的腳，內部約 40 kΩ 的上拉就夠了。</li>
-        <li><b>SysTick 的優先權</b>：<code>(1 &lt;&lt; 2) | 1</code> 在 priority group 2 底下是 preemption 1、sub-priority 1，和 I2C1 的 preemption 1 相同。同一個 preemption 等級的中斷不會互相打斷，只決定同時待處理時誰先跑。</li>
+        <li><b>SysTick 的優先權</b>：preemption 1、sub-priority 1，和 I2C1 的 preemption 1 相同。同一個 preemption 等級的中斷不會互相打斷，只決定同時待處理時誰先跑。priority group（幾個 bit 給 preemption）在 <code>main()</code> 一開頭設定一次，這裡用 <code>NVIC_EncodePriority()</code> 依目前的 group 編碼。第一版手寫 <code>(1 &lt;&lt; 2) | 1</code>，只在 group 2 下才等於 preemption 1，之後有人改 group 就會悄悄變成可以互相打斷；code review 指出後改掉。用 OpenOCD 讀回，SysTick 是 <code>0x50</code>、I2C1 是 <code>0x40</code>，和改之前相同。</li>
         <li><b>開機時就按著</b>：<code>debounce_init()</code> 把狀態設成「放開」，所以 20 ms 後會算一次按下。register map 寫明了這件事。</li>
       </ul>
     </div>
@@ -536,7 +539,7 @@ static void button_init(void)
       <ul>
         <li><b><code>tests/test_i2c_target.cpp</code></b>：16 → 21 組向量。新的有：從規格列出每個位址的存取方式、ADC 的 little-endian（0x000、0x0FF、0x100、0x7FF、0x800、0xFFF）、快照（上一節的節錄）、多取的 byte 不鎖存任何東西、按鍵兩個 register。</li>
         <li><b><code>tests/test_debounce.cpp</code></b>（新）：5 組向量，見 12b.6。</li>
-        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：41 → <span data-tests="tests/test_stm32_i2c_target.py">51</span> 個。原始碼檢查多了 ADC1 的設定（類比輸入、連續轉換、239.5 cycles、校正、開始轉換）、主迴圈寫 <code>target.adc</code>、PA1 上拉與 SysTick；建置後用 <code>nm</code> 確認 <code>SysTick_Handler</code> 真的連進去了（拼錯名字的話，startup 檔裡的預設 handler 會靜靜地接手）。實機測試 12 → 15 個：ADC 一輪讀取的分散、「讀 0x0F 之後再讀 ADC」、按鍵沒按時的狀態與計數不動。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：41 → <span data-tests="tests/test_stm32_i2c_target.py">53</span> 個。原始碼檢查多了 ADC1 的設定（類比輸入、連續轉換、239.5 cycles、校正、開始轉換）、主迴圈寫 <code>target.adc</code>、PA1 上拉與 SysTick、ADC 開啟後先等再校正、SysTick 的優先權依 group 編碼；建置後用 <code>nm</code> 確認 <code>SysTick_Handler</code> 真的連進去了（拼錯名字的話，startup 檔裡的預設 handler 會靜靜地接手）。實機測試 12 → 15 個：ADC 一輪讀取的分散、「讀 0x0F 之後再讀 ADC」、按鍵沒按時的狀態與計數不動。</li>
       </ul>
       <h3>先紅</h3>
       <p>先寫 header 與空的 stub：<code>i2c_target</code> 的向量 <b class="hl-bad">30 個 check 失敗</b>、debounce 的 <b class="hl-bad">15 個</b>；Python 先寫的 10 個紅。ADC 的門檻（一輪讀取最多差多少、接 GND 時最大多少……）要量了才知道，所以先放<b>不可能通過的 placeholder</b>（最大差 0、GND 上限 −1），讓實機測試和腳本先紅，量完才填。</p>
@@ -622,10 +625,10 @@ all debounce vectors passed</pre>
       <p>燒錄新版 firmware：</p>
 <pre class="cmd">~/.platformio/penv/bin/pio run -d firmware/stm32f103 -t upload</pre>
 <pre class="out">RAM:   [          ]   2.4% (used 484 bytes from 20480 bytes)
-Flash: [          ]   4.6% (used 3000 bytes from 65536 bytes)
+Flash: [          ]   4.7% (used 3080 bytes from 65536 bytes)
 ...
-========================= [SUCCESS] Took 1.88 seconds =========================</pre>
-      <p>flash 從 12-a 的 2112 byte 變成 3000 byte（多 888 byte），RAM 468 → 484 byte。接著用同一支驗收腳本（12-a 的檢查全部保留）：</p>
+========================= [SUCCESS] Took 1.75 seconds =========================</pre>
+      <p>flash 從 12-a 的 2112 byte 變成 3080 byte，RAM 468 → 484 byte。接著用同一支驗收腳本（12-a 的檢查全部保留）：</p>
       <table>
         <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
         <tbody>
@@ -691,6 +694,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li><span class="mk">5</span><span>按住時 PRESSED，放開後回到 0，計數 +1。燒錄會重開板子，所以計數從 0 開始。</span></li>
         <li><span class="mk">6</span><span>正常速度按 5 下，計數剛好 +5，沒有多算彈跳。12b.7 說過：這證明計數在正常按法下正確，不證明 20 ms 視窗。</span></li>
       </ol>
+      <p>這一輪跑在 code review 修正之前的 firmware 上（flash 3000 byte）。修正後重燒，用 <code>--no-look --no-touch</code> 再跑一次是 <b class="hl-ok">0 failure</b>（A0 在中點，2069–2076），實機測試全過。<code>--no-touch</code> 和單獨跑實機測試時，A0 要接在中點這類穩定的電壓：浮接時 ADC 的兩個實機測試會因為雜訊失敗。</p>
       <p>驗收腳本只有在你的分壓也是兩顆接近的電阻時才會過中點那一關。手動看四個輸入 register：</p>
 <pre class="cmd">i2ctransfer -y 1 w1@0x42 0x10 r4@0x42</pre>
 <pre class="out">0x13 0x08 0x00 0x03</pre>
@@ -722,7 +726,7 @@ PASS test_stm32_i2c_target.py (OK)
         <li class="y">register map v1.1：ADC_LOW / ADC_HIGH（PA0，12-bit，little-endian）、BUTTON_STATE、BUTTON_PRESSES（PA1），都是唯讀；PROTOCOL_VERSION 0x11、FW 0.3。唯讀規則改成一張表。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：ADC 兩個 byte 一致（浮接跨 0x800，1000 次 0 次錯位；變異版 560 次）、按鍵狀態正確、Jetson 端穩定讀寫多個 register。驗收 <b class="hl-ok">0 failure</b>。</li>
         <li class="y">12-a 帶過來的兩件事：「讀取時鎖住」改成讀取開始時的快照，TXE 多取的 byte 不觸發任何事；唯讀規則只寫在一個地方。</li>
-        <li class="y">測試：21 組 <code>i2c_target</code> 向量、5 組 debounce 向量、<span data-tests="tests/test_stm32_i2c_target.py">51</span> 個 Python 測試。規模：非空白新增 631 行（產品碼 193、測試 315、驗收腳本 119、CMake / ini 4，不含原樣收錄的 SPL ADC 檔）。</li>
+        <li class="y">測試：21 組 <code>i2c_target</code> 向量、5 組 debounce 向量、<span data-tests="tests/test_stm32_i2c_target.py">53</span> 個 Python 測試。規模：非空白新增 659 行（產品碼 205、測試 331、驗收腳本 119、CMake / ini 4，不含原樣收錄的 SPL ADC 檔；含 code review 的修正）。</li>
         <li class="n">只有 host 向量：20 ms 的消抖視窗。沒有實測：400 kHz、OLED 同時在 bus 上、bus error 的偵測。</li>
       </ul>
       <p>Step 13 進到 Jetson 的 kernel：寫一個 I2C client driver <code>edge_ctrl</code>，用 Device Tree 綁到 0x42，至少把 device_id、firmware_version、adc、button、LED、status 開放給 userspace（sysfs 或 character device，選哪個要在那一步寫清楚理由），application 不再碰 <code>/dev/i2c-*</code>。這一章的規則會直接變成 driver 的寫法：ADC 一次讀 2 byte、先讀 PROTOCOL_VERSION 確認 major 是 1。</p>
