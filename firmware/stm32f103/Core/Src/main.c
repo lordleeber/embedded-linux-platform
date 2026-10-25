@@ -1,14 +1,17 @@
-/* Step 11 / 12-a: Blue Pill (STM32F103C8T6) as an I2C target at 0x42 with the SPL.
+/* Step 11 / 12-a / 12-b: Blue Pill (STM32F103C8T6) as an I2C target at 0x42 with the SPL.
  *
  * I2C1 on PB6 (SCL) / PB7 (SDA) answers the Jetson; the register protocol is in i2c_target.c.
- * Everything happens in the two I2C1 interrupts; main() just spins. The on-board LED on PC13 is
+ * The two I2C1 interrupts serve the Jetson. main() copies each ADC1 conversion of PA0 into
+ * target.adc; SysTick (1 ms) debounces the button on PA1. The on-board LED on PC13 is
  * active-low (pin low = LED on).
  */
 #include "stm32f10x.h"
 
+#include "debounce.h"
 #include "i2c_target.h"
 
 static struct i2c_target target;
+static struct debounce button;
 
 static void led_apply(void)
 {
@@ -28,6 +31,67 @@ static void led_init(void)
     gpio.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_Init(GPIOC, &gpio);
     led_apply();
+}
+
+/* Busy-waits at least n CPU cycles: every pass of the loop takes more than one. */
+static void delay_cycles(uint32_t n)
+{
+    volatile uint32_t i;
+
+    for (i = 0; i < n; i++) {
+    }
+}
+
+/* PA0 (A0) on ADC1 channel 0, converting continuously: 239.5 + 12.5 cycles at 12 MHz is one
+ * 12-bit sample every 21 us, against VDDA (3.3 V on the Blue Pill). */
+static void adc_init(void)
+{
+    GPIO_InitTypeDef gpio;
+    ADC_InitTypeDef adc;
+
+    RCC_ADCCLKConfig(RCC_PCLK2_Div6); /* 72 MHz / 6 = 12 MHz; the ADC allows at most 14 */
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_ADC1, ENABLE);
+    gpio.GPIO_Pin = GPIO_Pin_0;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio.GPIO_Mode = GPIO_Mode_AIN;
+    GPIO_Init(GPIOA, &gpio);
+
+    ADC_StructInit(&adc);
+    adc.ADC_Mode = ADC_Mode_Independent;
+    adc.ADC_ScanConvMode = DISABLE;
+    adc.ADC_ContinuousConvMode = ENABLE;
+    adc.ADC_ExternalTrigConv = ADC_ExternalTrigConv_None;
+    adc.ADC_DataAlign = ADC_DataAlign_Right;
+    adc.ADC_NbrOfChannel = 1;
+    ADC_Init(ADC1, &adc);
+    ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 1, ADC_SampleTime_239Cycles5);
+    ADC_Cmd(ADC1, ENABLE);
+    /* RM0008: ADON for at least two ADC clocks before calibrating; tSTAB is about 1 us. */
+    delay_cycles(SystemCoreClock / 1000000);
+    ADC_ResetCalibration(ADC1);
+    while (ADC_GetResetCalibrationStatus(ADC1) == SET) {
+    }
+    ADC_StartCalibration(ADC1);
+    while (ADC_GetCalibrationStatus(ADC1) == SET) {
+    }
+    ADC_SoftwareStartConvCmd(ADC1, ENABLE);
+}
+
+/* PA1 (A1) with the internal pull-up: the button pulls it to GND. */
+static void button_init(void)
+{
+    GPIO_InitTypeDef gpio;
+
+    gpio.GPIO_Pin = GPIO_Pin_1;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(GPIOA, &gpio);
+    debounce_init(&button);
+    SysTick_Config(SystemCoreClock / 1000);
+    /* Same preemption level as I2C1 (1, sub-priority 1): neither interrupts the other, so a
+     * read's snapshot never sees button and presses from the middle of an update. Encoded
+     * against the group main() set, so it stays right if the group changes. */
+    NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 1));
 }
 
 /* I2C1's own registers; also run again after a software reset, which clears all of them. */
@@ -58,7 +122,6 @@ static void i2c1_target_init(void)
     gpio.GPIO_Mode = GPIO_Mode_AF_OD;
     GPIO_Init(GPIOB, &gpio);
 
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     nvic.NVIC_IRQChannelPreemptionPriority = 1;
     nvic.NVIC_IRQChannelSubPriority = 0;
     nvic.NVIC_IRQChannelCmd = ENABLE;
@@ -68,6 +131,13 @@ static void i2c1_target_init(void)
     NVIC_Init(&nvic);
 
     i2c1_regs_init();
+}
+
+void SysTick_Handler(void)
+{
+    debounce_tick(&button, GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_1) == Bit_RESET);
+    target.button = button.pressed ? BUTTON_PRESSED : 0;
+    target.presses = button.presses;
 }
 
 void I2C1_EV_IRQHandler(void)
@@ -124,11 +194,19 @@ void I2C1_ER_IRQHandler(void)
 int main(void)
 {
     /* SystemInit() in the startup code has already set 72 MHz from the 8 MHz crystal. */
+    /* Once, before any priority is set: 2 bits preemption, 2 bits sub-priority. */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     i2c_target_init(&target);
     led_init();
+    adc_init();
+    button_init();
     i2c1_target_init();
     /* No __WFI() here: after a power cycle clears DBGMCU_CR, an F1 asleep in WFI does not let
      * SWD read memory, and the board can no longer be flashed without BOOT0 (Step 11). */
     for (;;) {
+        /* One 16-bit store per conversion: the I2C interrupt copies it whole into a read's
+         * snapshot. Reading DR clears EOC. */
+        if (ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == SET)
+            target.adc = ADC_GetConversionValue(ADC1);
     }
 }

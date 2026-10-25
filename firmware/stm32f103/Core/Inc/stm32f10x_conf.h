@@ -1,9 +1,10 @@
 /* Step 11: SPL configuration. stm32f10x.h includes this when USE_STDPERIPH_DRIVER is defined;
- * only the four drivers that platformio.ini compiles are listed. */
+ * only the drivers that platformio.ini compiles are listed (ADC since Step 12-b). */
 #ifndef STM32F10X_CONF_H
 #define STM32F10X_CONF_H
 
 #include "misc.h"
+#include "stm32f10x_adc.h"
 #include "stm32f10x_gpio.h"
 #include "stm32f10x_i2c.h"
 #include "stm32f10x_rcc.h"
