@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 12-b　ADC 與按鍵：第一個會變的值 — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step12a). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 100ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 100ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+/* The gutter is exactly one tab stop wide (6.5ch + 1.5ch = 8ch = tab-size), so tabs in the code still land on the source file's columns.
+   The second content line gives screen readers empty alt text; browsers without that syntax keep the first one. */
+.ln::before { content: attr(data-n); content: attr(data-n) / ""; display: inline-block; width: 6.5ch; margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* No ligatures in code (Step 10-b: JetBrains Mono drew <=> as one arrow) */
+pre, code { font-variant-ligatures: none; }
+
+/* Simulators (JavaScript models, not the board); since Step 11 */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; margin-bottom: 0.7rem; font-size: 0.9rem; color: var(--muted); }
+.sim-ctl button { font-family: var(--font-mono); font-size: 0.8rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.65rem; cursor: pointer; }
+.sim-ctl button:hover { border-color: var(--accent); }
+.sim-state { display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; font-family: var(--font-mono); font-size: 0.9rem; margin-bottom: 0.5rem; }
+.sim-state b { color: var(--drv); font-weight: 600; }
+.sim-log { font-family: var(--font-mono); font-size: 0.8rem; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.6rem 0.9rem; height: 9.5rem; overflow-y: auto; white-space: pre-wrap; margin: 0; }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step12a.html">← Step 12-a</a><span class="disabled">Step 13 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 12-b · register map v1.1</div>
+    <h1>ADC 與按鍵：第一個會變的值</h1>
+    <p class="lede">12-a 定下的 register map 裡，每個值要嘛是常數，要嘛是 Jetson 自己寫進去的。這一步加上第一批<b class="hl-key">自己會變的值</b>：PA0 的 12-bit ADC 和 PA1 的按鍵。值會在 Jetson 讀到一半時改變，所以這一章的重點是：一筆讀取拿到的幾個 byte，怎麼保證來自<b class="hl-key">同一個時刻</b>。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">firmware/stm32f103/Core/{Inc/debounce.h, Src/debounce.c}、firmware/stm32f103/Library/stm32f10x_adc.{c,h}、tests/test_debounce.cpp、docs/step12b.html</span>；修改 firmware/stm32f103/{Core/Inc/i2c_target.h, Core/Inc/stm32f10x_conf.h, Core/Src/i2c_target.c, Core/Src/main.c, platformio.ini, vendor.sha256, docs/register-map.md, README.md}、tests/{test_i2c_target.cpp, test_stm32_i2c_target.py}、scripts/verify_stm32_i2c.sh、CMakeLists.txt、CLAUDE.md、phase05.md、docs/{baseline.md, step12a.html, index.html}</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式（i2c-tools）</span>
+      <span style="--c: var(--kern)">kernel 核心（i2c-dev、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver / firmware（這一章是 STM32 上的 firmware）</span>
+      <span style="--c: var(--hw)">硬體（STM32 的 I2C1、ADC1、GPIO、SysTick，電阻與按鍵）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">12b.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>driver 要讀的是外面世界的值</h2>
+      <p>Step 13 的 kernel driver 要把 STM32 變成 Linux 看得到的裝置。一顆只有版本號和一顆 LED 的周邊，driver 寫了也沒什麼可讀。這一步把 12-a 預留的 <code>0x10–0x1F</code>（感測與輸入）填上四個 register：</p>
+      <ul>
+        <li><b>ADC</b>：PA0 上的電壓，12 bit，一個 byte 放不下，所以分成 ADC_LOW、ADC_HIGH 兩個 register。這是 register map 裡第一個<b>多 byte 的值</b>，12-a 寫下的 little-endian 和 auto-increment 規則第一次派上用場。</li>
+        <li><b>按鍵</b>：PA1 上的按鍵，BUTTON_STATE（現在按著沒）與 BUTTON_PRESSES（開機以來按了幾下）。</li>
+      </ul>
+      <p>兩者都在 firmware 內部「自己變」：ADC 每 21 µs 換一個值，按鍵狀態每 1 ms 檢查一次。Jetson 讀到一半時值變了，這件事 12-a 從來不用擔心，這一步要處理。</p>
+      <p><b>互動雙方</b>和 12-a 一樣：Jetson 的 <code>i2c-1</code>（<code>c240000.i2c</code>，100 kHz）是 controller，Blue Pill 的 I2C1（0x42）是 target，Jetson 這邊仍然只用 i2c-tools。新的是 MCU 內部的兩條資料來源（ADC1、SysTick）和麵包板上的新接線。<b>這一步不做</b>：Linux kernel driver（Step 13）、SPI、DMA、按鍵主動通知 Jetson（target 不能自己發起 I2C）。</p>
+      <dl class="terms">
+        <dt>ADC</dt><dd>analog-to-digital converter：把腳位上的電壓換成數字。F103 的 ADC 是 12 bit，0–4095 對應 0 V 到參考電壓。</dd>
+        <dt>VDDA</dt><dd>F103 給類比電路用的電源，也是 ADC 的參考電壓。Blue Pill 上它就是 3.3 V，和 MCU 同一個電源。</dd>
+        <dt>分壓</dt><dd>兩顆電阻串聯在 3.3 V 和 GND 之間，接點的電壓是兩者按比例分。兩顆一樣大時是一半，約 1.65 V，讀成約 2048。</dd>
+        <dt>浮接</dt><dd>floating：腳位什麼都沒接。輸入阻抗很高，讀到的電壓由雜訊和殘留電荷決定，會亂跳。</dd>
+        <dt>消抖 · debounce</dt><dd>機械按鍵按下或放開時，接點會在幾毫秒內彈跳好幾次。消抖就是「電位要穩定一段時間才算數」。</dd>
+        <dt>SysTick</dt><dd>Cortex-M 核心內建的計時器，每次數到 0 就產生一次中斷。這裡設成每 1 ms 一次。</dd>
+        <dt>快照 · snapshot</dt><dd>在某個時刻把幾個會變的值一次複製下來，之後都從複本拿。</dd>
+        <dt>錯位讀取 · torn read</dt><dd>一個多 byte 的值，各個 byte 來自不同時刻。例如 LOW 來自 0x7FF、HIGH 來自 0x800，合起來讀成 0x8FF。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">12b.2</span><b>全景</b>三條路</div>
+    <div class="content">
+      <h2>值從哪裡來、在哪裡被凍住</h2>
+      <p>firmware 現在同時跑三件事，彼此用 <code>struct i2c_target</code> 裡的幾個欄位溝通：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 330" role="img" aria-label="資料流圖。左上 PA0 經過 ADC1 連續轉換，每 21 微秒一個值，主迴圈看到轉換完成就用一次 16 位元的寫入存到 target.adc。左下 PA1 的按鍵由 SysTick 每 1 毫秒取樣一次，經過 debounce_tick 存到 target.button 與 target.presses。右邊 Jetson 發起讀取時，I2C1 中斷呼叫 read_start，把三個即時值一次複製成快照 snap_adc、snap_button、snap_presses，之後每個 tx 都從快照取 byte 送給 Jetson。">
+          <defs>
+            <marker id="m12bR" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <a href="#adc"><rect class="s-box" x="10" y="30" width="140" height="56" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="80" y="53" text-anchor="middle">PA0 · ADC1</text>
+          <text class="s-sm" x="80" y="73" text-anchor="middle">每 21 µs 一個值</text></a>
+          <a href="#adc"><rect class="s-box" x="200" y="30" width="150" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="275" y="53" text-anchor="middle">main() 迴圈</text>
+          <text class="s-sm" x="275" y="73" text-anchor="middle">EOC → 一次 16-bit 寫入</text></a>
+          <a href="#button"><rect class="s-box" x="10" y="200" width="140" height="56" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="80" y="223" text-anchor="middle">PA1 · 按鍵</text>
+          <text class="s-sm" x="80" y="243" text-anchor="middle">內部上拉，按下 = 0</text></a>
+          <a href="#button"><rect class="s-box" x="200" y="200" width="150" height="56" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="275" y="223" text-anchor="middle">SysTick 中斷</text>
+          <text class="s-sm" x="275" y="243" text-anchor="middle">1 ms · debounce_tick()</text></a>
+
+          <rect class="s-box" x="400" y="100" width="130" height="110" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-mono" x="465" y="122" text-anchor="middle">即時值</text>
+          <text class="s-lbl" x="465" y="150" text-anchor="middle">adc</text>
+          <text class="s-lbl" x="465" y="172" text-anchor="middle">button</text>
+          <text class="s-lbl" x="465" y="194" text-anchor="middle">presses</text>
+
+          <a href="#snapshot"><rect class="s-box" x="575" y="100" width="135" height="110" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-mono" x="642" y="122" text-anchor="middle">快照</text>
+          <text class="s-lbl" x="642" y="150" text-anchor="middle">snap_adc</text>
+          <text class="s-lbl" x="642" y="172" text-anchor="middle">snap_button</text>
+          <text class="s-lbl" x="642" y="194" text-anchor="middle">snap_presses</text></a>
+
+          <line class="sv-down" x1="150" y1="58" x2="196" y2="58" marker-end="url(#m12bR)"/>
+          <line class="sv-down" x1="150" y1="228" x2="196" y2="228" marker-end="url(#m12bR)"/>
+          <line class="sv-down" x1="350" y1="58" x2="440" y2="98" marker-end="url(#m12bR)"/>
+          <line class="sv-down" x1="350" y1="228" x2="440" y2="212" marker-end="url(#m12bR)"/>
+          <line class="sv-down" x1="530" y1="155" x2="571" y2="155" marker-end="url(#m12bR)"/>
+          <text class="s-sm" x="552" y="92" text-anchor="middle">read_start()</text>
+          <text class="s-sm" x="552" y="76" text-anchor="middle">Jetson 開始讀時</text>
+
+          <rect class="s-box" x="575" y="260" width="135" height="50" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="642" y="282" text-anchor="middle">Jetson</text>
+          <text class="s-sm" x="642" y="300" text-anchor="middle">i2ctransfer</text>
+          <line class="sv-down" x1="642" y1="212" x2="642" y2="256" marker-end="url(#m12bR)"/>
+          <text class="s-sm" x="560" y="240" text-anchor="end">每個 tx() 從快照取</text>
+        </svg>
+        <figcaption>圖 12.1 — 兩個生產者（主迴圈、SysTick）隨時改寫即時值；Jetson 的一筆讀取在<b>開始的那一刻</b>由 <code>read_start()</code> 一次複製成快照，這筆讀取的每個 byte 都從快照來。方框可點，跳到對應小節。</figcaption>
+      </figure>
+      <p>這張圖裡沒有任何「讀到某個 register 才觸發」的箭頭，這是刻意的：12-a 才剛靠「讀取沒有副作用」讓 TXE 多取的那個 byte 變得無害，這一步不能把副作用加回來（12b.5）。</p>
+    </div>
+  </section>
+
+  <section id="regmap">
+    <div class="rail"><span class="no">12b.3</span><b>契約</b>map v1.1</div>
+    <div class="content">
+      <h2>四個新 register，版本只升 minor</h2>
+      <table>
+        <thead><tr><th>位址 · 名稱</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td><code>0x10</code> ADC_LOW</td><td>PA0 的 12-bit 值的 bit 7:0</td></tr>
+          <tr><td><code>0x11</code> ADC_HIGH</td><td>bit 11:8 放在 bit 3:0，bit 7:4 讀 0。值 = HIGH × 256 + LOW</td></tr>
+          <tr><td><code>0x12</code> BUTTON_STATE</td><td>bit 0 PRESSED：按鍵按著（消抖之後）；bit 7:1 讀 0</td></tr>
+          <tr><td><code>0x13</code> BUTTON_PRESSES</td><td>開機以來的按下次數，8 bit，255 之後回到 0；唯讀、讀取不清除</td></tr>
+        </tbody>
+      </table>
+      <p>四個都是 RO，寫入會在 STATUS 設 RO_WRITE。它們都放在原本讀 <code>0xFF</code> 的位址，其他 register 的意思一個都沒變，所以照 12-a 的版本規則，PROTOCOL_VERSION 從 <code>0x10</code> 升到 <code>0x11</code>（1.1）：只認得 1.0 的 driver 照樣能用。FW 版本 0.2 → 0.3。</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Inc/i2c_target.h:54–57 — 新的 register 定義；register-map.md 是它的文字版，測試逐欄比對兩者</figcaption>
+<pre data-start="54" data-hot="54-57">#define REG_ADC_LOW 0x10          /* RO: PA0, 12-bit, bits 7:0 */
+#define REG_ADC_HIGH 0x11         /* RO: bits 11:8 in bits 3:0, upper bits 0 */
+#define REG_BUTTON_STATE 0x12     /* RO: BUTTON_PRESSED while the PA1 button is held */
+#define REG_BUTTON_PRESSES 0x13   /* RO: debounced presses since reset, wraps at 256 */</pre>
+      </figure>
+      <p>BUTTON_PRESSES 是規劃裡沒有的。只有 BUTTON_STATE 的話，Jetson 每秒輪詢一次，中間按了一下又放開，就完全看不到。有了計數，Jetson 記住上次讀到的值，兩次相減（mod 256）就是這段時間按了幾下。它<b>不能清除</b>，因為「讀取清除」會撞上 TXE 預先取的 byte（12-a 的 STATUS 就是這樣決定的），「寫入清除」又會讓兩個讀它的程式互相干擾。</p>
+      <h3>唯讀規則改成一張表</h3>
+      <p>12-a 的 code review 指出：「哪些位址是唯讀」寫在 <code>read_only()</code>，「讀取時拿什麼值」寫在 <code>read_reg()</code> 的 switch，加 register 時很容易只改到一邊。這一步一次加四個，先把兩處合成一張表：</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:47–65 — 每個有定義的位址一列：可不可寫、讀取時從哪裡拿值；沒列的就是沒定義</figcaption>
+<pre data-start="47" data-hot="58-61">/* The register map in one place (PR #21 review): every mapped address, whether it can be
+ * written, and where a read gets its value. Anything not listed is unmapped. */
+static const struct reg_def {
+    uint8_t addr;
+    uint8_t writable;
+    uint8_t (*get)(const struct i2c_target *t);
+} REGS[] = {
+    {REG_DEVICE_ID, 0, get_device_id},
+    {REG_FW_MAJOR, 0, get_fw_major},
+    {REG_FW_MINOR, 0, get_fw_minor},
+    {REG_PROTOCOL_VERSION, 0, get_protocol},
+    {REG_ADC_LOW, 0, get_adc_low},
+    {REG_ADC_HIGH, 0, get_adc_high},
+    {REG_BUTTON_STATE, 0, get_button},
+    {REG_BUTTON_PRESSES, 0, get_presses},
+    {REG_LED_CONTROL, 1, get_led},
+    {REG_STATUS, 1, get_status},
+    {REG_WATCHDOG_STATUS, 0, get_watchdog},
+};</pre>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:77–93 — 寫入先查表：沒定義的、唯讀的，各設自己的 STATUS bit</figcaption>
+<pre data-start="77" data-hot="81-84">static void write_reg(struct i2c_target *t, uint8_t reg, uint8_t value)
+{
+    const struct reg_def *r = find_reg(reg);
+
+    if (!r) {
+        t-&gt;status |= STATUS_UNMAPPED_WRITE;
+    } else if (!r-&gt;writable) {
+        t-&gt;status |= STATUS_RO_WRITE;
+    } else if (reg == REG_LED_CONTROL) {
+        if (value &lt;= 1)
+            t-&gt;led = value;
+        else
+            t-&gt;status |= STATUS_BAD_VALUE;
+    } else { /* REG_STATUS */
+        t-&gt;status &amp;= (uint8_t)~(value &amp; STATUS_DEFINED);
+    }
+}</pre>
+      </figure>
+      <p>讀取那邊只剩一行：<code>r ? r-&gt;get(t) : REG_UNMAPPED_VALUE</code>。新的測試 <code>test_access_of_every_address</code> 從規格（而不是這張表）列出 9 個唯讀位址，逐一對 256 個位址寫一次，確認 STATUS 設的是對的 bit：表漏了一列、或多了一列，它都會紅。</p>
+    </div>
+  </section>
+
+  <section id="adc">
+    <div class="rail"><span class="no">12b.4</span><b>firmware</b>ADC1</div>
+    <div class="content">
+      <h2>ADC：連續轉換，主迴圈搬運</h2>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:36–67 — PA0 設成類比輸入，ADC1 連續轉換 channel 0；開機先校正一次</figcaption>
+<pre data-start="36" data-hot="43,47,53,58,60-65,66">/* PA0 (A0) on ADC1 channel 0, converting continuously: 239.5 + 12.5 cycles at 12 MHz is one
+ * 12-bit sample every 21 us, against VDDA (3.3 V on the Blue Pill). */
+static void adc_init(void)
+{
+    GPIO_InitTypeDef gpio;
+    ADC_InitTypeDef adc;
+
+    RCC_ADCCLKConfig(RCC_PCLK2_Div6); /* 72 MHz / 6 = 12 MHz; the ADC allows at most 14 */
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_ADC1, ENABLE);
+    gpio.GPIO_Pin = GPIO_Pin_0;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio.GPIO_Mode = GPIO_Mode_AIN;
+    GPIO_Init(GPIOA, &amp;gpio);
+
+    ADC_StructInit(&amp;adc);
+    adc.ADC_Mode = ADC_Mode_Independent;
+    adc.ADC_ScanConvMode = DISABLE;
+    adc.ADC_ContinuousConvMode = ENABLE;
+    adc.ADC_ExternalTrigConv = ADC_ExternalTrigConv_None;
+    adc.ADC_DataAlign = ADC_DataAlign_Right;
+    adc.ADC_NbrOfChannel = 1;
+    ADC_Init(ADC1, &amp;adc);
+    ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 1, ADC_SampleTime_239Cycles5);
+    ADC_Cmd(ADC1, ENABLE);
+    ADC_ResetCalibration(ADC1);
+    while (ADC_GetResetCalibrationStatus(ADC1) == SET) {
+    }
+    ADC_StartCalibration(ADC1);
+    while (ADC_GetCalibrationStatus(ADC1) == SET) {
+    }
+    ADC_SoftwareStartConvCmd(ADC1, ENABLE);
+}</pre>
+      </figure>
+      <ul>
+        <li><b>ADC clock 12 MHz</b>：F103 的 ADC 最高 14 MHz。APB2 是 72 MHz，能選的除數是 2、4、6、8，6 是不超過 14 MHz 的最快選擇。</li>
+        <li><b>取樣 239.5 cycles</b>，是最長的一檔。一次轉換是取樣時間加 12.5 cycles，(239.5 + 12.5) / 12 MHz = 21 µs。取樣久一點，內部的取樣電容充得比較滿，對訊號源的阻抗比較寬容。Jetson 一次讀取就要好幾百 µs，再快也沒有意義。</li>
+        <li><b>連續轉換</b>：啟動一次之後，ADC1 自己一直轉下去，firmware 不用每次觸發。代價是值一直在變，下一節要處理。</li>
+        <li><b>校正</b>：F103 的 reference manual 建議上電後做一次自我校正，補償內部電容的誤差。</li>
+        <li><b>參考電壓是 VDDA</b>：讀到的是「PA0 佔 3.3 V 的比例」。分壓中點的比例只看兩顆電阻，3.3 V 本身偏一點，讀數不會跟著變。</li>
+      </ul>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:193–198 — 主迴圈：每次轉換完成，就用一次 16-bit 寫入把它發佈出去</figcaption>
+<pre data-start="193" data-hot="196,197">    for (;;) {
+        /* One 16-bit store per conversion: the I2C interrupt copies it whole into a read's
+         * snapshot. Reading DR clears EOC. */
+        if (ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == SET)
+            target.adc = ADC_GetConversionValue(ADC1);
+    }</pre>
+      </figure>
+      <p>為什麼放在主迴圈，不用 ADC 中斷？I2C 中斷要讀 <code>target.adc</code>，主迴圈要寫它。<code>adc</code> 是 <code>uint16_t</code>，Cortex-M3 用一條 <code>STRH</code> 指令寫完，I2C 中斷不可能看到「寫了一半」的值。主迴圈本來就空著（12-a 不用 <code>__WFI()</code>，原因見迴圈上方的註解），讓它搬資料剛好。</p>
+    </div>
+  </section>
+
+  <section id="snapshot">
+    <div class="rail"><span class="no">12b.5</span><b>protocol</b>快照</div>
+    <div class="content">
+      <h2>兩個 byte，必須來自同一次轉換</h2>
+      <p>Jetson 照規格一次讀 2 個 byte：<code>i2ctransfer w1@0x42 0x10 r2@0x42</code>。firmware 分兩次 <code>tx()</code> 送出 LOW 和 HIGH，兩次之間如果換了一個轉換值，而且剛好跨過 <code>0x800</code>：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 170" role="img" aria-label="錯位讀取的例子。第一次轉換值 0x7FF，LOW 從它取，得 0xFF。之後換成第二次轉換值 0x800，HIGH 從它取，得 0x08。Jetson 把兩個 byte 合起來，得到 0x8FF，也就是 2303，比真正的值 2047 或 2048 大了 256。">
+          <rect class="s-box" x="20" y="20" width="200" height="56" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-mono" x="120" y="40" text-anchor="middle">轉換 #1</text>
+          <text class="s-key" x="120" y="64" text-anchor="middle">0x7FF（2047）</text>
+          <rect class="s-box" x="260" y="20" width="200" height="56" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-mono" x="360" y="40" text-anchor="middle">轉換 #2（21 µs 後）</text>
+          <text class="s-key" x="360" y="64" text-anchor="middle">0x800（2048）</text>
+          <rect class="s-box" x="500" y="20" width="200" height="56" rx="8" style="stroke: var(--bad)"/>
+          <text class="s-mono" x="600" y="40" text-anchor="middle">Jetson 收到</text>
+          <text class="s-key" x="600" y="64" text-anchor="middle" style="fill: var(--bad)">0x8FF（2303）</text>
+          <text class="s-lbl" x="120" y="110" text-anchor="middle">LOW = 0xFF</text>
+          <text class="s-lbl" x="360" y="110" text-anchor="middle">HIGH = 0x08</text>
+          <line class="sv-down" x1="160" y1="104" x2="540" y2="80" marker-end="url(#m12bR)"/>
+          <line class="sv-down" x1="400" y1="104" x2="560" y2="82" marker-end="url(#m12bR)"/>
+          <text class="s-sm" x="360" y="150" text-anchor="middle">值本身只差 1，讀到的卻差 256：低位從頭繞回、高位已經進位</text>
+        </svg>
+        <figcaption>圖 12.2 — 錯位讀取。只有值跨過「HIGH byte 改變」的邊界（0x0FF/0x100、0x1FF/0x200……0x7FF/0x800……）時才會出事，但一出事就差 256，不是雜訊等級的誤差。</figcaption>
+      </figure>
+      <h3>不能做的：讀到 LOW 時把 HIGH 鎖住</h3>
+      <p>很多 sensor 晶片的做法是「讀 LOW 時把 HIGH 鎖存下來」。12-a 的 code review 預先指出這裡不能這樣做：Jetson 讀 <code>0x0F</code> 的 1 個 byte 時，TXE 會順便取 <code>0x10</code>（12-a 的圖 12.1），那個 LOW 沒送到 Jetson，卻觸發了鎖存。下一次 Jetson 真的讀 0x10、0x11，HIGH 就是很久以前鎖住的舊值。<b>任何「讀到哪個 byte 才做某件事」的設計</b>，都會被多取的那個 byte 誤觸發。</p>
+      <h3>做法：在讀取開始時，一次拍下所有輸入</h3>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:25–33 — 讀取開始時（ADDR、方向是讀）把三個輸入一次複製下來</figcaption>
+<pre data-start="25" data-hot="29-32">void i2c_target_read_start(struct i2c_target *t)
+{
+    t-&gt;cursor = t-&gt;ptr;
+    t-&gt;state = I2C_TARGET_READING;
+    /* One snapshot per read, whatever bytes it turns out to read. */
+    t-&gt;snap_adc = t-&gt;adc;
+    t-&gt;snap_button = t-&gt;button;
+    t-&gt;snap_presses = t-&gt;presses;
+}</pre>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/i2c_target.c:39–42 — 四個輸入 register 都從快照取值</figcaption>
+<pre data-start="39" data-hot="39-42">static uint8_t get_adc_low(const struct i2c_target *t) { return (uint8_t)(t-&gt;snap_adc &amp; 0xFF); }
+static uint8_t get_adc_high(const struct i2c_target *t) { return (uint8_t)(t-&gt;snap_adc &gt;&gt; 8); }
+static uint8_t get_button(const struct i2c_target *t) { return t-&gt;snap_button; }
+static uint8_t get_presses(const struct i2c_target *t) { return t-&gt;snap_presses; }</pre>
+      </figure>
+      <p>快照的時機是「Jetson 送出 0x42 + R 的那一刻」，和接下來讀了哪幾個 byte、有沒有多取一個<b>完全無關</b>。所以：</p>
+      <ul>
+        <li>一筆讀取裡的 LOW、HIGH、BUTTON_STATE、BUTTON_PRESSES 都是同一個時刻的值。</li>
+        <li>讀 0x0F 時多取的 0x10 什麼都不觸發；下一筆讀 0x10 會重新拍一張。</li>
+        <li>分成兩筆讀（先讀 0x10、再讀 0x11）就是兩張快照，可能來自不同轉換。register map 寫明：<b>不要這樣讀</b>。</li>
+      </ul>
+      <p>快照的複製是在 I2C 中斷裡做的，會不會被打斷？主迴圈不會打斷中斷，<code>adc</code> 又是一次寫完的。SysTick 會改 <code>button</code> 和 <code>presses</code>，所以把它的優先權設成和 I2C1 同一級（12b.6），兩個中斷誰都不會打斷誰，快照不會拿到更新到一半的按鍵狀態。</p>
+      <figure class="listing"><figcaption>tests/test_i2c_target.cpp:277–299 — host 向量：LOW 取完之後換成 0x800，HIGH 仍要來自 0x7FF</figcaption>
+<pre data-start="277" data-hot="285-287,290,294">void test_inputs_are_a_snapshot_taken_when_the_read_starts()
+{
+    // A new conversion lands between the two bytes of one read, across the byte boundary at
+    // 0x7FF -&gt; 0x800 (half of VDDA). Bytes from two samples would read 0x8FF.
+    i2c_target t = clean();
+    t.adc = 0x7FF;
+    i2c_target_write_start(&amp;t);
+    i2c_target_rx(&amp;t, REG_ADC_LOW);
+    i2c_target_read_start(&amp;t);
+    uint8_t low = i2c_target_tx(&amp;t);
+    t.adc = 0x800;
+    t.button = BUTTON_PRESSED;
+    t.presses = 9;
+    uint8_t high = i2c_target_tx(&amp;t);
+    uint8_t button = i2c_target_tx(&amp;t);
+    uint8_t presses = i2c_target_tx(&amp;t);
+    i2c_target_stop(&amp;t);
+    check_eq("ADC from one sample", (unsigned)(high &lt;&lt; 8 | low), 0x7FF);
+    check_eq("button from the same moment", button, 0);
+    check_eq("presses from the same moment", presses, 0);
+    check_bytes("the next read sees the new sample", read_n(t, REG_ADC_LOW, 4),
+                {0x00, 0x08, BUTTON_PRESSED, 9});
+}</pre>
+      </figure>
+      <p>下面的模擬器把同一個問題放大：A0 浮接，值在 2048 上下亂跳（12b.7 的實驗）。可以切換 firmware 用快照或讀即時值，以及兩種讀法：</p>
+      <div class="sim" aria-label="模擬器">
+        <div class="sim-label">模擬：瀏覽器裡的簡化模型，不是實機（數字模型見下方說明）</div>
+        <div class="sim-ctl">
+          <span>firmware</span>
+          <button type="button" id="simSnap">快照（正確版）</button>
+          <button type="button" id="simLive">讀即時值（變異版）</button>
+          <span>讀法</span>
+          <button type="button" id="simR2"><code>w1 0x10 r2</code></button>
+          <button type="button" id="simR3"><code>w1 0x0f r3</code></button>
+          <button type="button" id="simRun">讀 20 次</button>
+        </div>
+        <div class="sim-state">firmware <b id="simFw">快照</b> 讀法 <b id="simForm">w1 0x10 r2</b> 錯位 <b id="simTorn">0 / 0</b></div>
+        <pre class="sim-log" id="simLog" aria-live="polite"></pre>
+      </div>
+      <p>模型：每次轉換是 1950–2150 之間的隨機值（浮接時實測 1966–2156）。ADC_HIGH 是第 2 個 byte 時，模型讓兩個 byte 來自同一次轉換（實測：變異版 2000 次 0 次錯位）；是第 3 個 byte 時，模型讓它來自約 4 次轉換之後（第 1 個 byte 送完要約 90 µs）。</p>
+    </div>
+  </section>
+
+  <section id="button">
+    <div class="rail"><span class="no">12b.6</span><b>firmware</b>按鍵</div>
+    <div class="content">
+      <h2>按鍵：每 1 ms 看一次，穩定 20 ms 才算</h2>
+      <p>Step 5-b 在 Jetson 的 kernel 裡做過一次消抖：GPIO 中斷進來後，等一段時間再讀。MCU 這邊換一種做法：<b>固定取樣</b>。SysTick 每 1 ms 讀一次 PA1，電位要連續 20 次一樣，狀態才改變：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 200" role="img" aria-label="消抖的時序。上排是 PA1 的原始電位：一開始是放開的高電位，按下時先彈跳幾次，之後穩定在低電位；放開時也彈跳幾次再回到高電位。下排是消抖後的狀態：只有在低電位連續維持 20 毫秒之後才變成按下，這時按下次數加 1；放開也要高電位連續 20 毫秒才變回放開。彈跳期間的短脈衝都不算。">
+          <text class="s-mono" x="10" y="44">PA1 原始</text>
+          <polyline points="110,30 170,30 170,70 178,70 178,30 186,30 186,70 196,70 196,30 202,30 202,70 420,70 420,30 428,30 428,70 436,70 436,30 700,30" style="fill: none; stroke: var(--hw); stroke-width: 2"/>
+          <text class="s-sm" x="186" y="92" text-anchor="middle">彈跳</text>
+          <text class="s-sm" x="428" y="92" text-anchor="middle">彈跳</text>
+          <text class="s-mono" x="10" y="134">消抖後</text>
+          <polyline points="110,120 262,120 262,160 496,160 496,120 700,120" style="fill: none; stroke: var(--drv); stroke-width: 2.4"/>
+          <line x1="202" y1="176" x2="262" y2="176" style="stroke: var(--accent); stroke-width: 1.5"/>
+          <text class="s-sm" x="232" y="192" text-anchor="middle">20 ms</text>
+          <line x1="436" y1="176" x2="496" y2="176" style="stroke: var(--accent); stroke-width: 1.5"/>
+          <text class="s-sm" x="466" y="192" text-anchor="middle">20 ms</text>
+          <text class="s-lbl" x="270" y="150" style="fill: var(--ok)">PRESSED · presses + 1</text>
+          <text class="s-lbl" x="504" y="112" style="fill: var(--muted)">放開（不加）</text>
+        </svg>
+        <figcaption>圖 12.3 — 電位每變一次，計數就從 1 重新開始；只有連續 20 個相同的取樣才改變狀態。所以彈跳再多次，一次按下也只會讓 BUTTON_PRESSES 加 1。（示意圖，彈跳的寬度沒有照比例。）</figcaption>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/debounce.c:12–27 — 電位一變就重新計時；同一個電位撐滿 DEBOUNCE_MS 次，而且和目前狀態不同，才切換</figcaption>
+<pre data-start="12" data-hot="16-18,22-25">void debounce_tick(struct debounce *d, int raw_pressed)
+{
+    uint8_t raw = raw_pressed != 0;
+
+    if (raw != d-&gt;raw) {
+        d-&gt;raw = raw;
+        d-&gt;held = 1;
+    } else if (d-&gt;held &lt; DEBOUNCE_MS) {
+        d-&gt;held++;
+    }
+    if (d-&gt;held &gt;= DEBOUNCE_MS &amp;&amp; raw != d-&gt;pressed) {
+        d-&gt;pressed = raw;
+        if (raw)
+            d-&gt;presses++;
+    }
+}</pre>
+      </figure>
+      <p>這段 code 不碰任何硬體，參數是「這 1 ms 有沒有按著」，所以能在 Jetson 上用 <code>tests/test_debounce.cpp</code> 直接測：差一次取樣不算、撐滿才算、按著不放不會重複計數、彈跳 10 次不算一次按下、257 次按下計數回到 1。</p>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:69–83 — PA1 開內部上拉；SysTick 每 1 ms 一次，優先權和 I2C1 同一級</figcaption>
+<pre data-start="69" data-hot="76,79,82">/* PA1 (A1) with the internal pull-up: the button pulls it to GND. */
+static void button_init(void)
+{
+    GPIO_InitTypeDef gpio;
+
+    gpio.GPIO_Pin = GPIO_Pin_1;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(GPIOA, &amp;gpio);
+    debounce_init(&amp;button);
+    SysTick_Config(SystemCoreClock / 1000);
+    /* Same preemption level as I2C1 (1, sub-priority 1 in group 2): neither interrupts the
+     * other, so a read's snapshot never sees button and presses from the middle of an update. */
+    NVIC_SetPriority(SysTick_IRQn, (1 &lt;&lt; 2) | 1);
+}</pre>
+      </figure>
+      <figure class="listing"><figcaption>firmware/stm32f103/Core/Src/main.c:125–130 — 低電位 = 按著，把結果放進 target 給 I2C 那邊讀</figcaption>
+<pre data-start="125" data-hot="127">void SysTick_Handler(void)
+{
+    debounce_tick(&amp;button, GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_1) == Bit_RESET);
+    target.button = button.pressed ? BUTTON_PRESSED : 0;
+    target.presses = button.presses;
+}</pre>
+      </figure>
+      <ul>
+        <li><b>內部上拉在這裡有用</b>。Step 5-b 在 Jetson 的 header 上必須外加 330 Ω 上拉，因為那支腳經過 TXB0108 電位轉換器，SoC 的內部上拉推不動它。Blue Pill 的 PA1 直接是 MCU 的腳，內部約 40 kΩ 的上拉就夠了。</li>
+        <li><b>SysTick 的優先權</b>：<code>(1 &lt;&lt; 2) | 1</code> 在 priority group 2 底下是 preemption 1、sub-priority 1，和 I2C1 的 preemption 1 相同。同一個 preemption 等級的中斷不會互相打斷，只決定同時待處理時誰先跑。</li>
+        <li><b>開機時就按著</b>：<code>debounce_init()</code> 把狀態設成「放開」，所以 20 ms 後會算一次按下。register map 寫明了這件事。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">12b.7</span><b>測試</b>先紅再綠</div>
+    <div class="content">
+      <h2>測試：門檻先放 placeholder，量完才填</h2>
+      <ul>
+        <li><b><code>tests/test_i2c_target.cpp</code></b>：16 → 21 組向量。新的有：從規格列出每個位址的存取方式、ADC 的 little-endian（0x000、0x0FF、0x100、0x7FF、0x800、0xFFF）、快照（上一節的節錄）、多取的 byte 不鎖存任何東西、按鍵兩個 register。</li>
+        <li><b><code>tests/test_debounce.cpp</code></b>（新）：5 組向量，見 12b.6。</li>
+        <li><b><code>tests/test_stm32_i2c_target.py</code></b>：41 → <span data-tests="tests/test_stm32_i2c_target.py">51</span> 個。原始碼檢查多了 ADC1 的設定（類比輸入、連續轉換、239.5 cycles、校正、開始轉換）、主迴圈寫 <code>target.adc</code>、PA1 上拉與 SysTick；建置後用 <code>nm</code> 確認 <code>SysTick_Handler</code> 真的連進去了（拼錯名字的話，startup 檔裡的預設 handler 會靜靜地接手）。實機測試 12 → 15 個：ADC 一輪讀取的分散、「讀 0x0F 之後再讀 ADC」、按鍵沒按時的狀態與計數不動。</li>
+      </ul>
+      <h3>先紅</h3>
+      <p>先寫 header 與空的 stub：<code>i2c_target</code> 的向量 <b class="hl-bad">30 個 check 失敗</b>、debounce 的 <b class="hl-bad">15 個</b>；Python 先寫的 10 個紅。ADC 的門檻（一輪讀取最多差多少、接 GND 時最大多少……）要量了才知道，所以先放<b>不可能通過的 placeholder</b>（最大差 0、GND 上限 −1），讓實機測試和腳本先紅，量完才填。</p>
+      <h3>量出來的門檻</h3>
+      <table>
+        <thead><tr><th>A0 接在</th><th>實測（300 次）</th><th>門檻</th></tr></thead>
+        <tbody>
+          <tr><td>G</td><td>24–37，平均 30.1</td><td>max ≤ 100</td></tr>
+          <tr><td>3.3 V</td><td>4085–4095，平均 4091.9</td><td>min ≥ 3995</td></tr>
+          <tr><td>分壓中點</td><td>2062–2082，平均 2068–2069（量三次）</td><td>平均 1940–2160（兩顆 5 % 電阻的理論範圍 1945–2150）</td></tr>
+          <tr><td>一輪讀取的 max − min</td><td>10–19</td><td>≤ 40（實機測試與腳本共用，有測試確保兩邊一致）</td></tr>
+        </tbody>
+      </table>
+      <p>接 G 讀到 30 而不是 0、接 3.3 V 讀到 4092 而不是 4095，是 ADC 的 offset 誤差和麵包板接點上的小壓降加起來的結果；門檻留的空間遠大於這些。</p>
+      <h3>變異：這次有一個在板子上抓不到</h3>
+      <table>
+        <thead><tr><th>故意改成</th><th>結果</th></tr></thead>
+        <tbody>
+          <tr><td>讀 ADC 時拿即時值，不用快照</td><td>host 向量 1 個 check 紅（<code>got 0x8FF, want 0x7FF</code>）。實機：A0 在中點時<b class="hl-bad">全綠</b>，見下</td></tr>
+          <tr><td>消抖視窗 20 ms → 1 ms</td><td>host 向量 2 個 check 紅。實機：按 10 下，計數剛好 10，<b class="hl-bad">抓不到</b></td></tr>
+        </tbody>
+      </table>
+      <p>第一個是這一章最重要的發現。原本的打算是：分壓中點理論上是 2048 = <code>0x800</code>，雜訊會讓它在邊界兩邊跳，錯位就會冒出差 256 的值。實際上兩顆電阻的誤差讓中點落在約 <b>2068</b>，雜訊只有 ±10，<b>從來沒跨過 0x800</b>，HIGH 永遠是 <code>0x08</code>，錯位了也看不出來。</p>
+      <p>要讓值跨過 0x800，就把 A0 的線拔起來<b>浮接</b>：它在 1966–2156 之間亂跳。結果第二個意外：</p>
+      <table>
+        <thead><tr><th>A0 浮接，各讀 2000 次</th><th>錯位（離中位數 ≥ 150）</th></tr></thead>
+        <tbody>
+          <tr><td>變異版 · <code>w1 0x10 r2</code>（HIGH 是第 2 個 byte）</td><td>0</td></tr>
+          <tr><td>變異版 · <code>w1 0x0f r3</code>（HIGH 是第 3 個 byte）</td><td><b class="hl-bad">1131</b>（值落在 1792–1800 和 2296–2303）</td></tr>
+          <tr><td>正確版 · 兩種讀法</td><td><b class="hl-ok">0</b></td></tr>
+        </tbody>
+      </table>
+      <p>同樣是讀即時值，讀 2 byte 時 2000 次一次都沒錯位。我的解釋（<b>推論，沒有用示波器量過</b>）：第 1 個 byte 一搬進 shift register 開始送，DR 就空了，TXE 馬上要第 2 個 byte，兩次取值幾乎緊接著，主迴圈來不及插進來更新 <code>target.adc</code>。第 3 個 byte 要等第 1 個 byte 送完，100 kHz 下約 90 µs，這段時間 ADC 已經轉了約 4 次。</p>
+      <p>這不表示快照可以拿掉：<code>w1 0x0f r3</code> 是完全合法的讀法（讀過識別區塊的尾端，直接讀到 ADC），之後的 driver 也可能一次讀 0x10–0x13 四個 byte。所以驗收腳本多了一步：<b>A0 浮接，用 <code>w1 0x0f r3</code> 讀 1000 次</b>，檢查值有跨過 0x800、而且沒有任何一筆離中位數超過 180。這個檢查先寫測試（紅），再實作，然後在兩個 firmware 上都跑過：</p>
+<pre class="out">變異版：INFO ADC floating: median 2056, 456 reads below 0x800, 544 at or above, farthest 264 from the median (1000 reads)
+        FAIL ADC floating: 560 of 1000 reads more than 180 from the median (bytes from two conversions)
+正確版：INFO ADC floating: median 2052, 453 reads below 0x800, 547 at or above, farthest 101 from the median (1000 reads)
+        PASS ADC floating: every read within 180 of the median (LOW and HIGH from one conversion)</pre>
+      <p>第二個變異照實記錄：這顆按鍵的彈跳在 1 ms 取樣下沒出現，所以「按 5 下計數 +5」證明的是<b>正常按法下計數正確</b>，不是「20 ms 視窗有效」。20 ms 視窗目前只有 host 向量守著。</p>
+      <p>不接板子也能跑兩組向量（在 repo 根目錄，只需要 CMake 和 g++）：</p>
+<pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target test_i2c_target test_debounce &amp;&amp; build/test_i2c_target &amp;&amp; build/test_debounce</pre>
+<pre class="out">all i2c_target vectors passed
+all debounce vectors passed</pre>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">12b.8</span><b>驗收</b>實機</div>
+    <div class="content">
+      <h2>實測：要有人移線、按按鍵</h2>
+      <p>接線在 12-a（PB7 → pin 27、PB6 → pin 28、GND，ST-Link 供電）之外，麵包板上加這些：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 720 210" role="img" aria-label="新增接線。Blue Pill 的 3.3 接到第一顆 330 歐姆電阻，第一顆電阻接到中點，中點接第二顆 330 歐姆電阻，第二顆電阻接到 G。A0 的線接在中點，驗收時依序移到 G、3.3、拔起來浮接，最後插回中點。A1 接一顆兩腳按鍵，按鍵另一腳接 G，不需要外接電阻。">
+          <rect class="s-box" x="20" y="30" width="110" height="44" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-key" x="75" y="57" text-anchor="middle">3.3</text>
+          <rect class="s-box" x="170" y="38" width="110" height="28" rx="6" style="stroke: var(--hw)"/>
+          <text class="s-lbl" x="225" y="57" text-anchor="middle">330 Ω</text>
+          <circle cx="330" cy="52" r="6" style="fill: var(--accent)"/>
+          <text class="s-lbl" x="330" y="26" text-anchor="middle">中點（約 2068）</text>
+          <rect class="s-box" x="380" y="38" width="110" height="28" rx="6" style="stroke: var(--hw)"/>
+          <text class="s-lbl" x="435" y="57" text-anchor="middle">330 Ω</text>
+          <rect class="s-box" x="530" y="30" width="110" height="44" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-key" x="585" y="57" text-anchor="middle">G</text>
+          <line x1="130" y1="52" x2="170" y2="52" style="stroke: var(--muted); stroke-width: 2"/>
+          <line x1="280" y1="52" x2="380" y2="52" style="stroke: var(--muted); stroke-width: 2"/>
+          <line x1="490" y1="52" x2="530" y2="52" style="stroke: var(--muted); stroke-width: 2"/>
+          <rect class="s-box" x="275" y="100" width="110" height="40" rx="8" style="stroke: var(--drv)"/>
+          <text class="s-key" x="330" y="125" text-anchor="middle">A0（PA0）</text>
+          <line x1="330" y1="58" x2="330" y2="100" style="stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3"/>
+          <text class="s-sm" x="400" y="125">驗收時移到 G → 3.3 → 浮接 → 中點</text>
+          <rect class="s-box" x="20" y="160" width="110" height="40" rx="8" style="stroke: var(--drv)"/>
+          <text class="s-key" x="75" y="185" text-anchor="middle">A1（PA1）</text>
+          <rect class="s-box" x="200" y="164" width="110" height="32" rx="6" style="stroke: var(--hw)"/>
+          <text class="s-lbl" x="255" y="185" text-anchor="middle">按鍵（兩腳）</text>
+          <rect class="s-box" x="380" y="160" width="110" height="40" rx="8" style="stroke: var(--hw)"/>
+          <text class="s-key" x="435" y="185" text-anchor="middle">G</text>
+          <line x1="130" y1="180" x2="200" y2="180" style="stroke: var(--muted); stroke-width: 2"/>
+          <line x1="310" y1="180" x2="380" y2="180" style="stroke: var(--muted); stroke-width: 2"/>
+          <text class="s-sm" x="510" y="185">不接電阻：PA1 內部上拉</text>
+        </svg>
+        <figcaption>圖 12.4 — 3.3 和 G 都用 <b>Blue Pill 自己的腳</b>（不是 Jetson 的 3.3 V），ADC 的參考電壓才和分壓的電源一致。3.3 那排的 <code>VBT</code> 是 VBAT（電池備援輸入），不是 3.3 V 輸出。麵包板上同一列的孔是通的，兩頭都在麵包板上的線用公對公。</figcaption>
+      </figure>
+      <p>燒錄新版 firmware：</p>
+<pre class="cmd">~/.platformio/penv/bin/pio run -d firmware/stm32f103 -t upload</pre>
+<pre class="out">RAM:   [          ]   2.4% (used 484 bytes from 20480 bytes)
+Flash: [          ]   4.6% (used 3000 bytes from 65536 bytes)
+...
+========================= [SUCCESS] Took 1.88 seconds =========================</pre>
+      <p>flash 從 12-a 的 2112 byte 變成 3000 byte（多 888 byte），RAM 468 → 484 byte。接著用同一支驗收腳本（12-a 的檢查全部保留）：</p>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>自己用 <code>i2ctransfer</code> 量 ADC</td><td>腳本在每個位置讀 200 次（浮接 1000 次），印出 min / max / 平均，和門檻比。</td></tr>
+          <tr><td>在腳本問之前先把線移好</td><td>每一步都會等你按 Enter 才開始讀，而且等之前會先清掉鍵盤緩衝，之前多按的 Enter 不算。</td></tr>
+          <tr><td>算按鍵按了幾下</td><td>腳本在你按之前和之後各讀一次 BUTTON_PRESSES，相減。</td></tr>
+          <tr><td>最後把線插回中點</td><td>腳本最後一個 ADC 步驟就是插回中點，之後跑的實機測試需要它在那裡。</td></tr>
+          <tr><td>遠端跑時跳過這些步驟</td><td><code>--no-touch</code>：不移線、不按鍵，只檢查「接在哪裡就讀到穩定的值」和「沒人按時 BUTTON_STATE 是 0」。</td></tr>
+        </tbody>
+      </table>
+      <p>2026-10-25，在板子旁跑完整版：</p>
+<pre class="cmd">bash scripts/verify_stm32_i2c.sh</pre>
+<pre class="out" data-marks>PASS c240000.i2c is i2c-1
+== bus scan (i2cdetect -y -r 1)
+...
+PASS STM32 answers at 0x42
+SKIP OLED not on i2c-1 (not needed for this step)
+== identification
+PASS DEVICE_ID: reg 0x00 = 0xed
+PASS FW_MAJOR: reg 0x01 = 0x00
+PASS FW_MINOR: reg 0x02 = 0x03
+PASS PROTOCOL_VERSION (1.1): reg 0x03 = 0x11 «1»
+PASS WATCHDOG_STATUS (placeholder): reg 0x31 = 0x00
+...
+PASS STATUS after a write to ADC_LOW (RO_WRITE): reg 0x30 = 0x01 «2»
+...
+PASS 500 transactions in 1.4 s, all correct «3»
+PASS STATUS after the rounds (nothing dropped): reg 0x30 = 0x00
+== ADC (A0 = PA0)
+&gt;&gt;&gt; Move the A0 wire to GND, then press Enter
+INFO ADC GND: min 24 max 47 mean 38 (200 reads)
+PASS ADC GND: spread 23 &lt;= 40
+PASS ADC GND: max &lt;= 100
+&gt;&gt;&gt; Move the A0 wire to 3.3, then press Enter
+INFO ADC 3.3V: min 4085 max 4095 mean 4093 (200 reads)
+PASS ADC 3.3V: spread 10 &lt;= 40
+PASS ADC 3.3V: min &gt;= 3995
+&gt;&gt;&gt; Pull the A0 wire's other end out of the breadboard so A0 floats (touch nothing), then press Enter
+INFO ADC floating: median 2055, 432 reads below 0x800, 568 at or above, farthest 95 from the median (1000 reads) «4»
+PASS ADC floating: every read within 180 of the median (LOW and HIGH from one conversion)
+&gt;&gt;&gt; Move the A0 wire to the midpoint between the two 330-ohm resistors, then press Enter
+INFO ADC midpoint: min 2069 max 2077 mean 2072 (200 reads)
+PASS ADC midpoint: spread 8 &lt;= 40
+PASS ADC midpoint: mean &gt;= 1940
+PASS ADC midpoint: mean &lt;= 2160
+== button (A1 = PA1)
+&gt;&gt;&gt; Press and HOLD the button, then press Enter
+PASS BUTTON_STATE while held: reg 0x12 = 0x01
+&gt;&gt;&gt; Release the button, then press Enter
+PASS BUTTON_STATE released: reg 0x12 = 0x00
+PASS BUTTON_PRESSES +1 for one press (0 -&gt; 1) «5»
+&gt;&gt;&gt; Press the button 5 times (normal presses, not too fast), then press Enter
+PASS BUTTON_PRESSES +5 (1 -&gt; 6): no bounce counted «6»
+PASS STATUS after the input checks (nothing dropped): reg 0x30 = 0x00
+== unit tests against the board
+PASS test_stm32_i2c_target.py (OK)
+=== 0 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>map 升成 1.1、FW 0.3。只認得 1.0 的程式看到 major 還是 1，照樣能用。</span></li>
+        <li><span class="mk">2</span><span>新的 register 是唯讀的：寫 ADC_LOW 被丟掉，STATUS 設 RO_WRITE。12-a 用 0x10 當「沒定義的位址」，現在改用 0x14。</span></li>
+        <li><span class="mk">3</span><span><b class="hl-ok">12-a 的檢查不回歸</b>：500 筆混合讀取 1.4 s 全對，和 12-a 的基線一樣。</span></li>
+        <li><span class="mk">4</span><span><b class="hl-ok">兩個 byte 來自同一次轉換</b>：值確實跨過 0x800（432 筆在下、568 筆在上），用 ADC_HIGH 是第 3 個 byte 的讀法讀 1000 次，最遠只離中位數 95。錯位的話會差約 256。</span></li>
+        <li><span class="mk">5</span><span>按住時 PRESSED，放開後回到 0，計數 +1。燒錄會重開板子，所以計數從 0 開始。</span></li>
+        <li><span class="mk">6</span><span>正常速度按 5 下，計數剛好 +5，沒有多算彈跳。12b.7 說過：這證明計數在正常按法下正確，不證明 20 ms 視窗。</span></li>
+      </ol>
+      <p>驗收腳本只有在你的分壓也是兩顆接近的電阻時才會過中點那一關。手動看四個輸入 register：</p>
+<pre class="cmd">i2ctransfer -y 1 w1@0x42 0x10 r4@0x42</pre>
+<pre class="out">0x13 0x08 0x00 0x03</pre>
+      <p>依序是 ADC_LOW、ADC_HIGH、BUTTON_STATE、BUTTON_PRESSES：這次是 0x813 = 2067，沒按，開機以來按了 3 下。你的 ADC 值會依電阻誤差而不同；計數取決於你按了幾下。如果讀到 <code>0xff 0x0f</code>（4095），A0 的線可能碰到 3.3 那一列，或者下面那顆電阻沒插好；如果 0x03 讀到 <code>0x10</code>，板子上還是 12-a 的 firmware。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：20 ms 消抖視窗本身（見 12b.7）；分壓中點的錯位（中點不跨 0x800，只能用浮接驗）；400 kHz；OLED 與 STM32 同時在 bus 上。12-a 未實測的 bus error 偵測，這一步也沒有新的方法。</p></div>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">12b.9</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過與差點踩的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>以為中點會跨 0x800</h4><dl><dt>症狀</dt><dd>把快照拿掉，實機測試照樣全綠。</dd><dt>後果</dt><dd>以為驗過「兩個 byte 一致」，其實什麼都沒驗。</dd><dt>正解</dt><dd class="fix">先看值有沒有跨過 HIGH byte 的邊界；用浮接的 A0 讓它跨過。</dd></dl></div>
+        <div class="pit"><h4>只用 2 byte 讀取找錯位</h4><dl><dt>症狀</dt><dd>輸入跨過 0x800，變異版 2000 次照樣 0 次錯位。</dd><dt>後果</dt><dd>以為讀即時值也沒差，把快照當成多餘。</dd><dt>正解</dt><dd class="fix">讓 ADC_HIGH 落在第 3 個 byte（<code>w1 0x0f r3</code>），兩次取值才隔得夠久。</dd></dl></div>
+        <div class="pit"><h4>讀 LOW 時鎖住 HIGH</h4><dl><dt>症狀</dt><dd>讀了 0x0F 之後，下一次讀 ADC 的 HIGH 是很久以前的值。</dd><dt>後果</dt><dd>TXE 多取的 byte 觸發了鎖存，偶發的錯值極難追。</dd><dt>正解</dt><dd class="fix">在讀取開始時拍快照，和讀了哪些 byte 無關。</dd></dl></div>
+        <div class="pit"><h4>把浮接的雜訊當成 ADC 雜訊</h4><dl><dt>症狀</dt><dd>A0 沒接線時標準差 52.7，開始考慮做平均。</dd><dt>後果</dt><dd>為一個不存在的問題改規格（平均會改變值的意思）。</dd><dt>正解</dt><dd class="fix">先確認接線；接上分壓後標準差 1.6–1.9，不需要平均。</dd></dl></div>
+        <div class="pit"><h4>兩顆電阻的腳碰在一起</h4><dl><dt>症狀</dt><dd>沒人動，中點突然讀到 4095。</dd><dt>後果</dt><dd>上面那顆電阻被短路，中點直接等於 3.3 V。</dd><dt>正解</dt><dd class="fix">先讀一次中點確認約 2048 上下再開始；金屬腳之間留空隙。</dd></dl></div>
+        <div class="pit"><h4>用 VBT 當 3.3 V</h4><dl><dt>症狀</dt><dd>Blue Pill 那排第一支腳標著 VBT，看起來像電源。</dd><dt>後果</dt><dd>那是 VBAT（備援電池輸入），不是輸出，讀數不可靠。</dd><dt>正解</dt><dd class="fix">用同一排另一頭標 3.3 的腳。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">12b.10</span><b>收尾</b>下一步</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y">register map v1.1：ADC_LOW / ADC_HIGH（PA0，12-bit，little-endian）、BUTTON_STATE、BUTTON_PRESSES（PA1），都是唯讀；PROTOCOL_VERSION 0x11、FW 0.3。唯讀規則改成一張表。</li>
+        <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：ADC 兩個 byte 一致（浮接跨 0x800，1000 次 0 次錯位；變異版 560 次）、按鍵狀態正確、Jetson 端穩定讀寫多個 register。驗收 <b class="hl-ok">0 failure</b>。</li>
+        <li class="y">12-a 帶過來的兩件事：「讀取時鎖住」改成讀取開始時的快照，TXE 多取的 byte 不觸發任何事；唯讀規則只寫在一個地方。</li>
+        <li class="y">測試：21 組 <code>i2c_target</code> 向量、5 組 debounce 向量、<span data-tests="tests/test_stm32_i2c_target.py">51</span> 個 Python 測試。規模：非空白新增 631 行（產品碼 193、測試 315、驗收腳本 119、CMake / ini 4，不含原樣收錄的 SPL ADC 檔）。</li>
+        <li class="n">只有 host 向量：20 ms 的消抖視窗。沒有實測：400 kHz、OLED 同時在 bus 上、bus error 的偵測。</li>
+      </ul>
+      <p>Step 13 進到 Jetson 的 kernel：寫一個 I2C client driver <code>edge_ctrl</code>，用 Device Tree 綁到 0x42，至少把 device_id、firmware_version、adc、button、LED、status 開放給 userspace（sysfs 或 character device，選哪個要在那一步寫清楚理由），application 不再碰 <code>/dev/i2c-*</code>。這一章的規則會直接變成 driver 的寫法：ADC 一次讀 2 byte、先讀 PROTOCOL_VERSION 確認 major 是 1。</p>
+      <details class="quiz"><summary>1. Jetson 先讀 0x10、再另外讀 0x11，拿到的值一定正確嗎？</summary><p>不一定。兩筆讀取各拍一次快照，中間 ADC 可能已經換了值；如果剛好跨過 HIGH byte 的邊界，合起來會差 256。所以 register map 規定 ADC 要一次讀 2 byte。</p></details>
+      <details class="quiz"><summary>2. 為什麼不在「讀到 ADC_LOW」時把 ADC_HIGH 鎖住？</summary><p>F103 的 TXE 會在 Jetson NACK 之前多取一個 byte。讀 0x0F 的 1 個 byte 時，firmware 也會取 0x10、觸發鎖存，Jetson 卻沒讀到 LOW；之後真正讀 ADC 時，HIGH 是舊的。快照在讀取開始時拍，和取了哪些 byte 無關。</p></details>
+      <details class="quiz"><summary>3. 分壓中點讀到 2068，用它能驗出錯位嗎？</summary><p>不能。錯位只在值跨過 HIGH byte 的邊界時才看得出來，2068 附近的雜訊只有 ±10，HIGH 永遠是 0x08。要讓輸入跨過 0x800，例如讓 A0 浮接，而且讓 ADC_HIGH 是第 3 個 byte。</p></details>
+      <details class="quiz"><summary>4. 按鍵在 5 ms 內彈跳了 6 次之後穩定按住，BUTTON_PRESSES 加幾？什麼時候加？</summary><p>加 1。每次電位改變計數都從 1 重新開始，所以要等最後一次彈跳之後，低電位連續 20 ms（20 次取樣）才算按下，那時加 1。</p></details>
+      <details class="quiz"><summary>5. 這一步的 PROTOCOL_VERSION 為什麼是 0x11 不是 0x20？</summary><p>新增的四個 register 都在原本讀 0xFF 的位址，既有 register 的意思和 transaction 規則都沒變，只認得 1.0 的程式照樣能用，所以是 minor 加 1。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step12a.html">← Step 12-a</a><span class="disabled">Step 13 →</span></nav>
+</main>
+
+<script>
+/* Listings: number every line with its line number in the source file (data-start), and highlight data-hot lines.
+   The number is drawn by CSS ::before, so copying the code does not copy the numbers. */
+document.querySelectorAll('pre[data-start], pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  (pre.dataset.hot || '').split(',').filter(Boolean).forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  var numbered = pre.hasAttribute('data-start');  // without it the source line numbers are unknown: highlight only
+  var lines = pre.innerHTML.split('\n');
+  pre.innerHTML = lines.map(function (line, i) {
+    var n = start + i, cls = [numbered ? 'ln' : '', hot.has(n) ? 'hot' : ''].join(' ').trim();
+    return cls ? '<span class="' + cls + '" data-n="' + n + '">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A simplified model of reading the ADC with A0 floating, not the board (see the note under the simulator).
+  var live = false, third = false, reads = 0, torn = 0;
+  var $ = function (id) { return document.getElementById(id); };
+  var hex = function (b) { return '0x' + ('0' + b.toString(16)).slice(-2); };
+  function conversion() { return 1950 + Math.floor(Math.random() * 201); }
+  function log(s) { var l = $('simLog'); l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
+  function show() {
+    $('simFw').textContent = live ? '讀即時值' : '快照';
+    $('simForm').textContent = third ? 'w1 0x0f r3' : 'w1 0x10 r2';
+    $('simTorn').textContent = torn + ' / ' + reads;
+  }
+  function reset(why) { reads = 0; torn = 0; $('simLog').textContent = ''; log(why); show(); }
+  function readOnce() {
+    var atStart = conversion();               // the value when the read starts (snapshot)
+    var later = third ? conversion() : atStart; // HIGH as the 3rd byte: ~4 conversions later
+    var lo = atStart & 0xFF;
+    var hi = (live ? later : atStart) >> 8;
+    var v = hi << 8 | lo, bad = Math.abs(v - atStart) > 150;
+    reads++; if (bad) torn++;
+    log((third ? '0xff ' : '') + hex(lo) + ' ' + hex(hi) + '  → ' + v + (bad ? '   ← 錯位（實際約 ' + atStart + '）' : ''));
+  }
+  $('simSnap').addEventListener('click', function () { live = false; reset('firmware：快照（read_start() 時複製）'); });
+  $('simLive').addEventListener('click', function () { live = true; reset('firmware：每個 byte 讀當下的即時值（變異版）'); });
+  $('simR2').addEventListener('click', function () { third = false; reset('讀法：w1 0x10 r2（ADC_HIGH 是第 2 個 byte）'); });
+  $('simR3').addEventListener('click', function () { third = true; reset('讀法：w1 0x0f r3（第 1 個 byte 是 0x0F 的 0xff，ADC_HIGH 是第 3 個）'); });
+  $('simRun').addEventListener('click', function () { for (var i = 0; i < 20; i++) readOnce(); show(); });
+  reset('A0 浮接：每次轉換 1950–2150 之間亂跳。選 firmware 與讀法，按「讀 20 次」。');
+})();
+</script>
+</body>
+</html>

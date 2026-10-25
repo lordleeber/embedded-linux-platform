@@ -1,5 +1,5 @@
 // Test vectors for firmware/stm32f103/Core/Src/i2c_target.c (Step 11, register map v1.0 in
-// Step 12-a): the register protocol the Blue Pill answers on I2C, driven here by the same calls
+// Step 12-a, v1.1 with the ADC and button inputs in Step 12-b): the register protocol the Blue Pill answers on I2C, driven here by the same calls
 // main.c makes from the I2C1 interrupts. The expected behaviour comes from i2c_target.h and
 // docs/register-map.md.
 // Exit status: 0 = all checks passed, 1 = a check failed.
@@ -101,12 +101,15 @@ void test_identification_registers()
     i2c_target t = fresh();
     check_eq("DEVICE_ID", read_reg(t, REG_DEVICE_ID), 0xED);
     check_eq("FW_MAJOR", read_reg(t, REG_FW_MAJOR), 0x00);
-    check_eq("FW_MINOR", read_reg(t, REG_FW_MINOR), 0x02);
-    check_eq("PROTOCOL_VERSION 1.0", read_reg(t, REG_PROTOCOL_VERSION), 0x10);
+    check_eq("FW_MINOR", read_reg(t, REG_FW_MINOR), 0x03);
+    check_eq("PROTOCOL_VERSION 1.1", read_reg(t, REG_PROTOCOL_VERSION), 0x11);
     check_eq("WATCHDOG_STATUS placeholder", read_reg(t, REG_WATCHDOG_STATUS), 0x00);
     check_eq("address", I2C_TARGET_ADDR, 0x42);
     check_eq("register numbers", (REG_PROTOCOL_VERSION << 8) | REG_STATUS, 0x0330);
     check_eq("WATCHDOG_STATUS number", REG_WATCHDOG_STATUS, 0x31);
+    check_eq("input register numbers",
+             (REG_ADC_LOW << 24) | (REG_ADC_HIGH << 16) | (REG_BUTTON_STATE << 8) | REG_BUTTON_PRESSES,
+             0x10111213);
 }
 
 void test_reset_state()
@@ -115,6 +118,7 @@ void test_reset_state()
     check_eq("LED off after reset", t.led, 0);
     check_eq("LED_CONTROL reads 0 after reset", read_reg(t, REG_LED_CONTROL), 0);
     check_eq("STATUS after reset: only RESET", read_reg(t, REG_STATUS), STATUS_RESET);
+    check_bytes("inputs before the first sample", read_n(t, REG_ADC_LOW, 4), {0, 0, 0, 0});
     i2c_target u = fresh();
     check_bytes("read without a pointer write starts at DEVICE_ID", read_here(u, 2),
                 {DEVICE_ID_VALUE, FW_VERSION_MAJOR});
@@ -150,6 +154,7 @@ void test_invalid_led_values_are_dropped_and_reported()
 void test_read_only_registers_ignore_writes_and_report()
 {
     for (uint8_t reg : {REG_DEVICE_ID, REG_FW_MAJOR, REG_FW_MINOR, REG_PROTOCOL_VERSION,
+                        REG_ADC_LOW, REG_ADC_HIGH, REG_BUTTON_STATE, REG_BUTTON_PRESSES,
                         REG_WATCHDOG_STATUS}) {
         i2c_target t = clean();
         uint8_t before = read_reg(t, reg);
@@ -162,7 +167,7 @@ void test_read_only_registers_ignore_writes_and_report()
 
 void test_unmapped_registers()
 {
-    for (uint8_t reg : {0x04, 0x0F, 0x10, 0x1F, 0x21, 0x2F, 0x32, 0x3F, 0x40, 0xFF}) {
+    for (uint8_t reg : {0x04, 0x0F, 0x14, 0x1F, 0x21, 0x2F, 0x32, 0x3F, 0x40, 0xFF}) {
         i2c_target t = clean();
         check_eq("unmapped reads 0xFF", read_reg(t, reg), REG_UNMAPPED_VALUE);
         check_eq("reading unmapped is not an error", read_reg(t, REG_STATUS), 0);
@@ -231,10 +236,94 @@ void test_read_auto_increments()
     i2c_target t = clean();
     check_bytes("4 bytes from DEVICE_ID", read_n(t, REG_DEVICE_ID, 4),
                 {DEVICE_ID_VALUE, FW_VERSION_MAJOR, FW_VERSION_MINOR, PROTOCOL_VERSION_VALUE});
+    t.adc = 0x0ABC;
+    check_bytes("the input block", read_n(t, 0x0F, 6), {0xFF, 0xBC, 0x0A, 0, 0, 0xFF});
     check_bytes("past the end of a block: unmapped", read_n(t, REG_PROTOCOL_VERSION, 3),
                 {PROTOCOL_VERSION_VALUE, 0xFF, 0xFF});
     check_bytes("STATUS and WATCHDOG_STATUS", read_n(t, REG_STATUS, 2), {0x00, 0x00});
     check_bytes("wraps from 0xFF to 0x00", read_n(t, 0xFF, 2), {0xFF, DEVICE_ID_VALUE});
+}
+
+// Every address, from the register map (docs/register-map.md) rather than from the code: which
+// ones are read-only, writable, or unmapped. A write of 0x55 must set exactly the matching bit.
+void test_access_of_every_address()
+{
+    const uint8_t ro[] = {0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x31};
+    for (int reg = 0; reg < 0x100; ++reg) {
+        if (reg == REG_LED_CONTROL || reg == REG_STATUS)
+            continue;
+        bool is_ro = false;
+        for (uint8_t r : ro)
+            is_ro = is_ro || r == reg;
+        i2c_target t = clean();
+        write(t, {(uint8_t)reg, 0x55});
+        char what[48];
+        std::snprintf(what, sizeof what, "STATUS after writing 0x%02X", reg);
+        check_eq(what, read_reg(t, REG_STATUS), is_ro ? STATUS_RO_WRITE : STATUS_UNMAPPED_WRITE);
+    }
+}
+
+void test_adc_is_little_endian_12_bit()
+{
+    i2c_target t = clean();
+    for (uint16_t v : {0x000, 0x001, 0x0FF, 0x100, 0x7FF, 0x800, 0xFFF}) {
+        t.adc = v;
+        std::vector<uint8_t> b = read_n(t, REG_ADC_LOW, 2);
+        check_eq("ADC_LOW", b[0], v & 0xFF);
+        check_eq("ADC_HIGH", b[1], v >> 8);
+    }
+}
+
+void test_inputs_are_a_snapshot_taken_when_the_read_starts()
+{
+    // A new conversion lands between the two bytes of one read, across the byte boundary at
+    // 0x7FF -> 0x800 (half of VDDA). Bytes from two samples would read 0x8FF.
+    i2c_target t = clean();
+    t.adc = 0x7FF;
+    i2c_target_write_start(&t);
+    i2c_target_rx(&t, REG_ADC_LOW);
+    i2c_target_read_start(&t);
+    uint8_t low = i2c_target_tx(&t);
+    t.adc = 0x800;
+    t.button = BUTTON_PRESSED;
+    t.presses = 9;
+    uint8_t high = i2c_target_tx(&t);
+    uint8_t button = i2c_target_tx(&t);
+    uint8_t presses = i2c_target_tx(&t);
+    i2c_target_stop(&t);
+    check_eq("ADC from one sample", (unsigned)(high << 8 | low), 0x7FF);
+    check_eq("button from the same moment", button, 0);
+    check_eq("presses from the same moment", presses, 0);
+    check_bytes("the next read sees the new sample", read_n(t, REG_ADC_LOW, 4),
+                {0x00, 0x08, BUTTON_PRESSED, 9});
+}
+
+void test_preloaded_byte_does_not_latch_anything()
+{
+    // PR #21 review: reading 0x0F makes TXE fetch 0x10 too. Nothing may happen because of that
+    // fetch; the next read of 0x10 / 0x11 sees the sample current when it starts.
+    i2c_target t = clean();
+    t.adc = 0x123;
+    read_reg(t, 0x0F);
+    t.adc = 0x456;
+    check_bytes("ADC after a read that ran into 0x10", read_n(t, REG_ADC_LOW, 2), {0x56, 0x04});
+    t.adc = 0x789;
+    read_n(t, REG_ADC_LOW, 1);  // LOW only; TXE fetches HIGH
+    t.adc = 0xABC;
+    check_bytes("HIGH alone, in a later read", read_n(t, REG_ADC_HIGH, 1), {0x0A});
+}
+
+void test_button_registers()
+{
+    i2c_target t = clean();
+    t.button = BUTTON_PRESSED;
+    t.presses = 0xFF;
+    check_bytes("pressed, 255 presses", read_n(t, REG_BUTTON_STATE, 2), {BUTTON_PRESSED, 0xFF});
+    t.button = 0;
+    t.presses = 0;  // the counter wraps
+    check_bytes("released, wrapped", read_n(t, REG_BUTTON_STATE, 2), {0, 0});
+    write(t, {REG_BUTTON_PRESSES, 0});
+    check_eq("the counter is not clearable", read_reg(t, REG_STATUS), STATUS_RO_WRITE);
 }
 
 void test_read_does_not_move_the_pointer()
@@ -337,6 +426,11 @@ int main()
     test_status_read_ahead_does_not_clear();
     test_bus_error();
     test_read_auto_increments();
+    test_access_of_every_address();
+    test_adc_is_little_endian_12_bit();
+    test_inputs_are_a_snapshot_taken_when_the_read_starts();
+    test_preloaded_byte_does_not_latch_anything();
+    test_button_registers();
     test_read_does_not_move_the_pointer();
     test_read_after_data_in_the_same_transaction();
     test_pointer_survives_the_transaction();

@@ -1,5 +1,5 @@
-/* Step 11 / 12-a: the STM32F103's I2C target (slave) register protocol, without any hardware
- * access. Register map v1.0 (PROTOCOL_VERSION 0x10).
+/* Step 11 / 12-a / 12-b: the STM32F103's I2C target (slave) register protocol, without any
+ * hardware access. Register map v1.1 (PROTOCOL_VERSION 0x11).
  *
  * The Jetson is the controller and starts every transaction; this side only answers. The
  * interrupt handlers in main.c turn the I2C1 peripheral's events into the calls below, so the
@@ -21,6 +21,11 @@
  * by the firmware without reaching the Jetson, and must not clear anything. Unmapped registers
  * read as 0xFF; reading is never an error (a multi-byte read runs past mapped registers).
  *
+ * Inputs (Step 12-b): main.c keeps adc / button / presses up to date; i2c_target_read_start()
+ * copies all three into a snapshot and the whole read is served from it. A 2-byte read of the
+ * ADC therefore always gets both bytes of one conversion, and nothing depends on which bytes
+ * are actually read (TXE's preloaded byte included). Two separate reads may see two samples.
+ *
  * PROTOCOL_VERSION: high nibble = major, low nibble = minor. Minor goes up when registers or
  * STATUS bits are added (unused addresses read 0xFF before, reserved bits read 0); major goes up
  * when an existing register or the transaction rules change. A reader that knows M.n works with
@@ -40,22 +45,28 @@ extern "C" {
 
 #define I2C_TARGET_ADDR 0x42 /* 7-bit address, the project's choice */
 
-/* 0x00-0x0F identification / version, 0x10-0x1F sensor / input (Step 12-b),
+/* 0x00-0x0F identification / version, 0x10-0x1F sensor / input,
  * 0x20-0x2F output control, 0x30-0x3F health / watchdog */
 #define REG_DEVICE_ID 0x00        /* RO */
 #define REG_FW_MAJOR 0x01         /* RO */
 #define REG_FW_MINOR 0x02         /* RO */
 #define REG_PROTOCOL_VERSION 0x03 /* RO */
+#define REG_ADC_LOW 0x10          /* RO: PA0, 12-bit, bits 7:0 */
+#define REG_ADC_HIGH 0x11         /* RO: bits 11:8 in bits 3:0, upper bits 0 */
+#define REG_BUTTON_STATE 0x12     /* RO: BUTTON_PRESSED while the PA1 button is held */
+#define REG_BUTTON_PRESSES 0x13   /* RO: debounced presses since reset, wraps at 256 */
 #define REG_LED_CONTROL 0x20      /* RW: 0 = off, 1 = on, reset 0 */
 #define REG_STATUS 0x30           /* RW1C: write 1 to a bit to clear it */
 #define REG_WATCHDOG_STATUS 0x31  /* RO: placeholder until the watchdog phase */
 
 #define DEVICE_ID_VALUE 0xED
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 2
-#define PROTOCOL_VERSION_VALUE 0x10
+#define FW_VERSION_MINOR 3
+#define PROTOCOL_VERSION_VALUE 0x11
 #define WATCHDOG_STATUS_VALUE 0x00 /* no watchdog yet */
 #define REG_UNMAPPED_VALUE 0xFF
+
+#define BUTTON_PRESSED 0x01 /* BUTTON_STATE bit 0; bits 7:1 read 0 */
 
 /* STATUS bits; bits 4-6 are reserved, read 0, and ignore writes */
 #define STATUS_RO_WRITE 0x01       /* a write to a read-only register was dropped */
@@ -79,6 +90,14 @@ struct i2c_target {
     uint8_t led;    /* LED_CONTROL; main.c drives PC13 from it */
     uint8_t status; /* STATUS */
     enum i2c_target_state state;
+    /* live inputs, written by main.c outside the I2C interrupt (one store each) */
+    volatile uint16_t adc;
+    volatile uint8_t button;
+    volatile uint8_t presses;
+    /* the inputs as they were when the current read started */
+    uint16_t snap_adc;
+    uint8_t snap_button;
+    uint8_t snap_presses;
 };
 
 void i2c_target_init(struct i2c_target *t);

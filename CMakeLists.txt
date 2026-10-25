@@ -53,3 +53,6 @@ add_executable(test_telemetry tests/test_telemetry.cpp)
 # Step 11: the STM32F103 firmware's I2C register protocol (pure C, no SPL) on the host.
 add_executable(test_i2c_target tests/test_i2c_target.cpp firmware/stm32f103/Core/Src/i2c_target.c)
 target_include_directories(test_i2c_target PRIVATE firmware/stm32f103/Core/Inc)
+# Step 12-b: the button debounce (pure C, called from SysTick on the board).
+add_executable(test_debounce tests/test_debounce.cpp firmware/stm32f103/Core/Src/debounce.c)
+target_include_directories(test_debounce PRIVATE firmware/stm32f103/Core/Inc)
