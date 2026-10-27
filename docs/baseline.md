@@ -604,3 +604,4 @@
   - 原本以為「不合法的 LED 值之後 STATUS 必須是 0」最能證明值沒送上 bus。RESET、BUS_ERROR 和這件事無關，板子重開或同 bus 的雜訊會讓它誤報；改成只看 RO_WRITE / UNMAPPED_WRITE / BAD_VALUE。沒有照 reviewer 只看 BAD_VALUE：值被送到錯的位址時設的是另外兩個 bit。
   - 原本以為 `(( st & 0x80 ))` 在讀檔失敗時只是判成 FAIL；bash 會先多印一行 arithmetic syntax error（錯誤字串仍在 FAIL 那行，reviewer 說「蓋掉 errno」不成立）。先比對 `^0x[0-9a-f]+$`，腳本測試先紅。
   - 修正後 `test_edge_ctrl_static.py` 20 → 22 個，全套 444 → **446** 個；規模 978 → **999** 行（非空白）。
+  - 修正後重建、使用者重跑 `sudo bash scripts/verify_edge_ctrl.sh --no-look --no-unplug`（2026-10-27）`=== 0 failure(s)`：probe 照常 `probed: FW 0.3, register map 1.1, STATUS 0x00`（2 probe / 2 remove），device 測試 9 個通過；`adc` 2069、raw `0x16 0x08` = 2070。LED 人眼與拔 ST-Link 沒有重做（這次的修改不碰那兩條路）。
