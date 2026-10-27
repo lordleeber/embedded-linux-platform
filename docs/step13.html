@@ -149,7 +149,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 13 · I2C client driver</div>
     <h1>edge_ctrl：把自己的 MCU 接進 kernel</h1>
     <p class="lede">Step 11–12-b 在 Blue Pill 上寫好了一份 register protocol，Jetson 這邊一直用 i2c-tools 直接打 register。這一步在 Jetson 的 kernel 寫一個 I2C client driver，讓 application <b class="hl-key">讀寫檔案就好</b>：<code>cat adc</code> 得到 <code>2068</code>，<code>echo 1 &gt; led</code> 點亮 LED，不用再知道 pointer、byte 順序和 <code>/dev/i2c-1</code>。重點是 driver 和 firmware 對同一份 register map 的理解<b class="hl-key">不能分歧</b>，而且 bus 出錯時不能自作主張。</p>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ctrl/{edge_ctrl.c, Makefile, README.md}、include/edge_ctrl_regs.h、tests/{test_edge_ctrl_regs.cpp, test_edge_ctrl_static.py, test_edge_ctrl_device.py}、scripts/verify_edge_ctrl.sh、docs/step13.html</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_stm32_i2c_target.py、CLAUDE.md、phase05.md、docs/{baseline.md, step12b.html, index.html} · firmware 沒有改（仍是 FW 0.3 / map 1.1）</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ctrl/{edge_ctrl.c, Makefile, README.md}、include/edge_ctrl_regs.h、tests/{test_edge_ctrl_regs.cpp, test_edge_ctrl_static.py, test_edge_ctrl_device.py}、scripts/verify_edge_ctrl.sh、docs/step13.html</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_stm32_i2c_target.py、CLAUDE.md、phase05.md、docs/{baseline.md, step12b.html, index.html} · firmware 沒有改（仍是 FW 0.3 / map 1.1） · 本章程式碼停在 <code>693fa0c</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式（cat、echo、i2c-tools）</span>
       <span style="--c: var(--kern)">kernel 核心（sysfs、I2C core、i2c-tegra）</span>
@@ -236,7 +236,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="content">
       <h2>開機時就有 client，insmod 時才有 driver</h2>
       <p>和 Step 7 的 INA219、Step 10-a 的 OLED 一樣，先在 overlay 裡描述這顆晶片：</p>
-      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:143–154 — 新的 fragment@6：i2c-1（gen2_i2c）上 0x42 有一顆 edge,edge-ctrl</figcaption>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts@693fa0c:143–154 — 新的 fragment@6：i2c-1（gen2_i2c）上 0x42 有一顆 edge,edge-ctrl</figcaption>
 <pre data-start="143" data-hot="149-152">	fragment@6 {
 		target = &lt;&amp;gen2_i2c&gt;;
 		__overlay__ {
@@ -253,7 +253,7 @@ pre, code { font-variant-ligatures: none; }
       <p><code>gen2_i2c</code> 是 NVIDIA 基底 Device Tree 給 <code>/bus@0/i2c@c240000</code> 的 label，也就是 Linux 叫 <code>i2c-1</code> 的那條 bus，header pin 27 / 28。OLED 的 <code>oled@3c</code> 也在這條 bus 上，但另外放一個 fragment，兩者互不影響。</p>
       <p>compatible 是 <code>edge,edge-ctrl</code>，不是規劃裡寫的 <code>edge,controller</code>。原因是 Step 7 踩過的坑：I2C core 會用 compatible 去掉廠商前綴當 client 名稱（這裡是 <code>edge-ctrl</code>），DT 比對不到時還會拿這個名稱去比每個 driver 的 <code>i2c_device_id</code> 表。<code>controller</code> 這種通用字比較有機會撞到別人的 driver，有測試檢查這台 kernel 的 <code>modules.alias</code> 裡沒有人認領 <code>i2c:edge-ctrl</code>。</p>
       <p>重開機後節點生效，client <code>1-0042</code> 出現、還沒有 driver。<code>insmod</code> 時 compatible 相符，I2C core 呼叫 probe：</p>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:184–211 — probe 先確認 adapter 能做一般的 I2C transfer，再一次讀 0x00–0x03，確認接上的是這份 firmware、而且 register map 相容</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:184–211 — probe 先確認 adapter 能做一般的 I2C transfer，再一次讀 0x00–0x03，確認接上的是這份 firmware、而且 register map 相容</figcaption>
 <pre data-start="184" data-hot="188,192,195,198">	u8 id[4], status;
 	int ret;
 
@@ -286,7 +286,7 @@ pre, code { font-variant-ligatures: none; }
       <p>probe 的工作是「確認這真的是我認得的東西」。第一步是問 adapter 能不能做一般的 I2C transfer（<code>I2C_FUNC_I2C</code>）：<code>read_reg()</code> 用的是「寫 pointer + repeated START + 讀」，只支援 SMBus 的 adapter 做不到。這台的 <code>i2c-1</code> 可以（<code>i2cdetect -F 1</code> 列 <code>I2C yes</code>），這一行是 code review 補上的標準檢查。接著，一個 ACK 只證明 0x42 有人回應，所以要看 DEVICE_ID 是不是 0xED，再照 12-a 寫下的版本規則看 PROTOCOL_VERSION：major 要是 1，minor 至少是 1（這個 driver 要用 ADC 和按鍵，map 1.0 沒有）。四個 register 用一筆讀取拿到，一次 transaction 就完成檢查。</p>
       <p>STATUS 只讀出來印在 dmesg，<b>不清除</b>。它的 RESET bit 是給 application 判斷「板子重開過」用的，driver 一載入就把它清掉，這個資訊就沒了。</p>
       <p>屬性檔不是 probe 建立的：</p>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:233–243 — .dev_groups：綁定成功後 driver core 建立屬性檔，解除綁定時刪掉</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:233–243 — .dev_groups：綁定成功後 driver core 建立屬性檔，解除綁定時刪掉</figcaption>
 <pre data-start="233" data-hot="237">static struct i2c_driver edge_ctrl_driver = {
 	.driver = {
 		.name = "edge_ctrl",
@@ -339,7 +339,7 @@ module_i2c_driver(edge_ctrl_driver);</pre>
     <div class="rail"><span class="no">13.5</span><b>傳輸</b>read_reg</div>
     <div class="content">
       <h2>pointer 和讀取放在同一筆 transaction</h2>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:34–56 — 兩個 helper：讀是「寫 pointer + 讀 len byte」兩個 message 一次送；寫是 reg、value 兩個 byte</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:34–56 — 兩個 helper：讀是「寫 pointer + 讀 len byte」兩個 message 一次送；寫是 reg、value 兩個 byte</figcaption>
 <pre data-start="34" data-hot="36-40,50-51">static int read_reg(struct i2c_client *client, u8 reg, u8 *buf, u16 len)
 {
 	struct i2c_msg msgs[2] = {
@@ -378,7 +378,7 @@ static int write_reg(struct i2c_client *client, u8 reg, u8 value)
     <div class="rail"><span class="no">13.6</span><b>屬性</b>show / store</div>
     <div class="content">
       <h2>讀：直接問板子。寫：先擋，再送</h2>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:89–96 — adc 一次讀兩個 byte，用共用 header 的 helper 合成一個數字</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:89–96 — adc 一次讀兩個 byte，用共用 header 的 helper 合成一個數字</figcaption>
 <pre data-start="89" data-hot="93">/* LOW and HIGH in one read: two reads may come from two conversions. */
 static ssize_t adc_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -389,7 +389,7 @@ static ssize_t adc_show(struct device *dev, struct device_attribute *attr, char 
 }</pre>
       </figure>
       <p>每個 <code>show()</code> 的形狀都一樣：讀 register，失敗就回傳負的 errno，成功就用 <code>sysfs_emit()</code> 寫文字。<b>沒有快取</b>：driver 不記得上次的值，每次讀檔都真的走一趟 bus。代價是每次讀都要一筆 transaction（<code>adc</code> 是位址、pointer、位址、2 個資料共 5 個 byte，100 kHz 下算起來約 0.45 ms，沒有量），換來的是讀到的永遠是板子上現在的值，有人用 <code>i2ctransfer -f</code> 改了 LED，下一次 <code>cat led</code> 就看得到。</p>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:123–137 — led 只把 0 和 1 送出去；其他值在 driver 這邊就回 EINVAL</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:123–137 — led 只把 0 和 1 送出去；其他值在 driver 這邊就回 EINVAL</figcaption>
 <pre data-start="123" data-hot="133-134">/*
  * Only 0 and 1 go out: anything else the firmware would ACK, drop and flag as
  * BAD_VALUE, and the writer would see success. Refusing it here gives EINVAL instead.
@@ -408,7 +408,7 @@ static ssize_t led_store(struct device *dev, struct device_attribute *attr,
       </figure>
       <p>為什麼 driver 要自己檢查？firmware 收到 LED_CONTROL = 2 時，bus 上照樣 ACK，只是把值丟掉、在 STATUS 設 BAD_VALUE。如果 driver 直接轉送，<code>echo 2 &gt; led</code> 會「成功」，寫的人完全不知道值沒生效。在 driver 先擋，錯誤就以 <code>EINVAL</code> 回到 <code>echo</code>，這是 userspace 期待的行為。</p>
       <p>擋的範圍要和 firmware <b>完全一樣</b>：擋多了，合法的值送不出去；擋少了，又回到「靜靜被丟掉」。這個規則放在共用 header 的 <code>edge_ctrl_led_ok()</code>，13.7 的測試逐值比對兩邊。</p>
-      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:147–158 — status 照 write-1-to-clear 原樣轉送：寫幾個 1 就清幾個 bit</figcaption>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c@693fa0c:147–158 — status 照 write-1-to-clear 原樣轉送：寫幾個 1 就清幾個 bit</figcaption>
 <pre data-start="147" data-hot="154-156">/* Write-1-to-clear, passed through: "echo 0x01" clears RO_WRITE, "echo 0xff" all. */
 static ssize_t status_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
@@ -444,7 +444,7 @@ static ssize_t status_store(struct device *dev, struct device_attribute *attr,
     <div class="content">
       <h2>driver 的 register map，由 firmware 的程式碼來驗</h2>
       <p>register 位址在 firmware 那邊已經有一份 <code>i2c_target.h</code>。kernel 不能直接 include 它：它用 <code>&lt;stdint.h&gt;</code>，還帶著 firmware 的 state machine。所以 driver 有自己的 <code>include/edge_ctrl_regs.h</code>，只有位址和幾個解碼 helper：</p>
-      <figure class="listing"><figcaption>include/edge_ctrl_regs.h:31–44 — 版本規則與 ADC 的解碼；kernel 與 host 的測試都 include 這份</figcaption>
+      <figure class="listing"><figcaption>include/edge_ctrl_regs.h@693fa0c:31–44 — 版本規則與 ADC 的解碼；kernel 與 host 的測試都 include 這份</figcaption>
 <pre data-start="31" data-hot="37,43">/* The map this driver knows: 1.1 (ADC and button). Any 1.x from 1.1 on is compatible. */
 #define EDGE_CTRL_PROTOCOL_MAJOR	1
 #define EDGE_CTRL_PROTOCOL_MINOR	1
@@ -461,7 +461,7 @@ static inline unsigned int edge_ctrl_adc(unsigned int lo, unsigned int hi)
 }</pre>
       </figure>
       <p>兩份 header 就是兩份可能分歧的拷貝。測試如果只拿 driver 的 header 跟自己比（「我定義 0x20，我讀到 0x20」），永遠會過。所以 <code>tests/test_edge_ctrl_regs.cpp</code> 把 <b>firmware 真正跑在板子上的 <code>i2c_target.c</code></b> 一起編進來，用 driver 會送的 transaction 去驅動它，再用 driver 的 helper 解碼：</p>
-      <figure class="listing"><figcaption>tests/test_edge_ctrl_regs.cpp:130–146 — LED 的 0–255 每個值：driver 的判定必須和 firmware 收不收一致</figcaption>
+      <figure class="listing"><figcaption>tests/test_edge_ctrl_regs.cpp@693fa0c:130–146 — LED 的 0–255 每個值：driver 的判定必須和 firmware 收不收一致</figcaption>
 <pre data-start="130" data-hot="137-139">void test_led_values_match_what_the_firmware_takes()
 {
     int bad = 0;
@@ -525,7 +525,7 @@ PASS status 0x80 has RESET: the restart is visible</pre>
       <h2>測試：三層，期望值都從對方那邊來</h2>
       <ul>
         <li><b><code>tests/test_edge_ctrl_regs.cpp</code></b>（新）：6 組向量，見 13.7。</li>
-        <li><b><code>tests/test_edge_ctrl_static.py</code></b>（新）：<span data-tests="tests/test_edge_ctrl_static.py">22</span> 個，不需要硬體。overlay 4 個（節點與 compatible、fragment 指向 <code>gen2_i2c</code>、用 <code>fdtoverlay</code> 疊到這台的開機 FDT 後節點落在 <code>/bus@0/i2c@c240000/controller@42</code>、client 名稱沒被別的 module 認領）；driver 原始碼契約 10 個；建置與向量 2 個；驗收腳本 6 個。</li>
+        <li><b><code>tests/test_edge_ctrl_static.py</code></b>（新）：<span data-tests="tests/test_edge_ctrl_static.py@693fa0c">22</span> 個，不需要硬體。overlay 4 個（節點與 compatible、fragment 指向 <code>gen2_i2c</code>、用 <code>fdtoverlay</code> 疊到這台的開機 FDT 後節點落在 <code>/bus@0/i2c@c240000/controller@42</code>、client 名稱沒被別的 module 認領）；driver 原始碼契約 10 個；建置與向量 2 個；驗收腳本 6 個。</li>
         <li><b><code>tests/test_edge_ctrl_device.py</code></b>（新）：9 個，driver 綁定時才跑。每個屬性和 <code>i2ctransfer -f</code> 讀到的 raw 值比對（識別、版本、按鍵、STATUS 逐字相同；ADC 兩邊各讀 20 次，中位數差 ≤ 40，沿用 12-b 量到的雜訊門檻），LED 寫入後 raw 讀回、不合法的 LED 值回 <code>EINVAL</code> 而且 STATUS 沒有任何「寫入被丟掉」的 bit（RO_WRITE、UNMAPPED_WRITE、BAD_VALUE；證明值沒送上 bus），STATUS 的 write-1-to-clear，連讀 200 次不出錯。寫入的 3 個要 root。</li>
       </ul>
       <p>raw 一律用 <code>i2ctransfer -f</code>：driver 綁定之後 0x42 屬於 kernel，i2c-dev 不加 <code>-f</code> 會回 <code>Device or resource busy</code>（Step 7 的坑），驗收腳本也故意試一次確認這件事。</p>
@@ -702,7 +702,7 @@ tee: led: Invalid argument
         <li class="y"><code>edge_ctrl.ko</code>：Device Tree 綁定 <code>1-0042</code>，probe 檢查 DEVICE_ID 與 map 版本，八個 sysfs 屬性（識別、版本、ADC、按鍵、計數、LED、STATUS）。application 不再碰 <code>/dev/i2c-1</code>。</li>
         <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：Jetson Linux driver → I2C → STM32 firmware → GPIO / ADC / status 整條路可以工作，driver 的值和 raw I2C 一致。驗收 <b class="hl-ok">0 failure</b>（第一輪 1 個失敗是測試寫錯，修測試後重跑）。</li>
         <li class="y">Step 11 帶過來的「整條 bus timeout 不是晶片的錯」：錯誤只回 errno、不留狀態；Blue Pill 斷電後不用重新綁定就恢復。</li>
-        <li class="y">測試：6 組向量（driver header 對 firmware 的 <code>i2c_target.c</code>）、<span data-tests="tests/test_edge_ctrl_static.py">22</span> 個 static、9 個 device 測試。規模：非空白新增 999 行（含 code review 的修正），<b class="hl-bad">超過 800 的上限</b>，而且動工前沒有寫下估計；其中測試與驗收腳本佔 711 行。</li>
+        <li class="y">測試：6 組向量（driver header 對 firmware 的 <code>i2c_target.c</code>）、<span data-tests="tests/test_edge_ctrl_static.py@693fa0c">22</span> 個 static、9 個 device 測試。規模：非空白新增 999 行（含 code review 的修正），<b class="hl-bad">超過 800 的上限</b>，而且動工前沒有寫下估計；其中測試與驗收腳本佔 711 行。</li>
         <li class="n">沒有實測：整條 bus timeout（SCL 拉到 GND）；probe 拒絕不相容 firmware 的路徑（只有向量）。</li>
       </ul>
       <p>Step 14 進到 Phase 6：讓 STM32 從被動的周邊變成 Jetson 的 supervisor。Jetson 定期寫一個 HEARTBEAT register，STM32 用 timer 判斷多久沒收到就進入 fault 狀態。這會是 register map 第一個「寫入有副作用」的 register，12-b 的 code review 已經記下：firmware 的 <code>write_reg()</code> 目前把其他可寫位址都當 STATUS 處理，加 HEARTBEAT 前要先改。</p>
