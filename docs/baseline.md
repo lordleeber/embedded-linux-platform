@@ -576,3 +576,32 @@
   - 原本以為 `ADC_Cmd(ENABLE)` 之後可以馬上校正。RM0008 要 ADON 之後至少兩個 ADC clock（datasheet tSTAB 約 1 µs）；板子上重現不出問題，照規格補等待（`delay_cycles(SystemCoreClock / 1000000)`）。原始碼測試先紅。
   - 原本以為手算的 SysTick 優先權 `(1 << 2) | 1` 沒問題。它只在 group 2 下等於 preemption 1；寫進去的是原始值，init 順序不影響，換 group 才會錯。改成 group 在 `main()` 開頭設一次、SysTick 用 `NVIC_EncodePriority()`。用 OpenOCD 讀回：SysTick `0x50`、I2C1 EV / ER `0x40`、AIRCR PRIGROUP 5，和修改前相同。
   - 修正後重燒（flash 3000 → **3080 byte**，RAM 484），`--no-look --no-touch` `=== 0 failure(s)`（A0 在中點 2069–2076），實機 15 個通過；`test_stm32_i2c_target.py` 51 → 53 個，全套 422 → **424** 個，`OK (skipped=80)`。規模 631 → **659** 行（非空白；產品碼 205、測試 331、驗收腳本 119、CMake / ini 4）。
+
+## Step 13：Jetson edge_ctrl I2C driver（`kernel/edge_ctrl`，sysfs 屬性）
+
+- 驗收主機與接線：同 12-b（Blue Pill PB7 / PB6 → header pin 27 / 28、GND，ST-Link 插 Jetson USB 供電；A0 在分壓中點、A1 按鍵不按；OLED 拔掉），firmware 不變（FW 0.3、map 1.1）。overlay 換成加了 `fragment@6`（`controller@42`，`&gen2_i2c`）的版本，install 後重開機：`/proc/device-tree/bus@0/i2c@c240000/controller@42` 出現，compatible `edge,edge-ctrl`、reg `00 00 00 42`；client `1-0042` 名稱 `edge-ctrl`，開機時存在、沒有綁定。
+- 對照方法：新增 `sudo bash scripts/verify_edge_ctrl.sh [--no-look] [--no-unplug]`。driver 的值對照的是 Step 11–12-b 的 raw I2C（`i2ctransfer -f`，driver 綁定時不加 `-f` 是 `EBUSY`）；不回歸用上一步的 `bash scripts/verify_stm32_i2c.sh --no-look --no-touch`（module 卸載後跑）。
+- 結果（2026-10-27）：
+  - 重開機前（沒有節點）`--no-look --no-unplug` `=== 0 failure(s)`：沒有 client `1-0042`、insmod 不綁任何東西；0x43 的 `new_device` probe 失敗 `error -EREMOTEIO: cannot read DEVICE_ID`（`-121`）。
+  - 重開機後，使用者在板子旁跑完整驗收：25 項只有 1 項 FAIL，是 device 測試寫空字串的 case（見踩坑，測試錯）；其餘全過，包括人確認 PC13 亮、滅，以及拔 ST-Link：`device_id` / `adc` 讀取回 `Remote I/O error`，同 bus 的 ina3221 仍讀到 `0x4954`；插回後 `device_id` 回到 `0xed`、綁定沒變（沒有 unbind / bind），`status` = `0x80`（RESET）。改測試後重跑 `--no-look --no-unplug` `=== 0 failure(s)`，device 測試 9 個通過（以 root 跑）。
+  - driver 與 raw 的對照（同一輪）：`device_id 0xed`、`firmware_version 0.3`、`protocol_version 1.1`、`button 0`、`button_presses 0`、`led 0`、`status 0x00` 與 raw `0xed 0x00 0x03 0x11`、`0x11 0x08 0x00 0x00`、LED `0x00`、STATUS `0x00` 相同；`adc` 2070，raw `0x0811` = 2065（不是同一次轉換）。
+  - dmesg：`probed: FW 0.3, register map 1.1, STATUS 0x80`（重開機後第一次，板子的 RESET 還沒清）、bind 後第二次 `STATUS 0x00`；2 probe / 2 remove，無 Oops。rmmod 前開著的 `adc` fd 之後讀到 `ENODEV`；rmmod 後 client 留著、沒有屬性。
+  - 不回歸：`verify_stm32_i2c.sh --no-look --no-touch` `=== 0 failure(s)`，500 筆混合讀取後 STATUS `0x00`，ADC 2050–2076（平均 2067）。
+- 容差：識別、版本、按鍵、LED、STATUS 逐字比對；ADC 兩邊各讀 20 次、中位數差 ≤ 40（`ADC_SPREAD_MAX`，12-b 量到同一輪 max − min 10–23）。
+- **未實測**：整條 bus timeout（SCL / SDA 被拉到 GND，Step 11 的情況）時 driver 的行為。只有 Blue Pill 斷電（NACK → `EREMOTEIO`）實測過；timeout 的路徑同一段程式碼（errno 原樣回傳、不留狀態），只由原始碼測試守住。probe 遇到 DEVICE_ID 不對或 protocol 不相容（`-ENODEV`）也沒有在實機上跑（沒有別的 firmware 版本在板上），只由向量與原始碼測試守住。
+- 自動測試：`build/test_edge_ctrl_regs` 6 組向量（位址與 firmware header 相同、probe 讀到的識別、protocol 版本表、0–4095 每個 ADC 值經 firmware 的 2-byte 讀取再解碼、按鍵與計數同一筆讀、LED 0–255 每個值 driver 與 firmware 判定相同）；`tests/test_edge_ctrl_static.py` 20 個（overlay 4、driver 原始碼契約 9、建置與向量 2、驗收腳本 5）；`tests/test_edge_ctrl_device.py` 9 個（沒綁定時 skip，寫入的 3 個要 root）。全套 424 → **444** 個，`OK (skipped=81)`。
+- 紅燈紀錄：實作前 static 20 個中 18 failures、1 error（`test_client_name_is_no_other_drivers_i2c_id` 是守門測試，先就會過），device 測試 skip；C++ 向量因為 header 不存在編不過。實作後 static 還紅 2 個，都是測試的 regex 太窄（`read_reg` 的第一個參數是 `to_i2c_client(dev)`、`command -v i2ctransfer` 被當成存取）。變異：header 4 種（ADC byte 順序、LED 收 2、protocol 不看 minor、LED 位址 0x21）都讓向量紅；driver 5 種（LED 不檢查值、ADC 拆兩次 1-byte 讀、部分 transfer 當成功、probe 不檢查 protocol、讀取失敗印 `dev_err`）都讓原始碼測試紅。
+- 規模：`git diff main`（不含 .md）新增非空白 **978 行**：driver 205、header 47、測試 492（static 223、C++ 146、device 120、12-b 範圍檢查 3）、驗收腳本 202、overlay / Makefile / CMake 32。**超過 800 的上限，而且動工前沒有寫下估計**（CLAUDE.md 規定先估、超過就在實作前拆）；寫完才量到，照規則不事後拆 commit，記在這裡。超出的部分主要是測試與驗收腳本（合計 694，佔 71 %），和 Step 7–10-c「測試約佔一半」相比更高。
+
+### 踩坑
+
+- 原本以為 device 測試把 `""` 寫進 `led` 會得到 `EINVAL`。實機上那個 subtest 沒有 `OSError`：Python 寫空字串時根本不呼叫 `write()`（strace 實測：`"\n"`、`"2"` 都有 `write(3, …, 1)`，`""` 只有 `openat`），而且 sysfs 對 0 byte 的 `write()` 也不會呼叫 `store`。改成 `"\n"`（`echo > led` 實際送的內容），`kstrtouint` 回 `EINVAL`。driver 沒改。
+- 原本以為 Step 12-b 的範圍守門測試只看 firmware；它還斷言「沒有 `kernel/edge_ctrl`」，這一步一建目錄就紅。拿掉那一條（改名 `test_firmware_scope`），firmware 的其他範圍檢查保留。
+- 跑 header 變異時，在同一秒內改 header 又重編，make 判斷不用重編，第三個變異印出的是上一個變異的結果。要先刪掉 object 檔再編（或分開跑），變異的結論才可信。
+- 開工時 ST-Link 沒插在 Jetson 上（`lsusb` 看不到 `0483:3748`），0x42 掃不到；使用者插回後一切正常。開工前先用 `lsusb` 與 `i2ctransfer w1@0x42 0x00 r4@0x42` 確認板子有電、有回應。
+- code review（PR #25，medium）6 項，分流見 phase05 的 Step 13 實作決策。原本以為沒事的：
+  - 原本以為 DT 已經把節點放在 Tegra 的 `i2c-1` 上，就不用檢查 adapter 的能力。`read_reg()` 是 raw `i2c_transfer()` 加 repeated START，只支援 SMBus 的 adapter 做不到；probe 補 `i2c_check_functionality(…, I2C_FUNC_I2C)`（這台 `i2cdetect -F 1` 是 `I2C yes`，行為不變）。原始碼測試先紅。
+  - 原本以為「不合法的 LED 值之後 STATUS 必須是 0」最能證明值沒送上 bus。RESET、BUS_ERROR 和這件事無關，板子重開或同 bus 的雜訊會讓它誤報；改成只看 RO_WRITE / UNMAPPED_WRITE / BAD_VALUE。沒有照 reviewer 只看 BAD_VALUE：值被送到錯的位址時設的是另外兩個 bit。
+  - 原本以為 `(( st & 0x80 ))` 在讀檔失敗時只是判成 FAIL；bash 會先多印一行 arithmetic syntax error（錯誤字串仍在 FAIL 那行，reviewer 說「蓋掉 errno」不成立）。先比對 `^0x[0-9a-f]+$`，腳本測試先紅。
+  - 修正後 `test_edge_ctrl_static.py` 20 → 22 個，全套 444 → **446** 個；規模 978 → **999** 行（非空白）。
+  - 修正後重建、使用者重跑 `sudo bash scripts/verify_edge_ctrl.sh --no-look --no-unplug`（2026-10-27）`=== 0 failure(s)`：probe 照常 `probed: FW 0.3, register map 1.1, STATUS 0x00`（2 probe / 2 remove），device 測試 9 個通過；`adc` 2069、raw `0x16 0x08` = 2070。LED 人眼與拔 ST-Link 沒有重做（這次的修改不碰那兩條路）。

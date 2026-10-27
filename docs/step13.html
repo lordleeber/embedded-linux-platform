@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step 13　edge_ctrl：把自己的 MCU 接進 kernel — Embedded Linux Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Book template (copied from step12b). Layout: a 1080px column that "descends" from userspace into the kernel; a left rail labels
+   each section's place in that descent. Dark only. --hw (hardware) was added in Step 4-a. */
+:root {
+  color-scheme: dark;
+  --bg: #111715;
+  --surface: #18201d;
+  --surface-2: #1e2824;
+  --ink: #e3ebe7;
+  --muted: #95a6a0;
+  --line: #2b3733;
+  --accent: #3cc2a6;
+  --user: #74a8e8;
+  --kern: #a690e6;
+  --drv: #e0ab3c;
+  --hw: #e58fb6;
+  --bad: #f07a65;
+  --ok: #5ccf8c;
+  --term-bg: #0b0f0e;
+  --term-fg: #d7e2dd;
+  --term-dim: #7f948c;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1rem; line-height: 1.8; }
+.page { max-width: 67.5rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 4rem; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; }
+h1 { font-size: 2.6rem; font-weight: 900; margin: 0.3rem 0 0.8rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; margin: 0 0 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--drv); }
+p, li { max-width: 100ch; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 0.05em 0.35em; border-radius: 4px; }
+b.hl-ok { color: var(--ok); } b.hl-bad { color: var(--bad); } b.hl-key { color: var(--accent); }
+
+nav.chapnav { display: flex; gap: 1.4rem; padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+nav.chapnav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 1rem; }
+nav.chapnav a { color: var(--muted); text-decoration: none; }
+nav.chapnav a:hover { color: var(--accent); }
+nav.chapnav .spacer { flex: 1; }
+nav.chapnav .disabled { color: var(--muted); opacity: 0.5; }
+
+header.top { padding-block: 2.4rem 1.6rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 1.12rem; max-width: 64ch; }
+.meta { color: var(--muted); font-size: 0.88rem; font-family: var(--font-mono); }
+.meta .new { color: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.85rem; color: var(--muted); margin: 0.6rem 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: -0.1rem; background: var(--c); }
+
+section { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.6rem; padding-block: 2.6rem; border-top: 1px solid var(--line); }
+.rail { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 0.35rem; }
+.rail .no { display: block; font-size: 1.1rem; color: var(--accent); letter-spacing: 0; }
+.rail b { display: block; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.06em; }
+.content { min-width: 0; }
+
+dl.terms { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1rem; font-size: 0.93rem; }
+dl.terms dt { font-family: var(--font-mono); color: var(--kern); font-weight: 600; }
+dl.terms dd { margin: 0; color: var(--muted); max-width: 100ch; }
+
+figure { margin: 0 0 1.2rem; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.figure svg { display: block; width: 100%; max-width: 50rem; margin: 0 auto; height: auto; }
+.figure figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 0.7rem; }
+.s-box { fill: var(--surface); stroke-width: 2; }
+.s-mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; fill: var(--muted); }
+.s-key { font-family: var(--font-mono); font-size: 13.5px; fill: var(--ink); font-weight: 600; }
+.s-sm { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.s-lbl { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+.sv-down { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+
+figure.listing figcaption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+pre { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1rem; tab-size: 8; }
+figure.listing pre { margin: 0; }
+.hot { display: inline-block; width: calc(100% + 2rem); margin-left: -1rem; padding-left: calc(1rem - 3px); background: rgba(224, 171, 60, 0.14); border-left: 3px solid var(--drv); }
+/* The gutter is exactly one tab stop wide (6.5ch + 1.5ch = 8ch = tab-size), so tabs in the code still land on the source file's columns.
+   The second content line gives screen readers empty alt text; browsers without that syntax keep the first one. */
+.ln::before { content: attr(data-n); content: attr(data-n) / ""; display: inline-block; width: 6.5ch; margin-right: 1.5ch; text-align: right; color: var(--term-dim); user-select: none; }
+pre .c { color: var(--term-dim); }
+pre.cmd { border-left: 3px solid var(--accent); color: #ffffff; }
+pre.cmd::before { content: "貼上執行（repo 根目錄）"; display: block; font-family: var(--font-body); font-size: 0.72rem; color: var(--accent); margin-bottom: 0.3rem; }
+pre.out .prompt { color: var(--ok); }
+.mk { display: inline-block; min-width: 1.35em; text-align: center; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 999px; padding: 0 0.35em; margin-left: 0.5em; line-height: 1.5; }
+ol.notes { list-style: none; padding: 0; font-size: 0.93rem; }
+ol.notes li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); max-width: none; margin-bottom: 0.45rem; }
+ol.notes .mk { margin: 0.25rem 0 0; justify-self: start; }
+
+.callout { border-left: 3px solid var(--drv); background: color-mix(in srgb, var(--drv) 8%, transparent); padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem; font-size: 0.95rem; }
+.callout p { max-width: none; }
+.callout p:last-child { margin: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+th { color: var(--accent); }
+td:first-child { color: var(--muted); width: 36%; }
+
+.pitfalls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.pit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; }
+.pit h4 { margin: 0 0 0.35rem; font-size: 0.93rem; }
+.pit dl { margin: 0; font-size: 0.86rem; }
+.pit dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.4rem; }
+.pit dd { margin: 0; }
+.pit dd.fix { color: var(--ok); }
+
+.checks { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; }
+.checks li { padding-left: 1.6rem; position: relative; }
+.checks li::before { position: absolute; left: 0; font-family: var(--font-mono); font-weight: 700; }
+.checks li.y::before { content: "✓"; color: var(--ok); }
+.checks li.n::before { content: "–"; color: var(--muted); }
+details.quiz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 0.6rem; }
+details.quiz summary { cursor: pointer; font-weight: 600; }
+details.quiz[open] { border-color: var(--accent); }
+details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
+
+/* No ligatures in code (Step 10-b: JetBrains Mono drew <=> as one arrow) */
+pre, code { font-variant-ligatures: none; }
+
+/* Simulators (JavaScript models, not the board); since Step 11 */
+.sim { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0 0 1.2rem; }
+.sim-label { font-size: 0.78rem; color: var(--drv); font-weight: 700; margin-bottom: 0.5rem; }
+.sim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; margin-bottom: 0.7rem; font-size: 0.9rem; color: var(--muted); }
+.sim-ctl button { font-family: var(--font-mono); font-size: 0.8rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.65rem; cursor: pointer; }
+.sim-ctl button:hover { border-color: var(--accent); }
+.sim-state { display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; font-family: var(--font-mono); font-size: 0.9rem; margin-bottom: 0.5rem; }
+.sim-state b { color: var(--drv); font-weight: 600; }
+.sim-log { font-family: var(--font-mono); font-size: 0.8rem; background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 0.6rem 0.9rem; height: 9.5rem; overflow-y: auto; white-space: pre-wrap; margin: 0; }
+.sim-ctl input, .sim-ctl select { font-family: var(--font-mono); font-size: 0.85rem; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.5rem; }
+.sim-ctl input { width: 8rem; }
+</style>
+
+</head>
+<body>
+<main class="page">
+  <nav class="chapnav" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step12b.html">← Step 12-b</a><span class="disabled">Step 14 →</span></nav>
+  <header class="top">
+    <div class="eyebrow">Jetson Orin Nano · Step 13 · I2C client driver</div>
+    <h1>edge_ctrl：把自己的 MCU 接進 kernel</h1>
+    <p class="lede">Step 11–12-b 在 Blue Pill 上寫好了一份 register protocol，Jetson 這邊一直用 i2c-tools 直接打 register。這一步在 Jetson 的 kernel 寫一個 I2C client driver，讓 application <b class="hl-key">讀寫檔案就好</b>：<code>cat adc</code> 得到 <code>2068</code>，<code>echo 1 &gt; led</code> 點亮 LED，不用再知道 pointer、byte 順序和 <code>/dev/i2c-1</code>。重點是 driver 和 firmware 對同一份 register map 的理解<b class="hl-key">不能分歧</b>，而且 bus 出錯時不能自作主張。</p>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ctrl/{edge_ctrl.c, Makefile, README.md}、include/edge_ctrl_regs.h、tests/{test_edge_ctrl_regs.cpp, test_edge_ctrl_static.py, test_edge_ctrl_device.py}、scripts/verify_edge_ctrl.sh、docs/step13.html</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_stm32_i2c_target.py、CLAUDE.md、phase05.md、docs/{baseline.md, step12b.html, index.html} · firmware 沒有改（仍是 FW 0.3 / map 1.1）</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式（cat、echo、i2c-tools）</span>
+      <span style="--c: var(--kern)">kernel 核心（sysfs、I2C core、i2c-tegra）</span>
+      <span style="--c: var(--drv)">我們寫的 driver / firmware（這一章是 edge_ctrl.ko）</span>
+      <span style="--c: var(--hw)">硬體（Blue Pill 與它的 firmware、I2C 線）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">13.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>application 不該知道 register 長什麼樣</h2>
+      <p>到 12-b 為止，Jetson 讀 ADC 的方式是這樣：</p>
+<pre class="cmd">i2ctransfer -y 1 w1@0x42 0x10 r2@0x42</pre>
+<pre class="out">0x11 0x08</pre>
+      <p>拿到兩個 byte 之後，呼叫的人還得知道：0x10 是 ADC_LOW、要一次讀 2 byte（分開讀可能來自兩次轉換）、little-endian、HIGH 只有低 4 bit 有意義，所以這是 0x811 = 2065。每個要用 ADC 的程式都得重寫一次這些規則，而且任何一個寫錯，都是「讀到奇怪的值」這種很難追的錯。</p>
+      <p>Linux 的做法是把這些知識<b>集中在一個 driver 裡</b>，userspace 只看到一個意思明確的介面。這一步的 driver 叫 <code>edge_ctrl</code>，它把 register map v1.1 包成八個 sysfs 檔。</p>
+      <p><b>互動雙方</b>：Jetson 的 <code>i2c-1</code>（<code>c240000.i2c</code>，100 kHz）是 controller，Blue Pill 的 I2C1（0x42）是 target，接線和 firmware 都和 12-b 一樣。新的一層在 Jetson 的 kernel：Device Tree 描述「i2c-1 上 0x42 有一顆 <code>edge,edge-ctrl</code>」，<code>edge_ctrl.ko</code> 認領它。<b>這一步不做</b>：heartbeat（Step 14）、<code>poll()</code> 等事件（Step 19），也不改 firmware。</p>
+      <dl class="terms">
+        <dt>I2C client</dt><dd>kernel 裡代表「某條 I2C bus 上某個位址的一顆晶片」的物件，名稱像 <code>1-0042</code>（bus 1、位址 0x42）。Device Tree 的節點在開機時就變成 client，driver 載入後才綁上去。</dd>
+        <dt>sysfs 屬性</dt><dd><code>/sys</code> 底下的一個檔案，讀它時 kernel 呼叫 driver 的 <code>show()</code>，寫它時呼叫 <code>store()</code>。一個檔放一個值、文字格式。</dd>
+        <dt>dev_groups</dt><dd><code>struct device_driver</code> 的欄位：driver core 在綁定成功後替 driver 建立這組屬性檔，解除綁定時刪掉。driver 自己不用呼叫建立、刪除。</dd>
+        <dt>i2c_transfer()</dt><dd>I2C core 的函式，把幾個 <code>struct i2c_msg</code> 當成<b>一筆</b> transaction 送出，中間用 repeated START 接起來，期間 adapter 是鎖住的。</dd>
+        <dt>repeated START</dt><dd>不送 STOP、直接再送一次 START：寫完 pointer 後馬上轉成讀，bus 不會在中間被別人拿走。</dd>
+        <dt>errno</dt><dd>系統呼叫失敗時告訴 userspace 原因的數字，例如 <code>EREMOTEIO</code>（對方沒回 ACK，印成 Remote I/O error）、<code>EINVAL</code>（參數不合法）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">13.2</span><b>全景</b>一次 cat</div>
+    <div class="content">
+      <h2>一次 <code>cat adc</code> 的完整旅程</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 300" role="img" aria-label="一次 cat adc 的旅程。上排由左到右：userspace 的 cat 呼叫 read；kernel 的 sysfs 找到 dev_attr_adc；我們的 adc_show 呼叫 read_reg 讀 0x10 兩個 byte；kernel 的 i2c_transfer 經 I2C core 交給 i2c-tegra。往下到硬體：Blue Pill 在 0x42 收到寫 0x10、repeated START、讀 2 byte，從快照回 0x11 0x08。下排由右到左：edge_ctrl_adc 把兩個 byte 合成 2065；sysfs_emit 把文字放進 page；cat 印出 2065。">
+          <defs>
+            <marker id="m13R" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect class="s-box" x="10" y="30" width="150" height="60" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="85" y="55" text-anchor="middle">cat adc</text>
+          <text class="s-sm" x="85" y="76" text-anchor="middle">read() 系統呼叫</text>
+          <rect class="s-box" x="190" y="30" width="150" height="60" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="265" y="55" text-anchor="middle">sysfs</text>
+          <text class="s-sm" x="265" y="76" text-anchor="middle">找到 dev_attr_adc</text>
+          <a href="#attrs"><rect class="s-box" x="370" y="30" width="150" height="60" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="445" y="55" text-anchor="middle">adc_show()</text>
+          <text class="s-sm" x="445" y="76" text-anchor="middle">read_reg(0x10, 2)</text></a>
+          <a href="#transfer"><rect class="s-box" x="550" y="30" width="160" height="60" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="630" y="55" text-anchor="middle">i2c_transfer()</text>
+          <text class="s-sm" x="630" y="76" text-anchor="middle">I2C core → i2c-tegra</text></a>
+
+          <a href="#errors"><rect class="s-box" x="550" y="190" width="160" height="60" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="630" y="215" text-anchor="middle">Blue Pill 0x42</text>
+          <text class="s-sm" x="630" y="236" text-anchor="middle">從快照回 0x11 0x08</text></a>
+          <a href="#header"><rect class="s-box" x="370" y="190" width="150" height="60" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="445" y="215" text-anchor="middle">edge_ctrl_adc()</text>
+          <text class="s-sm" x="445" y="236" text-anchor="middle">0x11, 0x08 → 2065</text></a>
+          <rect class="s-box" x="190" y="190" width="150" height="60" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="265" y="215" text-anchor="middle">sysfs_emit()</text>
+          <text class="s-sm" x="265" y="236" text-anchor="middle">"2065\n" 放進 page</text>
+          <rect class="s-box" x="10" y="190" width="150" height="60" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="85" y="215" text-anchor="middle">cat 印出</text>
+          <text class="s-sm" x="85" y="236" text-anchor="middle">2065</text>
+
+          <line class="sv-down" x1="160" y1="60" x2="186" y2="60" marker-end="url(#m13R)"/>
+          <line class="sv-down" x1="340" y1="60" x2="366" y2="60" marker-end="url(#m13R)"/>
+          <line class="sv-down" x1="520" y1="60" x2="546" y2="60" marker-end="url(#m13R)"/>
+          <line class="sv-down" x1="630" y1="90" x2="630" y2="186" marker-end="url(#m13R)"/>
+          <text class="s-sm" x="618" y="132" text-anchor="end">w 0x10 · Sr · r2</text>
+          <text class="s-sm" x="618" y="150" text-anchor="end">一筆 transaction</text>
+          <line class="sv-down" x1="550" y1="220" x2="524" y2="220" marker-end="url(#m13R)"/>
+          <line class="sv-down" x1="370" y1="220" x2="344" y2="220" marker-end="url(#m13R)"/>
+          <line class="sv-down" x1="190" y1="220" x2="164" y2="220" marker-end="url(#m13R)"/>
+        </svg>
+        <figcaption>圖 13.1 — 讀檔的人只看到 <code>2065</code>。register 位址、「一次讀 2 byte」、byte 順序這三件事，全部只寫在 driver 裡（橘色兩格）。中間沒有快取：每次 <code>cat</code> 都真的走一趟 bus。方框可點，跳到對應小節。</figcaption>
+      </figure>
+      <p>反方向（<code>echo 1 &gt; led</code>）走同一條路：sysfs 呼叫 <code>led_store()</code>，driver 檢查值之後用 <code>write_reg()</code> 送出 <code>0x20 0x01</code> 兩個 byte。</p>
+    </div>
+  </section>
+
+  <section id="bind">
+    <div class="rail"><span class="no">13.3</span><b>綁定</b>DT + probe</div>
+    <div class="content">
+      <h2>開機時就有 client，insmod 時才有 driver</h2>
+      <p>和 Step 7 的 INA219、Step 10-a 的 OLED 一樣，先在 overlay 裡描述這顆晶片：</p>
+      <figure class="listing"><figcaption>dts/edge-gpio-overlay.dts:143–154 — 新的 fragment@6：i2c-1（gen2_i2c）上 0x42 有一顆 edge,edge-ctrl</figcaption>
+<pre data-start="143" data-hot="149-152">	fragment@6 {
+		target = &lt;&amp;gen2_i2c&gt;;
+		__overlay__ {
+			#address-cells = &lt;1&gt;;
+			#size-cells = &lt;0&gt;;
+
+			controller@42 {
+				compatible = "edge,edge-ctrl";
+				reg = &lt;0x42&gt;;
+			};
+		};
+	};</pre>
+      </figure>
+      <p><code>gen2_i2c</code> 是 NVIDIA 基底 Device Tree 給 <code>/bus@0/i2c@c240000</code> 的 label，也就是 Linux 叫 <code>i2c-1</code> 的那條 bus，header pin 27 / 28。OLED 的 <code>oled@3c</code> 也在這條 bus 上，但另外放一個 fragment，兩者互不影響。</p>
+      <p>compatible 是 <code>edge,edge-ctrl</code>，不是規劃裡寫的 <code>edge,controller</code>。原因是 Step 7 踩過的坑：I2C core 會用 compatible 去掉廠商前綴當 client 名稱（這裡是 <code>edge-ctrl</code>），DT 比對不到時還會拿這個名稱去比每個 driver 的 <code>i2c_device_id</code> 表。<code>controller</code> 這種通用字比較有機會撞到別人的 driver，有測試檢查這台 kernel 的 <code>modules.alias</code> 裡沒有人認領 <code>i2c:edge-ctrl</code>。</p>
+      <p>重開機後節點生效，client <code>1-0042</code> 出現、還沒有 driver。<code>insmod</code> 時 compatible 相符，I2C core 呼叫 probe：</p>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:184–211 — probe 先確認 adapter 能做一般的 I2C transfer，再一次讀 0x00–0x03，確認接上的是這份 firmware、而且 register map 相容</figcaption>
+<pre data-start="184" data-hot="188,192,195,198">	u8 id[4], status;
+	int ret;
+
+	/* read_reg() needs a plain I2C transfer with a repeated START, not just SMBus. */
+	if (!i2c_check_functionality(client-&gt;adapter, I2C_FUNC_I2C))
+		return dev_err_probe(&amp;client-&gt;dev, -EOPNOTSUPP, "adapter cannot do plain I2C\n");
+
+	/* DEVICE_ID, FW_MAJOR, FW_MINOR, PROTOCOL_VERSION; no ACK fails with -EREMOTEIO. */
+	ret = read_reg(client, EDGE_CTRL_REG_DEVICE_ID, id, 4);
+	if (ret)
+		return dev_err_probe(&amp;client-&gt;dev, ret, "cannot read DEVICE_ID\n");
+	if (id[0] != EDGE_CTRL_DEVICE_ID)
+		return dev_err_probe(&amp;client-&gt;dev, -ENODEV, "DEVICE_ID 0x%02x, not 0x%02x\n",
+				     id[0], EDGE_CTRL_DEVICE_ID);
+	if (!edge_ctrl_protocol_ok(id[3]))
+		return dev_err_probe(&amp;client-&gt;dev, -ENODEV,
+				     "register map %u.%u, need %u.x from %u.%u on\n",
+				     id[3] &gt;&gt; 4, id[3] &amp; 0x0F, EDGE_CTRL_PROTOCOL_MAJOR,
+				     EDGE_CTRL_PROTOCOL_MAJOR, EDGE_CTRL_PROTOCOL_MINOR);
+
+	/* STATUS is left alone: its flags (RESET included) belong to whoever reads them. */
+	ret = read_reg(client, EDGE_CTRL_REG_STATUS, &amp;status, 1);
+	if (ret)
+		return dev_err_probe(&amp;client-&gt;dev, ret, "cannot read STATUS\n");
+
+	dev_info(&amp;client-&gt;dev, "probed: FW %u.%u, register map %u.%u, STATUS 0x%02x\n",
+		 id[1], id[2], id[3] &gt;&gt; 4, id[3] &amp; 0x0F, status);
+	return 0;</pre>
+      </figure>
+      <p>probe 的工作是「確認這真的是我認得的東西」。第一步是問 adapter 能不能做一般的 I2C transfer（<code>I2C_FUNC_I2C</code>）：<code>read_reg()</code> 用的是「寫 pointer + repeated START + 讀」，只支援 SMBus 的 adapter 做不到。這台的 <code>i2c-1</code> 可以（<code>i2cdetect -F 1</code> 列 <code>I2C yes</code>），這一行是 code review 補上的標準檢查。接著，一個 ACK 只證明 0x42 有人回應，所以要看 DEVICE_ID 是不是 0xED，再照 12-a 寫下的版本規則看 PROTOCOL_VERSION：major 要是 1，minor 至少是 1（這個 driver 要用 ADC 和按鍵，map 1.0 沒有）。四個 register 用一筆讀取拿到，一次 transaction 就完成檢查。</p>
+      <p>STATUS 只讀出來印在 dmesg，<b>不清除</b>。它的 RESET bit 是給 application 判斷「板子重開過」用的，driver 一載入就把它清掉，這個資訊就沒了。</p>
+      <p>屬性檔不是 probe 建立的：</p>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:233–243 — .dev_groups：綁定成功後 driver core 建立屬性檔，解除綁定時刪掉</figcaption>
+<pre data-start="233" data-hot="237">static struct i2c_driver edge_ctrl_driver = {
+	.driver = {
+		.name = "edge_ctrl",
+		.of_match_table = edge_ctrl_of_match,
+		.dev_groups = edge_ctrl_groups,
+	},
+	.probe_new = edge_ctrl_probe,
+	.remove = edge_ctrl_remove,
+	.id_table = edge_ctrl_id,
+};
+module_i2c_driver(edge_ctrl_driver);</pre>
+      </figure>
+      <p>用 <code>.dev_groups</code> 而不是在 probe 裡呼叫 <code>sysfs_create_group()</code>，好處是生命週期不用自己管：unbind、rmmod 時檔案一定會跟著消失，驗收腳本也檢查了這件事。</p>
+    </div>
+  </section>
+
+  <section id="iface">
+    <div class="rail"><span class="no">13.4</span><b>介面</b>為什麼是 sysfs</div>
+    <div class="content">
+      <h2>八個檔，一個檔一個值</h2>
+      <p>phase05 讓這一步在 sysfs 和 character device 之間選一個，但要寫清楚理由。這一步選 <b class="hl-key">sysfs</b>：</p>
+      <table>
+        <thead><tr><th>考量</th><th>結論</th></tr></thead>
+        <tbody>
+          <tr><td>值的性質</td><td>全部是「現在是多少」的狀態（版本、ADC、按鍵、LED、STATUS），沒有串流、沒有事件。sysfs 正是給這種值用的。</td></tr>
+          <tr><td>使用方式</td><td><code>cat</code> / <code>echo</code> 就能用，shell 腳本和任何語言都不用 ioctl 定義。</td></tr>
+          <tr><td>為什麼不是 hwmon</td><td>ADC 讀的是 A0 上任意的電壓（0–4095 的原始值），按鍵、LED、STATUS 也都不是 hwmon 的類別（Step 8 的 INA219 才是）。</td></tr>
+          <tr><td>之後的 <code>poll()</code></td><td>Step 19 要讓 userspace 等 STM32 的事件，需要 wait queue 和「一次事件算一個還是一個 bit」這類語意。phase08 規劃的是 <code>/dev/edge_ctrl</code>，到時再加 character device，不在這一步預先做。</td></tr>
+        </tbody>
+      </table>
+      <p>檔案都在 client 的目錄 <code>/sys/bus/i2c/devices/1-0042/</code> 底下：</p>
+      <table>
+        <thead><tr><th>檔案 · 權限</th><th>內容 · 讀的 register</th></tr></thead>
+        <tbody>
+          <tr><td><code>device_id</code> · 0444</td><td><code>0xed</code> · 0x00</td></tr>
+          <tr><td><code>firmware_version</code> · 0444</td><td><code>0.3</code> · 0x01–0x02，一筆讀取</td></tr>
+          <tr><td><code>protocol_version</code> · 0444</td><td><code>1.1</code> · 0x03</td></tr>
+          <tr><td><code>adc</code> · 0444</td><td><code>0</code>–<code>4095</code> · 0x10–0x11，一筆讀取 2 byte</td></tr>
+          <tr><td><code>button</code> · 0444</td><td><code>1</code> 按著、<code>0</code> 放開 · 0x12 bit 0</td></tr>
+          <tr><td><code>button_presses</code> · 0444</td><td>開機以來的按下次數，255 之後回 0 · 0x13</td></tr>
+          <tr><td><code>led</code> · 0644</td><td><code>0</code> / <code>1</code>；寫入只收 0 和 1 · 0x20</td></tr>
+          <tr><td><code>status</code> · 0644</td><td><code>0x80</code> 這種兩位 hex；寫入照 write-1-to-clear 轉送 · 0x30</td></tr>
+        </tbody>
+      </table>
+      <p>可寫的兩個檔是 0644，不是 0666：kernel 不允許 sysfs 屬性給 others 寫（編譯時就會擋），所以寫入要 root。WATCHDOG_STATUS（0x31）沒有開放，它到 Phase 6 才有意思。</p>
+    </div>
+  </section>
+
+  <section id="transfer">
+    <div class="rail"><span class="no">13.5</span><b>傳輸</b>read_reg</div>
+    <div class="content">
+      <h2>pointer 和讀取放在同一筆 transaction</h2>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:34–56 — 兩個 helper：讀是「寫 pointer + 讀 len byte」兩個 message 一次送；寫是 reg、value 兩個 byte</figcaption>
+<pre data-start="34" data-hot="36-40,50-51">static int read_reg(struct i2c_client *client, u8 reg, u8 *buf, u16 len)
+{
+	struct i2c_msg msgs[2] = {
+		{ .addr = client-&gt;addr, .flags = 0, .len = 1, .buf = &amp;reg },
+		{ .addr = client-&gt;addr, .flags = I2C_M_RD, .len = len, .buf = buf },
+	};
+	int ret = i2c_transfer(client-&gt;adapter, msgs, 2);
+
+	if (ret == 2)
+		return 0;
+	return ret &lt; 0 ? ret : -EIO;
+}
+
+/* The firmware ACKs every byte; a refused value only shows up in STATUS. */
+static int write_reg(struct i2c_client *client, u8 reg, u8 value)
+{
+	u8 buf[2] = { reg, value };
+	int ret = i2c_master_send(client, buf, 2);
+
+	if (ret == 2)
+		return 0;
+	return ret &lt; 0 ? ret : -EIO;
+}</pre>
+      </figure>
+      <p>12-a 的 register map 規定：pointer 只由寫入設定，auto-increment 只在同一筆 transaction 裡有效。所以讀取一定要「寫 pointer」和「讀」連在一起。用一次 <code>i2c_transfer()</code> 送兩個 message，有兩個效果：</p>
+      <ul>
+        <li><b>中間沒有人插得進來</b>。adapter 在整筆 transaction 期間是鎖住的。同一條 bus 上還有 OLED 的 driver、userspace 的 <code>i2ctransfer</code>，如果分成「先寫 pointer、再讀」兩次呼叫，別人可能在中間把 firmware 的 pointer 改掉。</li>
+        <li><b>一筆讀取的 byte 來自同一個快照</b>。12-b 的 firmware 在讀取開始時拍快照，所以 <code>adc</code> 一次讀 2 byte，LOW 和 HIGH 一定是同一次轉換；<code>firmware_version</code> 也一次讀 0x01–0x02。</li>
+      </ul>
+      <p><code>i2c_transfer()</code> 回傳成功送出的 message 數。小於 2 卻不是負數，代表只完成了一部分，這不算成功，所以回 <code>-EIO</code>，不讓呼叫的人拿著沒填好的 buffer 繼續用。</p>
+      <p>寫入只有一個 message：<code>i2c_master_send()</code> 送 reg 和 value。firmware 的 F103 在看到 byte 之前硬體就回了 ACK（Step 11），所以 bus 上不會失敗的寫入，值仍然可能被 firmware 丟掉。這就是下一節 <code>led_store()</code> 要自己先擋的原因。</p>
+    </div>
+  </section>
+
+  <section id="attrs">
+    <div class="rail"><span class="no">13.6</span><b>屬性</b>show / store</div>
+    <div class="content">
+      <h2>讀：直接問板子。寫：先擋，再送</h2>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:89–96 — adc 一次讀兩個 byte，用共用 header 的 helper 合成一個數字</figcaption>
+<pre data-start="89" data-hot="93">/* LOW and HIGH in one read: two reads may come from two conversions. */
+static ssize_t adc_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	u8 v[2];
+	int ret = read_reg(to_i2c_client(dev), EDGE_CTRL_REG_ADC_LOW, v, 2);
+
+	return ret ? ret : sysfs_emit(buf, "%u\n", edge_ctrl_adc(v[0], v[1]));
+}</pre>
+      </figure>
+      <p>每個 <code>show()</code> 的形狀都一樣：讀 register，失敗就回傳負的 errno，成功就用 <code>sysfs_emit()</code> 寫文字。<b>沒有快取</b>：driver 不記得上次的值，每次讀檔都真的走一趟 bus。代價是每次讀都要一筆 transaction（<code>adc</code> 是位址、pointer、位址、2 個資料共 5 個 byte，100 kHz 下算起來約 0.45 ms，沒有量），換來的是讀到的永遠是板子上現在的值，有人用 <code>i2ctransfer -f</code> 改了 LED，下一次 <code>cat led</code> 就看得到。</p>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:123–137 — led 只把 0 和 1 送出去；其他值在 driver 這邊就回 EINVAL</figcaption>
+<pre data-start="123" data-hot="133-134">/*
+ * Only 0 and 1 go out: anything else the firmware would ACK, drop and flag as
+ * BAD_VALUE, and the writer would see success. Refusing it here gives EINVAL instead.
+ */
+static ssize_t led_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	unsigned int v;
+	int ret = kstrtouint(buf, 0, &amp;v);
+
+	if (ret || !edge_ctrl_led_ok(v))
+		return -EINVAL;
+	ret = write_reg(to_i2c_client(dev), EDGE_CTRL_REG_LED, v);
+	return ret ? ret : count;
+}</pre>
+      </figure>
+      <p>為什麼 driver 要自己檢查？firmware 收到 LED_CONTROL = 2 時，bus 上照樣 ACK，只是把值丟掉、在 STATUS 設 BAD_VALUE。如果 driver 直接轉送，<code>echo 2 &gt; led</code> 會「成功」，寫的人完全不知道值沒生效。在 driver 先擋，錯誤就以 <code>EINVAL</code> 回到 <code>echo</code>，這是 userspace 期待的行為。</p>
+      <p>擋的範圍要和 firmware <b>完全一樣</b>：擋多了，合法的值送不出去；擋少了，又回到「靜靜被丟掉」。這個規則放在共用 header 的 <code>edge_ctrl_led_ok()</code>，13.7 的測試逐值比對兩邊。</p>
+      <figure class="listing"><figcaption>kernel/edge_ctrl/edge_ctrl.c:147–158 — status 照 write-1-to-clear 原樣轉送：寫幾個 1 就清幾個 bit</figcaption>
+<pre data-start="147" data-hot="154-156">/* Write-1-to-clear, passed through: "echo 0x01" clears RO_WRITE, "echo 0xff" all. */
+static ssize_t status_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	unsigned int v;
+	int ret = kstrtouint(buf, 0, &amp;v);
+
+	if (ret || v &gt; 0xFF)
+		return -EINVAL;
+	ret = write_reg(to_i2c_client(dev), EDGE_CTRL_REG_STATUS, v);
+	return ret ? ret : count;
+}</pre>
+      </figure>
+      <p>STATUS 的寫入不用翻譯：12-a 定的規則本身就適合 <code>echo</code>。寫 <code>0x01</code> 清 RO_WRITE、寫 <code>0xff</code> 全清、寫 0 什麼都不清。driver 只擋超過一個 byte 的值。</p>
+      <p><code>kstrtouint(buf, 0, &amp;v)</code> 的 base 0 代表「看前綴決定進位」：<code>0x10</code> 是十六進位、<code>010</code> 是八進位、其他是十進位。它也接受結尾一個換行，所以 <code>echo 1</code>（送出 <code>"1\n"</code>）可以用。下面的模擬器可以試不同的輸入：</p>
+      <div class="sim" aria-label="sysfs 寫入模擬器">
+        <div class="sim-label">模擬：driver 的 store() 與 firmware 的 LED / STATUS（JavaScript，不是板子）</div>
+        <div class="sim-ctl">
+          <span>echo</span><input id="simText" value="1" aria-label="寫入的文字"><span>&gt;</span>
+          <select id="simAttr" aria-label="屬性檔"><option value="led">led</option><option value="status">status</option></select>
+          <button id="simWrite">寫入</button>
+          <button id="simRo">用 i2ctransfer -f 寫 DEVICE_ID（設 RO_WRITE）</button>
+        </div>
+        <div class="sim-state"><span>LED_CONTROL <b id="simLed">0</b></span><span>STATUS <b id="simStatus">0x80</b></span></div>
+        <pre class="sim-log" id="simLog"></pre>
+      </div>
+      <p>模擬器照 <code>kstrtouint()</code> 的規則解析，前面多一個 <code>+</code>、前後有空白、<code>"1\n\n"</code> 這類細節以 kernel 原始碼為準；實機上試過的值只有 13.10 列出的那些。</p>
+    </div>
+  </section>
+
+  <section id="header">
+    <div class="rail"><span class="no">13.7</span><b>契約</b>兩份 header</div>
+    <div class="content">
+      <h2>driver 的 register map，由 firmware 的程式碼來驗</h2>
+      <p>register 位址在 firmware 那邊已經有一份 <code>i2c_target.h</code>。kernel 不能直接 include 它：它用 <code>&lt;stdint.h&gt;</code>，還帶著 firmware 的 state machine。所以 driver 有自己的 <code>include/edge_ctrl_regs.h</code>，只有位址和幾個解碼 helper：</p>
+      <figure class="listing"><figcaption>include/edge_ctrl_regs.h:31–44 — 版本規則與 ADC 的解碼；kernel 與 host 的測試都 include 這份</figcaption>
+<pre data-start="31" data-hot="37,43">/* The map this driver knows: 1.1 (ADC and button). Any 1.x from 1.1 on is compatible. */
+#define EDGE_CTRL_PROTOCOL_MAJOR	1
+#define EDGE_CTRL_PROTOCOL_MINOR	1
+
+static inline int edge_ctrl_protocol_ok(unsigned int v)
+{
+	return (v &gt;&gt; 4) == EDGE_CTRL_PROTOCOL_MAJOR &amp;&amp; (v &amp; 0x0F) &gt;= EDGE_CTRL_PROTOCOL_MINOR;
+}
+
+/* ADC_LOW, ADC_HIGH -&gt; 0..4095; bits 7:4 of ADC_HIGH are not part of the value. */
+static inline unsigned int edge_ctrl_adc(unsigned int lo, unsigned int hi)
+{
+	return (hi &amp; 0x0F) &lt;&lt; 8 | lo;
+}</pre>
+      </figure>
+      <p>兩份 header 就是兩份可能分歧的拷貝。測試如果只拿 driver 的 header 跟自己比（「我定義 0x20，我讀到 0x20」），永遠會過。所以 <code>tests/test_edge_ctrl_regs.cpp</code> 把 <b>firmware 真正跑在板子上的 <code>i2c_target.c</code></b> 一起編進來，用 driver 會送的 transaction 去驅動它，再用 driver 的 helper 解碼：</p>
+      <figure class="listing"><figcaption>tests/test_edge_ctrl_regs.cpp:130–146 — LED 的 0–255 每個值：driver 的判定必須和 firmware 收不收一致</figcaption>
+<pre data-start="130" data-hot="137-139">void test_led_values_match_what_the_firmware_takes()
+{
+    int bad = 0;
+    for (unsigned v = 0; v &lt; 256; ++v) {
+        i2c_target t;
+        i2c_target_init(&amp;t);
+        t.status = 0;
+        write_reg(t, EDGE_CTRL_REG_LED, (uint8_t)v);
+        int firmware_ok = !(t.status &amp; STATUS_BAD_VALUE) &amp;&amp; t.led == v;
+        if (edge_ctrl_led_ok(v) != firmware_ok) {
+            std::printf("FAIL LED value %u: driver %d, firmware %d\n", v, edge_ctrl_led_ok(v),
+                        firmware_ok);
+            ++bad;
+        }
+    }
+    failures += bad;
+}</pre>
+      </figure>
+      <p>同一個檔裡的其他向量：兩份 header 的位址逐一相等；從 firmware 讀 0x00–0x03 交給 <code>edge_ctrl_protocol_ok()</code> 要是通過；版本表（<code>0x10</code> 不行，因為沒有 ADC；<code>0xFF</code> 是 Step 11 的 firmware）；0–4095 每個 ADC 值寫進 firmware、經過 2 byte 讀取、再由 <code>edge_ctrl_adc()</code> 解碼，要原樣回來；按鍵狀態和計數一筆讀出。</p>
+      <p>這種測試抓的是「跨模組的契約」。把 header 故意改錯四種，全部被抓到：</p>
+      <table>
+        <thead><tr><th>故意改成</th><th>向量的結果</th></tr></thead>
+        <tbody>
+          <tr><td>ADC 的 LOW、HIGH 對調</td><td><b class="hl-bad">2 個 check 失敗</b>（<code>high nibble masked: got 0x4F2, want 0x234</code>）</td></tr>
+          <tr><td><code>edge_ctrl_led_ok()</code> 也收 2</td><td><b class="hl-bad">1 個</b>（<code>LED value 2: driver 1, firmware 0</code>）</td></tr>
+          <tr><td>版本只看 major、不看 minor</td><td><b class="hl-bad">1 個</b>（<code>protocol 0x10: got 0x1, want 0x0</code>）</td></tr>
+          <tr><td>LED 位址寫成 0x21</td><td><b class="hl-bad">2 個</b>（位址比對，以及 <code>LED value 1: driver 1, firmware 0</code>）</td></tr>
+        </tbody>
+      </table>
+      <p>不接板子就能跑（在 repo 根目錄，只需要 CMake 和 g++）：</p>
+<pre class="cmd">cmake -S . -B build &amp;&amp; cmake --build build --target test_edge_ctrl_regs &amp;&amp; build/test_edge_ctrl_regs</pre>
+<pre class="out">OK (0 failure(s))</pre>
+    </div>
+  </section>
+
+  <section id="errors">
+    <div class="rail"><span class="no">13.8</span><b>錯誤</b>不是晶片的錯</div>
+    <div class="content">
+      <h2>bus 出錯時，driver 什麼都不記</h2>
+      <p>Step 11 踩過一次：麵包板上 PB6 誤接到 GND，Tegra 的 controller 約每 100 ms 印一行 <code>I2C transfer timed out</code>，同一條 bus 上的 ina3221 也讀不到；線一放開，bus 自己恢復。phase05 把這件事交給這一步：<b>整條 bus 都 timeout，不是這顆晶片的錯</b>。</p>
+      <p>這一步的錯誤處理因此刻意很少：</p>
+      <ul>
+        <li>每次存取失敗，errno 原樣回給讀寫的人（<code>read_reg()</code> / <code>write_reg()</code> 的最後一行）。</li>
+        <li>driver <b>不記</b>「這顆晶片壞了」的狀態，也不 unbind 自己。下一次存取直接重試，bus 好了就成功。</li>
+        <li>每次失敗不印 log。tegra-i2c 自己會印；一個每秒讀一次的程式遇到斷線，driver 再印一行只會洗版。（probe 失敗例外：那只會發生一次，<code>dev_err_probe()</code> 會印出原因。）</li>
+      </ul>
+      <p>實機上測的是比較溫和的情況：拔掉 ST-Link，Blue Pill 斷電，0x42 不再回 ACK：</p>
+<pre class="out">PASS board gone: device_id fails (cat: /sys/bus/i2c/devices/1-0042/device_id: Remote I/O error)
+PASS board gone: adc fails (cat: /sys/bus/i2c/devices/1-0042/adc: Remote I/O error)
+    same bus, ina3221 0x40 manufacturer ID: 0x4954
+PASS board back: device_id 0xed again, same binding (no unbind / bind)
+PASS status 0x80 has RESET: the restart is visible</pre>
+      <p>斷電的 Blue Pill 沒有把 bus 拉住：同一條 bus 上的 ina3221 照樣讀到 <code>0x4954</code>。插回之後不用 unbind / bind，<code>device_id</code> 就讀回 <code>0xed</code>，而 <code>status</code> 的 RESET bit 告訴 application 板子重開過，LED 等狀態已經回到預設值。這正是 probe 不清 STATUS 的理由。</p>
+      <div class="callout"><p><b class="hl-bad">沒有實測</b>：SCL / SDA 被拉到 GND、整條 bus timeout 的情況（errno 會是 timeout 而不是 <code>EREMOTEIO</code>）。它走的是同一段程式碼，只由原始碼測試守住「錯誤路徑不留狀態、不印 log」；要重現得把線接到 GND，這一步沒做。probe 遇到 DEVICE_ID 不對、map 不相容回 <code>-ENODEV</code> 這條路，也只有向量與原始碼測試（板上沒有別的 firmware 版本）。</p></div>
+    </div>
+  </section>
+
+  <section id="tests">
+    <div class="rail"><span class="no">13.9</span><b>測試</b>先紅再綠</div>
+    <div class="content">
+      <h2>測試：三層，期望值都從對方那邊來</h2>
+      <ul>
+        <li><b><code>tests/test_edge_ctrl_regs.cpp</code></b>（新）：6 組向量，見 13.7。</li>
+        <li><b><code>tests/test_edge_ctrl_static.py</code></b>（新）：<span data-tests="tests/test_edge_ctrl_static.py">22</span> 個，不需要硬體。overlay 4 個（節點與 compatible、fragment 指向 <code>gen2_i2c</code>、用 <code>fdtoverlay</code> 疊到這台的開機 FDT 後節點落在 <code>/bus@0/i2c@c240000/controller@42</code>、client 名稱沒被別的 module 認領）；driver 原始碼契約 10 個；建置與向量 2 個；驗收腳本 6 個。</li>
+        <li><b><code>tests/test_edge_ctrl_device.py</code></b>（新）：9 個，driver 綁定時才跑。每個屬性和 <code>i2ctransfer -f</code> 讀到的 raw 值比對（識別、版本、按鍵、STATUS 逐字相同；ADC 兩邊各讀 20 次，中位數差 ≤ 40，沿用 12-b 量到的雜訊門檻），LED 寫入後 raw 讀回、不合法的 LED 值回 <code>EINVAL</code> 而且 STATUS 沒有任何「寫入被丟掉」的 bit（RO_WRITE、UNMAPPED_WRITE、BAD_VALUE；證明值沒送上 bus），STATUS 的 write-1-to-clear，連讀 200 次不出錯。寫入的 3 個要 root。</li>
+      </ul>
+      <p>raw 一律用 <code>i2ctransfer -f</code>：driver 綁定之後 0x42 屬於 kernel，i2c-dev 不加 <code>-f</code> 會回 <code>Device or resource busy</code>（Step 7 的坑），驗收腳本也故意試一次確認這件事。</p>
+      <h3>先紅</h3>
+      <p>測試寫好、driver 還不存在時：static 當時的 20 個 <b class="hl-bad">18 failures + 1 error</b>，C++ 向量因為 header 不存在編不過，device 測試 skip。先過的那 1 個是守門測試（「沒有 module 認領 <code>i2c:edge-ctrl</code>」，名稱本來就沒人用）。實作後 static 還紅 2 個，都是測試自己的 regex 寫太窄，修測試。</p>
+      <h3>變異：driver 改錯，原始碼測試要紅</h3>
+      <table>
+        <thead><tr><th>故意改成</th><th>紅的測試</th></tr></thead>
+        <tbody>
+          <tr><td><code>led_store()</code> 不檢查值</td><td><code>test_led_value_checked_before_anything_is_sent</code></td></tr>
+          <tr><td><code>adc_show()</code> 拆成兩次 1 byte 讀取</td><td><code>test_adc_is_one_two_byte_read</code></td></tr>
+          <tr><td>部分完成的 transfer 當成功</td><td><code>test_read_reg_is_one_transfer_with_repeated_start</code> 等 2 個</td></tr>
+          <tr><td>probe 不檢查 protocol</td><td><code>test_probe_checks_id_and_protocol</code></td></tr>
+          <tr><td>讀取失敗時 <code>dev_err()</code></td><td><code>test_errors_are_returned_and_nothing_is_cached</code></td></tr>
+        </tbody>
+      </table>
+      <h3>code review 之後</h3>
+      <p>PR 開出後的 code review（medium）找出 6 項，分流如下：</p>
+      <table>
+        <thead><tr><th>review 說</th><th>處理</th></tr></thead>
+        <tbody>
+          <tr><td>probe 沒檢查 adapter 支不支援一般 I2C</td><td>補 <code>i2c_check_functionality(…, I2C_FUNC_I2C)</code>，先寫原始碼測試（紅）。只支援 SMBus 的 adapter 原本會印 <code>error -EOPNOTSUPP: cannot read DEVICE_ID</code>，現在直接說 adapter 不行。</td></tr>
+          <tr><td>device 測試要求 STATUS 整個是 0，太嚴</td><td>改成只看三個「寫入被丟掉」的 bit。RESET、BUS_ERROR 和這個測試無關；也不採用「只看 BAD_VALUE」，那樣值被送到錯的位址時抓不到。</td></tr>
+          <tr><td>驗收腳本讀檔失敗時 <code>(( st &amp; 0x80 ))</code> 會多一行 bash 語法錯誤</td><td>先比對 <code>^0x[0-9a-f]+$</code> 再算，先寫腳本測試（紅）。錯誤字串本來就印在 FAIL 那行，沒有被蓋掉。</td></tr>
+          <tr><td>header 有兩個 driver 沒用到的定義</td><td>保留（向量用它們和 firmware 的 header 比對），各加一行註解。</td></tr>
+          <tr><td><code>read_u8()</code> 用法不一致，樣板可以收斂</td><td>不改：1 byte 的 register 用 <code>read_u8()</code>，要一筆讀 2 byte 的才直接呼叫 <code>read_reg()</code>，這正是 13.5 的重點；用 macro 收掉會把讀法藏起來。</td></tr>
+          <tr><td>超過 800 行的上限</td><td>不拆（規則禁止事後拆），已經照實記錄。</td></tr>
+        </tbody>
+      </table>
+      <p>不接板子就能跑 static 測試（在 repo 根目錄；需要 kernel headers、<code>dtc</code>、<code>cpp</code>，建置測試會在 <code>kernel/edge_ctrl/</code> 裡 <code>make</code>）：</p>
+<pre class="cmd">python3 -m unittest discover -s tests -p test_edge_ctrl_static.py</pre>
+<pre class="out">Ran 22 tests in 1.254s
+
+OK</pre>
+      <p>沒有 kernel headers 或 <code>dtc</code> 的機器上，overlay 和建置的測試會 skip，結尾變成 <code>OK (skipped=N)</code>，那不是錯。</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="rail"><span class="no">13.10</span><b>驗收</b>實機</div>
+    <div class="content">
+      <h2>實測：先沒有節點，再有節點</h2>
+      <p>接線、firmware 都和 12-b 一樣：PB7 → pin 27、PB6 → pin 28、GND，ST-Link 插在 Jetson 的 USB 供電，A0 接在分壓中點，按鍵不按。先確認板子有回應（firmware 是 12-b 的 0.3 / map 1.1）：</p>
+<pre class="cmd">i2ctransfer -y 1 w1@0x42 0x00 r4@0x42</pre>
+<pre class="out">0xed 0x00 0x03 0x11</pre>
+      <p>讀到 <code>Remote I/O error</code> 的話，先看 <code>lsusb</code> 裡有沒有 <code>0483:3748</code>：這次開工時 ST-Link 就沒插，Blue Pill 沒電。</p>
+      <p>驗收腳本依「這次開機有沒有 <code>controller@42</code> 節點」切換兩種模式。overlay 還沒裝時先跑一次：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_ctrl.sh --no-look --no-unplug</pre>
+<pre class="out">--- no /proc/device-tree/bus@0/i2c@c240000/controller@42 in this boot: checking that the driver binds nothing
+PASS no client 1-0042 without the DT node
+PASS no device bound
+PASS client at 0x43 created and left unbound
+...
+PASS probe at 0x43 failed with -EREMOTEIO
+    [1144082.855630] edge_ctrl 1-0043: error -EREMOTEIO: cannot read DEVICE_ID
+=== 0 failure(s)</pre>
+      <p>然後裝 overlay、重開機（這台沒有 runtime overlay）：</p>
+<pre class="cmd">make -C dts &amp;&amp; sudo python3 scripts/install_edge_gpio_overlay.py install dts/edge-gpio-overlay.dtbo &amp;&amp; sudo reboot</pre>
+      <table>
+        <thead><tr><th>你可能以為要自己做</th><th>實際上</th></tr></thead>
+        <tbody>
+          <tr><td>先 <code>make</code> module、<code>insmod</code></td><td>腳本自己以你的身分建置、<code>insmod</code>，結束時 <code>rmmod</code>（已經載入就以結束碼 2 離開，不動你的）。</td></tr>
+          <tr><td>拿 <code>i2ctransfer</code> 對照每個屬性</td><td>device 測試逐項比對，腳本也把兩邊都印出來。</td></tr>
+          <tr><td>拔 ST-Link 後自己等板子回來</td><td>插回後腳本最多等 10 秒讓 <code>device_id</code> 讀回 0xed，再檢查綁定沒變、STATUS 有 RESET，最後清掉 STATUS。</td></tr>
+          <tr><td>測 unbind 後檔案消失</td><td>腳本 unbind、bind 各一次，也用一個在 rmmod 前開著的 fd 確認之後讀到 <code>ENODEV</code>。</td></tr>
+          <tr><td>遠端跑時跳過人手的步驟</td><td><code>--no-look</code> 不問 LED，<code>--no-unplug</code> 不拔 ST-Link。</td></tr>
+        </tbody>
+      </table>
+      <p>2026-10-27，重開機後在板子旁跑完整版：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_ctrl.sh</pre>
+<pre class="out" data-marks>--- /proc/device-tree/bus@0/i2c@c240000/controller@42 present: checking probe, attributes, errors and unbind
+PASS client 1-0042 exists, unbound, before insmod
+PASS client name 'edge-ctrl', claimed by no installed module «1»
+    before insmod, raw 0x00..0x03: 0xed 0x00 0x03 0x11  STATUS 0x80
+PASS 1-0042 bound to edge_ctrl
+PASS i2cget without -f refused while bound: Error: Could not set address to 0x42: Device or resource busy «2»
+    device_id         0xed
+    firmware_version  0.3
+    protocol_version  1.1
+    adc               2067
+    button            0
+    button_presses    0
+    led               0
+    status            0x80
+    raw: 0x00..0x03 0xed 0x00 0x03 0x11, 0x10..0x13 0x11 0x08 0x00 0x00, LED 0x00, STATUS 0x80 «3»
+FAIL device unittest «4»
+...
+FAIL: test_bad_led_value_is_refused_before_the_bus (test_edge_ctrl_device.EdgeCtrlDeviceTest) (text='')
+...
+AssertionError: OSError not raised
+PASS echo 1 &gt; led: LED_CONTROL reads 0x01
+&gt;&gt;&gt; Is the Blue Pill's blue LED (PC13) ON [y/n] y
+PASS Is the Blue Pill's blue LED (PC13) ON
+PASS echo 0 &gt; led: LED_CONTROL reads 0x00
+&gt;&gt;&gt; Is the LED OFF now [y/n] y
+PASS Is the LED OFF now
+&gt;&gt;&gt; Unplug the ST-Link from the Jetson's USB (the Blue Pill loses power), then press Enter
+PASS board gone: device_id fails (cat: /sys/bus/i2c/devices/1-0042/device_id: Remote I/O error) «5»
+...
+PASS board back: device_id 0xed again, same binding (no unbind / bind)
+PASS status 0x80 has RESET: the restart is visible
+PASS unbind removes the attributes
+PASS bind again: attributes back
+PASS client at 0x43 created and left unbound
+    before: 2067
+    after: ENODEV «6»
+PASS file opened before rmmod reads ENODEV
+...
+PASS dmesg shows 2 probe / 2 remove for 1-0042
+    [ 1232.249932] edge_ctrl 1-0042: probed: FW 0.3, register map 1.1, STATUS 0x80 «7»
+=== 1 failure(s)</pre>
+      <ol class="notes">
+        <li><span class="mk">1</span><span>client 名稱來自 compatible 去掉 <code>edge,</code>，這台的 <code>modules.alias</code> 沒有人認領它。</span></li>
+        <li><span class="mk">2</span><span>綁定後 0x42 屬於 kernel：不加 <code>-f</code> 的 <code>i2cget</code> 被擋下。</span></li>
+        <li><span class="mk">3</span><span><b class="hl-ok">driver 與 raw 一致</b>：<code>0xed</code> / <code>0.3</code> / <code>1.1</code> 對應 raw 的 <code>0xed 0x00 0x03 0x11</code>；按鍵 0 次、STATUS 0x80 相同。ADC 2067 vs raw <code>0x11 0x08</code> = 2065，是不同次轉換，差在雜訊範圍內。</span></li>
+        <li><span class="mk">4</span><span>唯一的失敗：測試把空字串寫進 <code>led</code>，期待 <code>EINVAL</code>，卻沒有錯誤。是<b class="hl-bad">測試寫錯</b>，見下面。同一個測試裡 <code>"2"</code>、<code>"0x10"</code>、<code>"-1"</code>、<code>"on"</code> 都正確地回了 <code>EINVAL</code>。</span></li>
+        <li><span class="mk">5</span><span>拔掉 ST-Link：讀取回 errno，插回後不用重新綁定就恢復，STATUS 帶著 RESET（13.8）。</span></li>
+        <li><span class="mk">6</span><span>rmmod 之前開著的 fd，之後讀到 <code>ENODEV</code>，不是舊的值：屬性檔跟著綁定一起消失。</span></li>
+        <li><span class="mk">7</span><span>probe 印出 STATUS 0x80：重開機後還沒有人清過，driver 也照設計沒有清。</span></li>
+      </ol>
+      <p>空字串的問題：Python 寫 <code>""</code> 時根本<b>不呼叫 <code>write()</code></b>（用 strace 看，<code>"\n"</code>、<code>"2"</code> 都有 <code>write(3, …, 1)</code>，<code>""</code> 只有 <code>openat</code>），而 sysfs 對 0 byte 的寫入也不會呼叫 <code>store()</code>。這個 case 從來沒測到 driver。改成 <code>"\n"</code>（<code>echo &gt; led</code> 真正送出的內容），driver 不用改，重跑：</p>
+<pre class="cmd">sudo bash scripts/verify_edge_ctrl.sh --no-look --no-unplug</pre>
+<pre class="out">PASS device unittest as root (Ran 9 tests in 0.354s)
+...
+=== 0 failure(s)</pre>
+      <p>module 卸載後，再用上一步的腳本確認 firmware 那邊沒有回歸：<code>bash scripts/verify_stm32_i2c.sh --no-look --no-touch</code> <b class="hl-ok">0 failure</b>，500 筆混合讀取之後 STATUS 0x00，ADC 2050–2076。</p>
+      <h3>自己動手：cat 與 echo</h3>
+      <p>overlay 裝好、重開機之後，在 repo 根目錄：</p>
+<pre class="cmd">sudo insmod kernel/edge_ctrl/edge_ctrl.ko
+cd /sys/bus/i2c/devices/1-0042
+grep . device_id firmware_version protocol_version adc button button_presses led status
+echo 1 | sudo tee led; cat led
+echo 2 | sudo tee led; cat led
+echo 0 | sudo tee led
+cd ~/GitHubLL/embedded-linux-platform &amp;&amp; sudo rmmod edge_ctrl</pre>
+<pre class="out">device_id:0xed
+firmware_version:0.3
+protocol_version:1.1
+adc:2068
+button:0
+button_presses:0
+led:0
+status:0x00
+1
+1
+2
+tee: led: Invalid argument
+1
+0</pre>
+      <p><code>insmod</code> 前要先在 <code>kernel/edge_ctrl/</code> 建置過（<code>make -C kernel/edge_ctrl</code>，或跑過一次驗收腳本）；最後的 <code>cd</code> 換成你自己 clone 的路徑。<code>echo 2</code> 那行，<code>tee</code> 先把 <code>2</code> 印到 stdout，寫檔時才收到 <code>Invalid argument</code>，接著 <code>cat led</code> 還是 1：值沒有送上 bus。你的 <code>adc</code> 會依電阻誤差不同，<code>status</code> 若是 <code>0x80</code> 表示板子重開過還沒人清，<code>button_presses</code> 取決於開機後按了幾下。<code>insmod</code> 回 <code>File exists</code> 就是已經載入了。</p>
+    </div>
+  </section>
+
+  <section id="pitfalls">
+    <div class="rail"><span class="no">13.11</span><b>常見錯誤</b></div>
+    <div class="content">
+      <h2>踩過與差點踩的坑</h2>
+      <div class="pitfalls">
+        <div class="pit"><h4>測試寫空字串</h4><dl><dt>症狀</dt><dd>寫 <code>""</code> 到 <code>led</code>，期待 <code>EINVAL</code>，卻沒有錯誤。</dd><dt>後果</dt><dd>以為 driver 漏擋，其實這個 case 根本沒呼叫到 driver。</dd><dt>正解</dt><dd class="fix">測 <code>"\n"</code>：那才是 <code>echo &gt; led</code> 送出的東西。</dd></dl></div>
+        <div class="pit"><h4>把錯誤的值直接轉送</h4><dl><dt>症狀</dt><dd><code>echo 2 &gt; led</code> 回傳成功，LED 卻沒變。</dd><dt>後果</dt><dd>firmware 照樣 ACK、只在 STATUS 記一筆，寫的人不知道失敗。</dd><dt>正解</dt><dd class="fix">driver 先檢查，範圍和 firmware 完全相同，有向量逐值比對。</dd></dl></div>
+        <div class="pit"><h4>ADC 分兩次讀</h4><dl><dt>症狀</dt><dd>偶爾讀到差 256 的值。</dd><dt>後果</dt><dd>LOW 和 HIGH 來自兩次轉換（12-b 的錯位）。</dd><dt>正解</dt><dd class="fix">一次 <code>i2c_transfer()</code> 讀 2 byte，有原始碼測試守著。</dd></dl></div>
+        <div class="pit"><h4>綁定後還用 <code>i2cget</code></h4><dl><dt>症狀</dt><dd><code>Could not set address to 0x42: Device or resource busy</code>。</dd><dt>後果</dt><dd>上一步的驗收腳本在 driver 載入時跑不了。</dd><dt>正解</dt><dd class="fix">比對用 <code>i2ctransfer -f</code>；<code>verify_stm32_i2c.sh</code> 在 module 卸載後跑。</dd></dl></div>
+        <div class="pit"><h4>通用的 compatible</h4><dl><dt>症狀</dt><dd>規劃寫 <code>edge,controller</code>，client 名稱就是 <code>controller</code>。</dd><dt>後果</dt><dd>名稱拿去比所有 driver 的 <code>i2c_device_id</code>，有機會被別人認領（Step 7）。</dd><dt>正解</dt><dd class="fix">用 <code>edge,edge-ctrl</code>，測試查 <code>modules.alias</code>。</dd></dl></div>
+        <div class="pit"><h4>上一步的範圍測試</h4><dl><dt>症狀</dt><dd>建好 <code>kernel/edge_ctrl/</code>，12-b 的測試就紅了。</dd><dt>後果</dt><dd>它斷言「這個目錄不存在」（12-b 不准寫 driver）。</dd><dt>正解</dt><dd class="fix">拿掉那一條，firmware 的範圍檢查保留。</dd></dl></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="rail"><span class="no">13.12</span><b>收尾</b>下一步</div>
+    <div class="content">
+      <h2>這一步做到了什麼</h2>
+      <ul class="checks">
+        <li class="y"><code>edge_ctrl.ko</code>：Device Tree 綁定 <code>1-0042</code>，probe 檢查 DEVICE_ID 與 map 版本，八個 sysfs 屬性（識別、版本、ADC、按鍵、計數、LED、STATUS）。application 不再碰 <code>/dev/i2c-1</code>。</li>
+        <li class="y"><b class="hl-ok">phase05 的驗收條件成立</b>：Jetson Linux driver → I2C → STM32 firmware → GPIO / ADC / status 整條路可以工作，driver 的值和 raw I2C 一致。驗收 <b class="hl-ok">0 failure</b>（第一輪 1 個失敗是測試寫錯，修測試後重跑）。</li>
+        <li class="y">Step 11 帶過來的「整條 bus timeout 不是晶片的錯」：錯誤只回 errno、不留狀態；Blue Pill 斷電後不用重新綁定就恢復。</li>
+        <li class="y">測試：6 組向量（driver header 對 firmware 的 <code>i2c_target.c</code>）、<span data-tests="tests/test_edge_ctrl_static.py">22</span> 個 static、9 個 device 測試。規模：非空白新增 999 行（含 code review 的修正），<b class="hl-bad">超過 800 的上限</b>，而且動工前沒有寫下估計；其中測試與驗收腳本佔 711 行。</li>
+        <li class="n">沒有實測：整條 bus timeout（SCL 拉到 GND）；probe 拒絕不相容 firmware 的路徑（只有向量）。</li>
+      </ul>
+      <p>Step 14 進到 Phase 6：讓 STM32 從被動的周邊變成 Jetson 的 supervisor。Jetson 定期寫一個 HEARTBEAT register，STM32 用 timer 判斷多久沒收到就進入 fault 狀態。這會是 register map 第一個「寫入有副作用」的 register，12-b 的 code review 已經記下：firmware 的 <code>write_reg()</code> 目前把其他可寫位址都當 STATUS 處理，加 HEARTBEAT 前要先改。</p>
+      <details class="quiz"><summary>1. 為什麼 <code>read_reg()</code> 用一次 <code>i2c_transfer()</code> 送兩個 message，而不是先 <code>i2c_master_send()</code> 寫 pointer、再 <code>i2c_master_recv()</code> 讀？</summary><p>一次 transfer 期間 adapter 是鎖住的，中間用 repeated START 接起來，別的 bus 使用者（OLED driver、userspace）插不進來改 firmware 的 pointer；分兩次呼叫，中間可能被插隊，讀到別的 register。</p></details>
+      <details class="quiz"><summary>2. firmware 對 LED_CONTROL = 2 會 ACK 並丟掉。driver 為什麼不乾脆轉送，讓 firmware 自己處理？</summary><p>那樣 <code>echo 2 &gt; led</code> 會回傳成功，錯誤只留在 STATUS，寫的人不會知道。在 driver 先擋，錯誤以 <code>EINVAL</code> 回到 userspace。前提是擋的範圍和 firmware 完全相同，所以有向量逐值比對。</p></details>
+      <details class="quiz"><summary>3. probe 為什麼不把 STATUS 清掉？</summary><p>STATUS 的 RESET bit 是 application 判斷「板子重開過」的唯一管道。driver 一載入就清，這個資訊就沒了；斷電重插之後讀到 0x80，正是靠這一點。</p></details>
+      <details class="quiz"><summary>4. Blue Pill 斷電時 <code>cat adc</code> 失敗。driver 要不要記下「裝置壞了」，之後的讀取直接回錯？</summary><p>不要。失敗可能是整條 bus 的問題（像 Step 11 的短路），也可能只是暫時斷電；記下狀態反而讓板子回來後還是讀不到，得手動重新綁定。每次存取直接試、失敗就回 errno 最簡單，也最正確。</p></details>
+      <details class="quiz"><summary>5. 測試 <code>edge_ctrl_regs.h</code> 時，為什麼要把 firmware 的 <code>i2c_target.c</code> 一起編進來？</summary><p>只拿 driver 的 header 跟自己比永遠會過。用 firmware 真正的 state machine 回答 driver 的 transaction，期望值才是「板子上會發生的事」，兩份 header 分歧時才會紅。</p></details>
+    </div>
+  </section>
+
+  <nav class="chapnav bottom" aria-label="章節導覽"><a href="index.html">↑ 目錄</a><span class="spacer"></span><a href="step12b.html">← Step 12-b</a><span class="disabled">Step 14 →</span></nav>
+</main>
+
+<script>
+/* Listings: number every line with its line number in the source file (data-start), and highlight data-hot lines.
+   The number is drawn by CSS ::before, so copying the code does not copy the numbers. */
+document.querySelectorAll('pre[data-start], pre[data-hot]').forEach(function (pre) {
+  var start = parseInt(pre.dataset.start || '1', 10);
+  var hot = new Set();
+  (pre.dataset.hot || '').split(',').filter(Boolean).forEach(function (part) {
+    var r = part.split('-').map(Number);
+    for (var n = r[0]; n <= (r[1] || r[0]); n++) hot.add(n);
+  });
+  var numbered = pre.hasAttribute('data-start');  // without it the source line numbers are unknown: highlight only
+  var lines = pre.innerHTML.split('\n');
+  pre.innerHTML = lines.map(function (line, i) {
+    var n = start + i, cls = [numbered ? 'ln' : '', hot.has(n) ? 'hot' : ''].join(' ').trim();
+    return cls ? '<span class="' + cls + '" data-n="' + n + '">' + line + '</span>' : line;
+  }).join('\n');
+});
+document.querySelectorAll('pre[data-marks]').forEach(function (pre) {
+  pre.innerHTML = pre.innerHTML.replace(/«(\d+)»/g, '<span class="mk">$1</span>');
+});
+
+(function () {
+  // A model of led_store() / status_store() and the firmware's LED_CONTROL / STATUS, not the board.
+  var led = 0, status = 0x80;
+  var $ = function (id) { return document.getElementById(id); };
+  var hex = function (b) { return '0x' + ('0' + b.toString(16)).slice(-2); };
+  function log(s) { var l = $('simLog'); l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
+  function show() { $('simLed').textContent = led; $('simStatus').textContent = hex(status); }
+  // kstrtouint(buf, 0, &v): optional '+', base from the prefix, one trailing newline allowed.
+  function kstrtouint(s) {
+    if (s.endsWith('\n')) s = s.slice(0, -1);
+    var m = /^\+?(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$/.exec(s);
+    if (!m) return null;
+    var t = m[1], v = /^0[xX]/.test(t) ? parseInt(t.slice(2), 16) : (t.length > 1 && t[0] === '0' ? parseInt(t, 8) : parseInt(t, 10));
+    return v > 0xFFFFFFFF ? null : v;
+  }
+  $('simWrite').addEventListener('click', function () {
+    var text = $('simText').value + '\n', attr = $('simAttr').value, v = kstrtouint(text);
+    var shown = 'echo ' + JSON.stringify($('simText').value) + ' > ' + attr;
+    if (v === null || (attr === 'led' ? v > 1 : v > 0xFF)) { log(shown + '  →  EINVAL（沒有送上 bus）'); return; }
+    if (attr === 'led') { led = v; log(shown + '  →  bus: 0x20 ' + hex(v) + '  →  LED ' + (v ? '亮' : '滅')); }
+    else { var gone = status & v; status &= ~v; log(shown + '  →  bus: 0x30 ' + hex(v) + '  →  ' + (gone ? '清掉 ' + hex(gone) : '沒有可清的 bit')); }
+    show();
+  });
+  $('simRo').addEventListener('click', function () {
+    status |= 0x01; log('i2ctransfer -f -y 1 w2@0x42 0x00 0x55  →  firmware 丟掉，STATUS |= RO_WRITE'); show();
+  });
+  log('LED 0、STATUS 0x80（剛開機）。試試 1、2、0x10、010、+1、on，或把 status 寫 0x80。');
+  show();
+})();
+</script>
+</body>
+</html>

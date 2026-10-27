@@ -611,6 +611,7 @@ footer.chap-footer {
     <li><a class="toc-title" href="step11.html">Step 11 · STM32F103：自己寫一顆 I2C 周邊（Blue Pill firmware，0x42）</a><p class="toc-desc">Jetson 是 controller、Blue Pill 的 I2C1 是 target：DEVICE_ID、版本、LED_CONTROL 四個 register，不合法的寫入 ACK 後丟掉。protocol 是不碰硬體的 state machine，在 Jetson 上測；SPL 中斷只翻譯旗標。PlatformIO 不指定 framework 自帶 SPL；用 SWD 讀暫存器找出把整條 bus 拉低的那條線。</p></li>
     <li><a class="toc-title" href="step12a.html">Step 12-a · register map v1.0：把 demo 變成契約</a><p class="toc-desc">同一顆 Blue Pill、沒有新接線：位址分區、PROTOCOL_VERSION（major / minor 規則）、auto-increment 只在一筆 transaction 裡（TXE 多取的那個 byte 因此無害）、write-1-to-clear 的 STATUS 回報被丟掉的寫入，bus error 後 SWRST 重設 I2C1。四個故意改壞的 firmware 都燒進板子，證明測試抓得到。</p></li>
     <li><a class="toc-title" href="step12b.html">Step 12-b · ADC 與按鍵：第一個會變的值</a><p class="toc-desc">麵包板上兩顆 330 Ω 分壓接 PA0、一顆按鍵接 PA1：map v1.1 加上 ADC_LOW / HIGH、BUTTON_STATE、BUTTON_PRESSES。一筆讀取的 byte 都來自讀取開始時的快照，所以 LOW、HIGH 一定是同一次轉換；分壓中點從不跨 0x800，錯位要靠浮接的 A0、而且讓 ADC_HIGH 是第 3 個 byte 才看得到。按鍵用 SysTick 每 1 ms 取樣、穩定 20 ms 才算。</p></li>
+    <li><a class="toc-title" href="step13.html">Step 13 · edge_ctrl：把自己的 MCU 接進 kernel</a><p class="toc-desc">Jetson 端的 I2C client driver：Device Tree 的 controller@42 讓 client 1-0042 開機就存在，edge_ctrl.ko 的 probe 檢查 DEVICE_ID 與 register map 版本，再用 dev_groups 開放八個 sysfs 屬性（識別、版本、ADC、按鍵、LED、STATUS），application 不再碰 /dev/i2c-1。pointer 與讀取放在同一個 i2c_transfer()；不合法的 LED 值在 driver 就回 EINVAL；driver 的 register header 由 firmware 自己的 i2c_target.c 驗證。Blue Pill 斷電時讀取回 errno，插回後不用重新綁定。</p></li>
   </ol>
 </main>
 <script id="inline-js">

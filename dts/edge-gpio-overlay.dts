@@ -132,4 +132,24 @@
 			};
 		};
 	};
+
+	/*
+	 * Step 13: our STM32F103 (Blue Pill) peripheral, PB7 -> pin 27, PB6 -> pin 28: the
+	 * same gen2_i2c bus as the OLED. The client 1-0042 exists from boot and stays
+	 * unbound until edge_ctrl.ko is loaded. The compatible minus "edge," becomes the
+	 * client name, so it is "edge-ctrl" rather than a generic word another driver's
+	 * i2c_device_id table could list.
+	 */
+	fragment@6 {
+		target = <&gen2_i2c>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			controller@42 {
+				compatible = "edge,edge-ctrl";
+				reg = <0x42>;
+			};
+		};
+	};
 };

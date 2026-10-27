@@ -56,3 +56,6 @@ target_include_directories(test_i2c_target PRIVATE firmware/stm32f103/Core/Inc)
 # Step 12-b: the button debounce (pure C, called from SysTick on the board).
 add_executable(test_debounce tests/test_debounce.cpp firmware/stm32f103/Core/Src/debounce.c)
 target_include_directories(test_debounce PRIVATE firmware/stm32f103/Core/Inc)
+# Step 13: edge_ctrl.ko's view of the register map (include/edge_ctrl_regs.h) against the firmware.
+add_executable(test_edge_ctrl_regs tests/test_edge_ctrl_regs.cpp firmware/stm32f103/Core/Src/i2c_target.c)
+target_include_directories(test_edge_ctrl_regs PRIVATE firmware/stm32f103/Core/Inc)
