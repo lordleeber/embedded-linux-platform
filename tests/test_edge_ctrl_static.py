@@ -176,6 +176,15 @@ class CtrlDriverContractTest(unittest.TestCase):
         self.assertEqual(body.count("read_reg("), 1)
         self.assertIn("edge_ctrl_adc(", body)
 
+    def test_probe_checks_the_adapter_can_do_plain_i2c(self):
+        # read_reg() is a raw i2c_transfer() with a repeated START; an SMBus-only adapter
+        # cannot do it. Check first, before the first transfer (PR #25 code review).
+        body = function_body(self.src, "edge_ctrl_probe")
+        self.assertIsNotNone(body, "no edge_ctrl_probe()")
+        check = body.find("i2c_check_functionality(client->adapter, I2C_FUNC_I2C)")
+        self.assertTrue(0 <= check < body.find("read_reg("), "functionality check before read_reg()")
+        self.assertIn("-EOPNOTSUPP", body[check:body.find("read_reg(")])
+
     def test_led_value_checked_before_anything_is_sent(self):
         body = function_body(self.src, "led_store")
         self.assertIsNotNone(body, "no led_store()")
@@ -257,6 +266,14 @@ class CtrlVerifyScriptTest(unittest.TestCase):
         self.assertRegex(self.text, r"\$DRV/unbind")
         self.assertRegex(self.text, r"\$DRV/bind")
         self.assertIn("--no-unplug", self.text)
+
+    def test_status_is_a_number_before_arithmetic(self):
+        # A failed read leaves "cat: ...: error" in $st; (( st & 0x80 )) would add a bash
+        # syntax error to the output (PR #25 code review). Match the format first.
+        lines = [l for l in self.text.splitlines() if "st & 0x80" in l]
+        self.assertTrue(lines, "no RESET check")
+        for line in lines:
+            self.assertIn("=~ ^0x[0-9a-f]+$", line.split("st & 0x80")[0])
 
     def test_usage_error_exits_2(self):
         r = subprocess.run(["bash", str(VERIFY), "--bogus"], capture_output=True, text=True)

@@ -599,3 +599,8 @@
 - 原本以為 Step 12-b 的範圍守門測試只看 firmware；它還斷言「沒有 `kernel/edge_ctrl`」，這一步一建目錄就紅。拿掉那一條（改名 `test_firmware_scope`），firmware 的其他範圍檢查保留。
 - 跑 header 變異時，在同一秒內改 header 又重編，make 判斷不用重編，第三個變異印出的是上一個變異的結果。要先刪掉 object 檔再編（或分開跑），變異的結論才可信。
 - 開工時 ST-Link 沒插在 Jetson 上（`lsusb` 看不到 `0483:3748`），0x42 掃不到；使用者插回後一切正常。開工前先用 `lsusb` 與 `i2ctransfer w1@0x42 0x00 r4@0x42` 確認板子有電、有回應。
+- code review（PR #25，medium）6 項，分流見 phase05 的 Step 13 實作決策。原本以為沒事的：
+  - 原本以為 DT 已經把節點放在 Tegra 的 `i2c-1` 上，就不用檢查 adapter 的能力。`read_reg()` 是 raw `i2c_transfer()` 加 repeated START，只支援 SMBus 的 adapter 做不到；probe 補 `i2c_check_functionality(…, I2C_FUNC_I2C)`（這台 `i2cdetect -F 1` 是 `I2C yes`，行為不變）。原始碼測試先紅。
+  - 原本以為「不合法的 LED 值之後 STATUS 必須是 0」最能證明值沒送上 bus。RESET、BUS_ERROR 和這件事無關，板子重開或同 bus 的雜訊會讓它誤報；改成只看 RO_WRITE / UNMAPPED_WRITE / BAD_VALUE。沒有照 reviewer 只看 BAD_VALUE：值被送到錯的位址時設的是另外兩個 bit。
+  - 原本以為 `(( st & 0x80 ))` 在讀檔失敗時只是判成 FAIL；bash 會先多印一行 arithmetic syntax error（錯誤字串仍在 FAIL 那行，reviewer 說「蓋掉 errno」不成立）。先比對 `^0x[0-9a-f]+$`，腳本測試先紅。
+  - 修正後 `test_edge_ctrl_static.py` 20 → 22 個，全套 444 → **446** 個；規模 978 → **999** 行（非空白）。

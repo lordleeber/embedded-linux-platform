@@ -29,7 +29,8 @@ REQUIRED = os.environ.get("EDGE_CTRL_REQUIRE") == "1"
 RO = ("device_id", "firmware_version", "protocol_version", "adc", "button", "button_presses")
 RW = ("led", "status")
 LED, STATUS = 0x20, 0x30
-RO_WRITE, BAD_VALUE = 0x01, 0x04
+RO_WRITE, UNMAPPED_WRITE, BAD_VALUE = 0x01, 0x02, 0x04
+DROPPED = RO_WRITE | UNMAPPED_WRITE | BAD_VALUE  # STATUS bits for a write the firmware dropped
 
 
 def bound():
@@ -123,8 +124,9 @@ class EdgeCtrlDeviceTest(unittest.TestCase):
                 with self.assertRaises(OSError) as cm:
                     store("led", text)
                 self.assertEqual(cm.exception.errno, errno.EINVAL)
-        # nothing reached the firmware: no BAD_VALUE, LED still on
-        self.assertEqual(raw_read(STATUS), [0])
+        # nothing reached the firmware: no dropped write recorded, LED still on. Only these
+        # bits: RESET and BUS_ERROR say nothing about this test (PR #25 code review).
+        self.assertEqual(raw_read(STATUS)[0] & DROPPED, 0)
         self.assertEqual(raw_read(LED), [1])
 
     def test_status_write_one_to_clear(self):

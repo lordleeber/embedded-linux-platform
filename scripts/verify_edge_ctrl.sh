@@ -158,7 +158,7 @@ else
             fail "board back: device_id '$(cat "$CLIENT/device_id" 2>&1)'"
         fi
         st="$(cat "$CLIENT/status" 2>&1)"
-        if (( st & 0x80 )); then pass "status $st has RESET: the restart is visible"; else fail "status after power cycle '$st'"; fi
+        if [[ $st =~ ^0x[0-9a-f]+$ ]] && (( st & 0x80 )); then pass "status $st has RESET: the restart is visible"; else fail "status after power cycle '$st'"; fi
         echo 0xff > "$CLIENT/status"
     fi
 

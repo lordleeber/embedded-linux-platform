@@ -184,6 +184,10 @@ static int edge_ctrl_probe(struct i2c_client *client)
 	u8 id[4], status;
 	int ret;
 
+	/* read_reg() needs a plain I2C transfer with a repeated START, not just SMBus. */
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
+		return dev_err_probe(&client->dev, -EOPNOTSUPP, "adapter cannot do plain I2C\n");
+
 	/* DEVICE_ID, FW_MAJOR, FW_MINOR, PROTOCOL_VERSION; no ACK fails with -EREMOTEIO. */
 	ret = read_reg(client, EDGE_CTRL_REG_DEVICE_ID, id, 4);
 	if (ret)

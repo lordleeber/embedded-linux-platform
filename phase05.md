@@ -603,7 +603,11 @@ kernel driver exposed value
 - `led` 寫入只收 0 / 1，其他值在 driver 就回 `EINVAL`、不送上 bus：firmware 對錯誤值照樣 ACK、只在 STATUS 記 BAD_VALUE，不先擋的話寫的人看到的是成功。`edge_ctrl_led_ok()` 與 firmware 接受的值由向量逐值（0–255）比對
 - register 位址與解碼放在 `include/edge_ctrl_regs.h`（kernel 不能 include firmware 那份用 `<stdint.h>` 的 `i2c_target.h`）；`build/test_edge_ctrl_regs` 把 firmware 的 `i2c_target.c` 一起編進來，用 driver 的 transaction 驅動它，再用 header 的 helper 解碼：期望值來自 firmware 的實作，不是 header 自己
 - 「userspace raw vs kernel driver 一致」：device 測試用 `i2ctransfer -f`（driver 綁定時 i2c-dev 不加 `-f` 是 `EBUSY`）。識別、版本、按鍵、STATUS 逐字相同；ADC 兩邊各讀 20 次、中位數差 ≤ `ADC_SPREAD_MAX`（40，沿用 Step 12-b）
-- 規模（非空白行，不含 .md）：**978 行**，超過 800 的上限；動工前**沒有寫下估計**（違反 CLAUDE.md 的規則），寫完才量到。driver 205、header 47、測試 492（static 223、C++ 146、device 120、12-b 的範圍檢查 3）、驗收腳本 202、overlay / Makefile / CMake 32。數字見 `docs/baseline.md`
+- code review（PR #25，medium）6 項的分流：
+  - 改 code：probe 先 `i2c_check_functionality(client->adapter, I2C_FUNC_I2C)`，不支援時 `-EOPNOTSUPP`；驗收腳本先確認 `status` 讀到的是 hex 再做算術；device 測試「不合法的 LED 值沒送上 bus」只看三個寫入被丟掉的 bit（不看 RESET / BUS_ERROR）
+  - 改註解：`EDGE_CTRL_ADDR`、`EDGE_CTRL_REG_FW_MINOR` 只給向量用（driver 的位址來自 DT 的 `reg`）
+  - 不改：show 函式的樣板（1 byte 的用 `read_u8()`，要一筆讀 2 byte 的直接 `read_reg()`，是刻意的）；超過大小上限（不事後拆，已記錄）
+- 規模（非空白行，不含 .md）：PR 開出時 978 行，code review 修正後 **999 行**，超過 800 的上限；動工前**沒有寫下估計**（違反 CLAUDE.md 的規則），寫完才量到。修正後 driver 208、header 48、測試 509（static 238、C++ 146、device 122、12-b 的範圍檢查 3）、驗收腳本 202、overlay / Makefile / CMake 32。數字見 `docs/baseline.md`
 
 ### 預期檔案（Step 13 實際）
 

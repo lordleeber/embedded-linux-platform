@@ -12,11 +12,12 @@
 #ifndef EDGE_CTRL_REGS_H
 #define EDGE_CTRL_REGS_H
 
+/* The driver takes its address from the DT node's reg; this copy is for the vectors. */
 #define EDGE_CTRL_ADDR			0x42
 
 #define EDGE_CTRL_REG_DEVICE_ID		0x00	/* 0x00-0x03 read in one go by probe() */
-#define EDGE_CTRL_REG_FW_MAJOR		0x01
-#define EDGE_CTRL_REG_FW_MINOR		0x02
+#define EDGE_CTRL_REG_FW_MAJOR		0x01	/* + FW_MINOR, read together */
+#define EDGE_CTRL_REG_FW_MINOR		0x02	/* named for the vectors only */
 #define EDGE_CTRL_REG_PROTOCOL		0x03
 #define EDGE_CTRL_REG_ADC_LOW		0x10	/* + ADC_HIGH at 0x11, little-endian */
 #define EDGE_CTRL_REG_BUTTON_STATE	0x12
