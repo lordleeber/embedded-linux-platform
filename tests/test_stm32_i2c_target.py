@@ -236,14 +236,14 @@ class FirmwareSourceTest(unittest.TestCase):
         self.assertNotIn("__WFI", self.main)
         self.assertNotIn("__WFE", self.main)
 
-    def test_scope_step12b_only(self):
+    def test_firmware_scope(self):
         # phase05 Step 12-b "這一步不做": no real watchdog (Phase 6), no SPI, no DMA, no
-        # Jetson kernel driver (Step 13), no interrupt line to tell the Jetson about the button.
+        # interrupt line to tell the Jetson about the button. (The Jetson kernel driver came
+        # in Step 13: kernel/edge_ctrl.)
         for name in ("IWDG", "WWDG", "SPI", "DMA", "EXTI"):
             for path in (CORE_C, MAIN_C, HEADER, DEBOUNCE_C, DEBOUNCE_H,
                          FW / "Core" / "Inc" / "stm32f10x_conf.h"):
                 self.assertNotRegex(code_only(path.read_text()), rf"\b{name}\w*", f"{name} in {path.name}")
-        self.assertFalse((REPO / "kernel" / "edge_ctrl").exists())
 
 
 class VendorTest(unittest.TestCase):

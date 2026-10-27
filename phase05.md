@@ -265,7 +265,7 @@ write 0x20 = 0 → LED 滅
 
 - Step 12-a：多 byte 讀取（ADC_LOW / HIGH）需要定義 auto-increment；Step 11 實測 F103 在 TXE 驅動、BUF 一直開著時，對方 NACK 前預先放進 DR 的 byte 不會跑到下一次讀取（變異測試見 baseline），auto-increment 時要重新驗證：預先放的那個 byte 會讓 pointer 多前進一格
 - Step 12-a：寫入失敗沒有回報管道（F103 硬體先 ACK），STATUS register 補上
-- Step 13：target 把 SDA / SCL 拉住時（Step 11 實測：B6 在麵包板上誤接 GND），Tegra controller 一直 `I2C transfer timed out`，同 bus 的 ina3221 / fusb301 一起讀不到；線放開之後 bus 自己恢復（第二次沒有 unbind / bind `c240000.i2c` 也恢復了）。driver 的錯誤路徑要考慮「整條 bus 都 timeout」：那不是這顆晶片的錯
+- Step 13（**結案**，見 Step 13 的「從 Step 11 帶過來的」）：target 把 SDA / SCL 拉住時（Step 11 實測：B6 在麵包板上誤接 GND），Tegra controller 一直 `I2C transfer timed out`，同 bus 的 ina3221 / fusb301 一起讀不到；線放開之後 bus 自己恢復（第二次沒有 unbind / bind `c240000.i2c` 也恢復了）。driver 的錯誤路徑要考慮「整條 bus 都 timeout」：那不是這顆晶片的錯
 - 未處理：F1 errata（ES096）的 I2C analog filter 讓 BUSY 卡住；Step 11 沒遇到
 
 ### 預期檔案（Step 11 實際）
@@ -587,6 +587,34 @@ kernel driver exposed value
 
 - 不做 heartbeat
 - 不做 `poll()`
+
+### 從 Step 11 帶過來的
+
+- 「整條 bus 都 timeout 不是這顆晶片的錯」：**結案（Step 13）**。每次存取的 errno 原樣回給 userspace，driver 不留「壞掉」的狀態、不在每次存取時印 log（tegra-i2c 自己會印），下一次存取直接重試。實測的是 Blue Pill 斷電（拔 ST-Link）：讀取回 `Remote I/O error`、同 bus 的 ina3221 照樣讀到 `0x4954`，插回後不用 unbind / bind 就恢復；**SCL 被拉住、整條 bus timeout 的情況沒有重現**（要把線接到 GND，沒做），只由原始碼測試守住「錯誤路徑不留狀態」
+
+### 實作決策（Step 13 落地時裁決）
+
+- 誰和誰互動：Jetson `i2c-1`（`c240000.i2c`）controller → Blue Pill I2C1 target 0x42（firmware 不變，仍是 12-b 的 FW 0.3 / map 1.1）。新的一層在 Jetson kernel：`edge_ctrl.ko`（I2C client driver）把 register protocol 包成 client 目錄下的 sysfs 屬性；application 讀寫檔案，不碰 `/dev/i2c-1`
+- **interface 選 sysfs**（規劃讓 sysfs 或 character device 二選一）：規劃的實作範圍寫「read/write attributes」；這些值都是「現在是多少」的狀態，一個值一個檔、`cat` / `echo` 就能用，沒有串流或事件；也不是 hwmon 的類別（ADC 是任意電壓的原始值）。Step 19 的 `poll()` 要 wait queue 與 event 語意，phase08 規劃的是 `/dev/edge_ctrl`，到時再加 character device。理由也寫在 `kernel/edge_ctrl/README.md`
+- 屬性：`device_id`、`firmware_version`、`protocol_version`、`adc`、`button`、`button_presses`（0444）；`led`、`status`（0644，sysfs 不允許 others 寫，所以寫入要 root）。用 `.driver.dev_groups`，屬性跟著綁定出現與消失。不 expose WATCHDOG_STATUS（Phase 6 才有意義）
+- compatible `edge,edge-ctrl`（規劃寫 `edge,controller`）：client 名稱是 compatible 去掉前綴，避開 `controller` 這種通用字（Step 7 的教訓）；節點名照規劃 `controller@42`，放在 overlay 新的 `fragment@6`（`&gen2_i2c`，和 `oled@3c` 同一個 bus，但分開一個 fragment）
+- `read_reg()` 是一個 `i2c_transfer()`（寫 pointer + repeated START + 讀 N byte）：adapter 鎖住整筆，同 bus 的其他使用者插不進來移動 pointer；一筆讀取的所有 byte 來自 firmware 同一個快照，所以 `adc` 一次讀 2 byte、`firmware_version` 一次讀 0x01–0x02。部分完成的 transfer 算 `-EIO`
+- probe 一次讀 0x00–0x03：DEVICE_ID ≠ 0xED 或 PROTOCOL_VERSION 不是 1.x（x ≥ 1）就 `-ENODEV`，照 register map 的版本規則；STATUS 只讀出來印在 dmesg，不清（RESET 旗標留給讀的人）
+- `led` 寫入只收 0 / 1，其他值在 driver 就回 `EINVAL`、不送上 bus：firmware 對錯誤值照樣 ACK、只在 STATUS 記 BAD_VALUE，不先擋的話寫的人看到的是成功。`edge_ctrl_led_ok()` 與 firmware 接受的值由向量逐值（0–255）比對
+- register 位址與解碼放在 `include/edge_ctrl_regs.h`（kernel 不能 include firmware 那份用 `<stdint.h>` 的 `i2c_target.h`）；`build/test_edge_ctrl_regs` 把 firmware 的 `i2c_target.c` 一起編進來，用 driver 的 transaction 驅動它，再用 header 的 helper 解碼：期望值來自 firmware 的實作，不是 header 自己
+- 「userspace raw vs kernel driver 一致」：device 測試用 `i2ctransfer -f`（driver 綁定時 i2c-dev 不加 `-f` 是 `EBUSY`）。識別、版本、按鍵、STATUS 逐字相同；ADC 兩邊各讀 20 次、中位數差 ≤ `ADC_SPREAD_MAX`（40，沿用 Step 12-b）
+- 規模（非空白行，不含 .md）：**978 行**，超過 800 的上限；動工前**沒有寫下估計**（違反 CLAUDE.md 的規則），寫完才量到。driver 205、header 47、測試 492（static 223、C++ 146、device 120、12-b 的範圍檢查 3）、驗收腳本 202、overlay / Makefile / CMake 32。數字見 `docs/baseline.md`
+
+### 預期檔案（Step 13 實際）
+
+```text
+kernel/edge_ctrl/edge_ctrl.c、Makefile、README.md（新）
+include/edge_ctrl_regs.h（新）
+dts/edge-gpio-overlay.dts（改：fragment@6 controller@42）
+tests/test_edge_ctrl_regs.cpp、tests/test_edge_ctrl_static.py、tests/test_edge_ctrl_device.py（新）
+scripts/verify_edge_ctrl.sh（新）
+CMakeLists.txt、tests/test_stm32_i2c_target.py（改：12-b 的範圍檢查拿掉「沒有 kernel/edge_ctrl」）
+```
 <!-- STEP_DETAIL_END -->
 
 **驗收條件**
