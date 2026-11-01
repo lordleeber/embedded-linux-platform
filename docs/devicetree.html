@@ -702,7 +702,7 @@ i2c8 = /bus@0/i2c@31e0000</pre>
         </tbody>
       </table>
       <p>也就是 bit 6（input）= 1、bit 4（tristate）= 1、bit 3:2（pull）= <code>10</code> 也就是上拉、bit 1:0（function）= 0，正好是圖上的三個開關。從 0 開始編號的好處是 bit N 的權重正好是 2 的 N 次方，編號可以直接拿來計算：<code>1 &lt;&lt; 6</code> = <code>0x40</code>、<code>1 &lt;&lt; 4</code> = <code>0x10</code>、<code>2 &lt;&lt; 2</code> = <code>0x08</code>，加起來就是 <code>0x58</code>。</p>
-      <p>另外 pad 還有驅動強度、Schmitt trigger、高壓 I/O 這些電氣選項，<code>nvidia,io-high-voltage</code> 就是其中一個（下面 NVIDIA 的 overlay 會看到），本書用不到。「GPIO 模式」這個開關（GPIO 還是 SFIO）在 Tegra 上不在 pinmux 暫存器裡，而是由 GPIO controller 自己的暫存器決定，line 被請求時 GPIO driver 會切過去；這是依上游 <code>gpio-tegra186</code> driver 的寫法推論的，這台沒有原始碼可以對照。</p>
+      <p>另外 pad 還有驅動強度、Schmitt trigger、高壓 I/O 這些電氣選項，<code>nvidia,io-high-voltage</code> 就是其中一個（下面 NVIDIA 的 overlay 會看到），本書用不到。「GPIO 模式」這個開關（GPIO 還是 SFIO）在這顆 SoC 上也在 pinmux 暫存器裡，是 bit 10：上游 kernel v6.12 的 <code>pinctrl-tegra234.c</code> 把它列成 <code>gpio_sfio_sel</code>，line 被請求時 pinctrl driver 把它清成 0（GPIO），釋放時設成 1（SFIO）。這台沒有 NVIDIA kernel 的原始碼可以對照，但實測的 <code>gpio-mode</code> 變化和這個寫法相符。</p>
 
       <h3>pinmux：每個 pad 一個暫存器</h3>
       <p><code>pinmux@2430000</code> 是 SoC 裡的一塊暫存器區（<code>reg</code> 長度 <code>0x19100</code>，DT.5），每個 pad 在裡面佔一個 32-bit 暫存器，4-a 會讀寫的就是其中 pin 29 的那個。always-on 電源域的 pad 另外有一塊，NVIDIA 的 overlay 裡用 <code>pinmux_aon</code> 這個標籤引用。DT 的 binding header 裡的常數，就是直接照暫存器欄位的值定義的：</p>

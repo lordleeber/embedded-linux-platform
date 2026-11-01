@@ -94,7 +94,7 @@
 ### 踩坑
 
 - 原本以為 driver 的 probe、`gpioinfo`、debugfs 都正常，LED 就會亮；JP6 開機時 pad 是 tristate（4-a 已詳述）。正解是讓 DT 節點帶 `pinctrl-names = "default"` + `pinctrl-0`，指向 pinmux 底下的狀態節點；driver core 在 `probe()` 之前就套用它，driver 的 C code 不用改。
-- 原本以為（4-a 的推論）pad 暫存器的 bit 10 在 line 被請求時就會設成 1；實測 kernel driver 持有 line、LED 正常閃爍時 pinconf 顯示 `gpio-mode=0`，rmmod 之後才變成 `gpio-mode=1`。所以 bit 10 不是 GPIO 輸出的必要條件，設定的時機與來源不明（未查 TRM）。4-a 的章、baseline 與 `pad_pin29.py` 的註解已改成只寫實測事實。
+- 原本以為（4-a 的推論）pad 暫存器的 bit 10 在 line 被請求時就會設成 1；實測 kernel driver 持有 line、LED 正常閃爍時 pinconf 顯示 `gpio-mode=0`，rmmod 之後才變成 `gpio-mode=1`。所以 bit 10 不是 GPIO 輸出的必要條件，設定的時機與來源不明（未查 TRM）。**（更正 2026-11-01：上游 kernel v6.12 的 `pinctrl-tegra234.c` 把 bit 10 列成 `gpio_sfio_sel`，`pinctrl-tegra.c` 在 line 請求時清成 0（GPIO）、釋放時設成 1（SFIO），和實測相符，所以 `gpio-mode=1` 是選 SFIO。這台的 NVIDIA kernel 有同名函式，原始碼沒有對照；TRM 也沒有查。）**4-a 的章、baseline 與 `pad_pin29.py` 的註解已改成只寫實測事實。
 - 原本以為 rmmod 後 pad 會回到開機的 tristate；pinctrl 的 "default" 狀態在 driver unbind 後不會被還原，腳位仍由輸出暫存器驅動。這也是 `remove()` 一定要寫 0 的原因（Tegra 釋放 line 時不歸零）。
 - 原本以為只能在開機後動態載入 overlay；這台 kernel 有 `CONFIG_OF_OVERLAY=y` 但沒有 `CONFIG_OF_CONFIGFS`，只能寫進 extlinux.conf 的 `OVERLAYS` 由 UEFI 在開機時合併，所以每改一次 overlay 都要重開機。重新執行 jetson-io 會重寫 `JetsonIO` label，可能洗掉我們加的 overlay。
 - 原本以為 overlay 可以直接用 dtc 編；`TEGRA234_MAIN_GPIO(Q, 5)` 這類巨集來自 kernel 的 binding header，要先過 C 前處理器（`#include`、`#define`）再交給 dtc。`dts/Makefile` 的 `DTC_CPP` 照 kernel 的做法加了 `-nostdinc -undef -x assembler-with-cpp`，`-undef` 避免 gcc 預先定義的 `linux` 等巨集把 `linux,code` 這類屬性名稱展開掉（照慣例預防，這次沒有實際踩到）。

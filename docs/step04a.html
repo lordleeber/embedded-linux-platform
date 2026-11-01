@@ -238,7 +238,17 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="rail"><span class="no">4a.3</span><b>編號</b>pin 29 = line 105</div>
     <div class="content">
       <h2>同一根腳的五個名字</h2>
-      <p>header 上的 pin 29，在不同層有不同的名字：Jetson 文件叫它 <code>GPIO01</code>；SoC 的 port/pin 叫 <code>PQ.05</code>（port Q 的第 5 支）；pinctrl 把它的 pad 叫 <code>soc_gpio32_pq5</code>；userspace 的 GPIO 工具用的是 <code>gpiochip0</code> 的 <b class="hl-key">line 105</b>。</p>
+      <p>header 上的 pin 29，在不同層有不同的名字：</p>
+      <table>
+        <thead><tr><th>名字</th><th>是什麼</th><th>誰這樣叫</th></tr></thead>
+        <tbody>
+          <tr><td><code>pin 29</code></td><td>40-pin header 上的腳位編號</td><td>接線時</td></tr>
+          <tr><td><code>GPIO01</code></td><td>這根腳的功能名稱</td><td>Jetson 文件</td></tr>
+          <tr><td><code>PQ.05</code></td><td>SoC 的 port/pin：port Q 的第 5 支</td><td>SoC，<code>gpioinfo</code> 的 line 名稱也是它</td></tr>
+          <tr><td><code>soc_gpio32_pq5</code></td><td>這根腳的 pad 名稱</td><td>pinctrl</td></tr>
+          <tr><td><b class="hl-key">line 105</b></td><td><code>gpiochip0</code> 裡的 line 編號</td><td>userspace 的 GPIO 工具</td></tr>
+        </tbody>
+      </table>
       <p>這塊板子有兩個 GPIO controller。在 repo 根目錄（任何目錄都可以，這兩個指令不需要 root）執行：</p>
 <pre class="cmd">gpiodetect
 gpioinfo gpiochip0 | grep 'line 105:'</pre>
@@ -269,26 +279,26 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
     <div class="rail"><span class="no">4a.4</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>0x458 → 0x400</div>
     <div class="content">
       <h2>把 pad 打開：一個暫存器、三個欄位</h2>
-      <p>PQ.05 的 pad 設定在實體位址 <code>0x02430068</code>：pinmux 區塊的基底 <code>0x02430000</code>（Device Tree 裡的 <code>pinmux@2430000</code>）加上偏移 <code>0x68</code>。一個 32-bit 暫存器，用不同的 bit 表示不同的電氣設定。開機時讀到 <code>0x00000458</code>：</p>
+      <p>PQ.05 的 pad 設定在實體位址 <code>0x02430068</code>：pinmux 區塊的基底 <code>0x02430000</code>（Device Tree 裡的 <code>pinmux@2430000</code>）加上偏移 <code>0x68</code>。一個 32-bit 暫存器佔 4 個 byte（<code>0x02430068</code>～<code>0x0243006B</code>），用不同的 bit 表示不同的電氣設定。要打開 pad，是執行 <code>sudo python3 scripts/pad_pin29.py open</code>，它把其中三個欄位清成 0。下圖是這次開機、line 105 用過之後，開啟 pad 前後讀到的值；真正剛開機時 bit 10 還是 0，值是 <code>0x00000058</code>：</p>
       <figure class="figure">
-        <svg viewBox="0 0 760 230" role="img" aria-label="暫存器低 12 bit：開機值 0x458 的 bit 10、6、4、3 為 1；打開後 0x400 只剩 bit 10。改動的是 bit 6 input、bit 4 tristate、bit 3:2 pull">
+        <svg viewBox="0 0 760 230" role="img" aria-label="暫存器低 12 bit：開啟 pad 前 0x458 的 bit 10、6、4、3 為 1；開啟 pad 後 0x400 只剩 bit 10。改動的是 bit 6 input、bit 4 tristate、bit 3:2 pull">
           <text class="s-mono" x="10" y="30">BIT</text>
           <text class="s-sm" x="153" y="30" text-anchor="middle">11</text><text class="s-sm" x="203" y="30" text-anchor="middle">10</text><text class="s-sm" x="253" y="30" text-anchor="middle">9</text><text class="s-sm" x="303" y="30" text-anchor="middle">8</text><text class="s-sm" x="353" y="30" text-anchor="middle">7</text><text class="s-sm" x="403" y="30" text-anchor="middle">6</text><text class="s-sm" x="453" y="30" text-anchor="middle">5</text><text class="s-sm" x="503" y="30" text-anchor="middle">4</text><text class="s-sm" x="553" y="30" text-anchor="middle">3</text><text class="s-sm" x="603" y="30" text-anchor="middle">2</text><text class="s-sm" x="653" y="30" text-anchor="middle">1</text><text class="s-sm" x="703" y="30" text-anchor="middle">0</text>
-          <text class="s-lbl" x="10" y="69">開機</text>
+          <text class="s-lbl" x="10" y="69">開啟 pad 前</text>
           <text class="s-sm" x="10" y="86">0x458</text>
           <rect class="bit bit-0" x="133" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1" x="183" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="233" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="283" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="333" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="383" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="433" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="483" y="45" width="40" height="40" rx="5"/><rect class="bit bit-1 bit-chg" x="533" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="583" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="633" y="45" width="40" height="40" rx="5"/><rect class="bit bit-0" x="683" y="45" width="40" height="40" rx="5"/>
           <text class="s-key" x="153" y="70" text-anchor="middle">0</text><text class="s-key" x="203" y="70" text-anchor="middle">1</text><text class="s-key" x="253" y="70" text-anchor="middle">0</text><text class="s-key" x="303" y="70" text-anchor="middle">0</text><text class="s-key" x="353" y="70" text-anchor="middle">0</text><text class="s-key" x="403" y="70" text-anchor="middle">1</text><text class="s-key" x="453" y="70" text-anchor="middle">0</text><text class="s-key" x="503" y="70" text-anchor="middle">1</text><text class="s-key" x="553" y="70" text-anchor="middle">1</text><text class="s-key" x="603" y="70" text-anchor="middle">0</text><text class="s-key" x="653" y="70" text-anchor="middle">0</text><text class="s-key" x="703" y="70" text-anchor="middle">0</text>
-          <text class="s-lbl" x="10" y="129">open</text>
+          <text class="s-lbl" x="10" y="129">開啟 pad 後</text>
           <text class="s-sm" x="10" y="146">0x400</text>
           <rect class="bit bit-0" x="133" y="105" width="40" height="40" rx="5"/><rect class="bit bit-1" x="183" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="233" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="283" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="333" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="383" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="433" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="483" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0 bit-chg" x="533" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="583" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="633" y="105" width="40" height="40" rx="5"/><rect class="bit bit-0" x="683" y="105" width="40" height="40" rx="5"/>
           <text class="s-key" x="153" y="130" text-anchor="middle">0</text><text class="s-key" x="203" y="130" text-anchor="middle">1</text><text class="s-key" x="253" y="130" text-anchor="middle">0</text><text class="s-key" x="303" y="130" text-anchor="middle">0</text><text class="s-key" x="353" y="130" text-anchor="middle">0</text><text class="s-key" x="403" y="130" text-anchor="middle">0</text><text class="s-key" x="453" y="130" text-anchor="middle">0</text><text class="s-key" x="503" y="130" text-anchor="middle">0</text><text class="s-key" x="553" y="130" text-anchor="middle">0</text><text class="s-key" x="603" y="130" text-anchor="middle">0</text><text class="s-key" x="653" y="130" text-anchor="middle">0</text><text class="s-key" x="703" y="130" text-anchor="middle">0</text>
-          <text class="s-sm" x="203" y="172" text-anchor="middle">gpio-mode</text>
-          <text class="s-sm" x="203" y="190" text-anchor="middle">（推論）</text>
+          <text class="s-sm" x="203" y="172" text-anchor="middle">GPIO／SFIO</text>
+          <text class="s-sm" x="203" y="190" text-anchor="middle">選擇</text>
           <text class="s-sm edge-lbl" x="403" y="172" text-anchor="middle">input</text>
           <text class="s-sm edge-lbl" x="503" y="172" text-anchor="middle">tristate</text>
           <text class="s-sm edge-lbl" x="578" y="172" text-anchor="middle">pull 10→00</text>
           <text class="s-sm" x="678" y="172" text-anchor="middle">function 00</text>
-          <text class="s-sm" x="10" y="218">紅框 = open 清掉的三個欄位；其他 bit 一律保留</text>
+          <text class="s-sm" x="10" y="218">紅框 = pad_pin29.py open 清掉的三個欄位；其他 bit 一律保留</text>
         </svg>
         <figcaption>圖 4.2 — 低位元組 <code>0x58</code> 拆開來是 pull=up（<code>0x08</code>）、tristate（<code>0x10</code>）、input（<code>0x40</code>）。只清掉這三個欄位就得到 <code>0x400</code>，LED 就亮了。</figcaption>
       </figure>
@@ -296,9 +306,36 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
         <li><b>tristate（bit 4）</b>：1 = 輸出驅動器斷開。這是 LED 不亮的原因，非清不可。</li>
         <li><b>input（bit 6）</b>：輸入接收器。當輸出用不需要；NVIDIA 自家 40-pin overlay 對 pin 29 也是設成 0。</li>
         <li><b>pull（bit 3:2）</b>：<code>10</code> 是內部上拉。腳位由輸出主動驅動時不需要，改成 <code>00</code>（不拉）。</li>
-        <li><b>bit 10</b>：意義沒有查過 TRM，所以不動。實測時它為 1 時 debugfs 都顯示 <code>gpio-mode=1</code>，而剛開機、還沒人請求過 line 時量到的是 <code>gpio-mode=0</code>。推論它是 GPIO / 其他功能的選擇位元，在 line 第一次被請求時由 GPIO 那一側設定。這是推論，不是查證過的事實。</li>
+        <li><b>bit 10</b>：GPIO／SFIO 的選擇位元（SFIO 是腳位的特殊功能，例如 I2C、UART），<code>open</code> 不動它。debugfs 的 <code>gpio-mode</code> 顯示的就是這個 bit。上游 kernel v6.12 的 <code>tegra_pinctrl_gpio_request_enable()</code> 在 line 被請求時把它清成 0（GPIO），<code>tegra_pinctrl_gpio_disable_free()</code> 在 line 釋放時把它設成 1（SFIO）。所以 <code>gpio-mode=1</code> 從字面看像「GPIO 模式」，照上游的寫法其實是選 SFIO。這和實測相符：剛開機是 0，line 用過、釋放之後是 1，所以 <code>0x458</code>、<code>0x400</code> 裡的 bit 10 都是釋放後留下的。</li>
       </ul>
-      <p>這個位址一開始是憑印象提出的，所以第一步只讀不寫：讀回 <code>0x458</code>，低位元組拆開和 debugfs 的 <code>pull=2 tristate=1 enable-input=1 function=rsvd0</code> 完全一致，才確定位址正確。對錯的位址寫入，可能改到別根腳或別的硬體。<code>scripts/pad_pin29.py</code> 把這個保護寫成程式：</p>
+      <p>tristate 和 input 容易搞混，因為一個 pad 裡輸出和輸入是兩條獨立的路。input 控制的是腳位上的電壓能不能被 Jetson 讀進來：</p>
+<pre>                 ┌─ 輸出驅動器（tristate 控制）← SoC 要送出去的值
+腳位 pin 29 ─────┤
+                 └─ 輸入接收器（input 控制）  → SoC 讀到的值</pre>
+      <table style="table-layout: fixed">
+        <thead><tr><th style="width: 16%">欄位</th><th style="width: 28%">控制的方向</th><th style="width: 16%">這個 pad 開啟後</th><th style="width: 40%">為什麼</th></tr></thead>
+        <tbody>
+          <tr><td><code>tristate = 0</code></td><td>輸出：Jetson 把電壓送到腳位</td><td>接上</td><td>LED 要靠它驅動，非清不可</td></tr>
+          <tr><td><code>input = 0</code></td><td>輸入：Jetson 讀腳位的電壓</td><td>關掉</td><td>LED 只需要輸出，Jetson 不必讀它</td></tr>
+        </tbody>
+      </table>
+      <p>用途不同，設定也不同。LED 只輸出，所以把 input 關掉；Step 5 的按鍵要讓 Jetson 讀狀態，pad 就是 <code>tristate=1 enable-input=1</code>，不輸出、只讀。低位元組 <code>0x58</code> 也是 tristate = 1、input = 1，對還沒決定用途的腳最安全，不會意外把電壓送出去。</p>
+      <p>這和 GPIO 的 direction（<code>gpioinfo</code> 顯示的 <code>output</code>、<code>input</code>）是不同層的設定：direction 在 GPIO controller，tristate 和 input 在 pad。所以才會出現 <code>gpioinfo</code> 顯示 <code>output</code>、pad 卻還是 tristate、LED 不亮的狀況。</p>
+      <p>圖只畫 bit 0～11，是因為這裡讀到的 1 都在這一段，要講的欄位也在這一段，不代表更高的 bit 都沒在用。上游的對照表還列了 bit 12（Schmitt trigger）和 bit 13（<code>drvtype</code>），它們讀到 0，所以圖上看不出來。bit 14 以上這張表沒有列，但要查 TRM 才能確定有沒有功能。<code>pad_pin29.py</code> 只清三個欄位、其他 bit 一律保留，就是因為不該動沒有查清楚的 bit。</p>
+      <p>偏移 <code>0x68</code> 沒有公式可以算，每個 pad 的暫存器位置是 SoC 的硬體設計，要查表。可以查的地方是 pinctrl driver 裡的對照表，上游 kernel v6.12 的 <code>drivers/pinctrl/tegra/pinctrl-tegra234.c</code> 有這一行：</p>
+<pre>PINGROUP(soc_gpio32_pq5, RSVD0, EXTPERIPH3, DCB, RSVD3, 0x0068, 0, Y, 5, 7, 6, 8, -1, 10, 12),</pre>
+      <p>第一個參數是 pad 名稱，<code>0x0068</code> 是相對於 pinmux 區塊基底的偏移，所以位址是 <code>0x02430000 + 0x68</code>。同一行也列了 input 在 bit 6、GPIO／SFIO 選擇在 bit 10。其他 pad 的偏移不一定相鄰，例如 <code>soc_gpio08_pb0</code> 是 <code>0x5008</code>。這是上游的檔案，這台跑的 NVIDIA 5.15 kernel 沒有原始碼可以對照，所以下面的實機讀回仍然必要。</p>
+      <p>這個位址當初不是查表來的，而是憑印象提出的，所以第一步只讀不寫：讀回 <code>0x458</code>，低位元組拆開和 debugfs 的 <code>pull=2 tristate=1 enable-input=1 function=rsvd0</code> 完全一致，才判斷位址大致沒錯。對錯的位址寫入，可能改到別根腳或別的硬體。</p>
+      <p>這個比對只能排除大部分猜錯的情況，確認不了就是 pin 29。這四個值不是 pin 29 獨有的：JP6 會把沒指定用途的 header 腳都設成「上拉、tristate、只收輸入」，所以猜到另一根 header 腳的暫存器，很可能也讀到相同的低位元組。真正能確認的是這些證據：</p>
+      <table>
+        <thead><tr><th>證據</th><th>為什麼有效</th></tr></thead>
+        <tbody>
+          <tr><td>寫入後，debugfs 裡 <code>soc_gpio32_pq5</code> 從 <code>pull=2 tristate=1 enable-input=1</code> 變成 <code>pull=0 tristate=0 enable-input=0</code></td><td>debugfs 是 kernel 依 pad 名稱讀的，這證明寫到的就是這個 pad</td></tr>
+          <tr><td>寫入後，接在 pin 29 的 LED 開始閃；寫入前同樣的程式閃不起來</td><td>從硬體結果直接驗證，不依賴任何軟體顯示</td></tr>
+          <tr><td>上游 <code>pinctrl-tegra234.c</code> 把 <code>soc_gpio32_pq5</code> 列在 <code>0x0068</code></td><td>獨立的來源，而且不用先試。這是後來才查的</td></tr>
+        </tbody>
+      </table>
+      <p>所以當初的流程有風險：寫入之前的檢查只擋得住明顯不對的位址，猜到別根 header 腳的暫存器時會通過，<code>open</code> 就會改到那根腳。應該先查對照表，再用讀值確認，而不是憑印象提出位址。<code>scripts/pad_pin29.py</code> 把讀值的檢查寫成程式：</p>
       <figure class="listing"><figcaption>scripts/pad_pin29.py@11b16f9:38–46 — 暫存器位址與欄位</figcaption>
 <pre data-start="38" data-hot="38,39,44,45">PINMUX_BASE = 0x02430000  # pinmux@2430000 in the base DT
 REG_OFFSET = 0x68         # soc_gpio32_pq5
@@ -488,7 +525,7 @@ after:  0x00000458 pull=up tristate=1 input=1 function=0 «6»</pre>
         <li><span class="mk">5</span><span>背景程式結束後 line 被釋放（<code>unused</code>）；方向仍顯示 output，因為釋放不會改動暫存器。</span></li>
         <li><span class="mk">6</span><span>把 pad 關回去，板子回到開機時的狀態。</span></li>
       </ol>
-      <p>如果你的第一行 <code>before:</code> 是 <code>0x00000058</code> 而不是 <code>0x00000458</code>，代表這次開機後還沒有程式請求過 line 105（bit 10 還沒被設起來），不影響結果。如果低位元組不是 <code>58</code> 或 <code>00</code>，腳本會拒寫：那代表這根腳被其他設定（例如 jetson-io）改過，先別硬寫。</p>
+      <p>如果你的第一行 <code>before:</code> 是 <code>0x00000058</code> 而不是 <code>0x00000458</code>，代表這次開機後 line 105 還沒被請求、釋放過（bit 10 還是 0），不影響結果。如果低位元組不是 <code>58</code> 或 <code>00</code>，腳本會拒寫：那代表這根腳被其他設定（例如 jetson-io）改過，先別硬寫。</p>
     </div>
   </section>
 
@@ -560,7 +597,7 @@ PASS pad restored to low byte 0x58 «6»
       <div class="pitfalls">
         <div class="pit"><h4>debugfs 說 hi，就以為有電</h4><dl><dt>症狀</dt><dd><code>gpioinfo</code> 是 output、debugfs 是 <code>hi</code>，LED 不亮。</dd><dt>後果</dt><dd>花時間在沒有問題的 driver 上找 bug。</dd><dt>正解</dt><dd class="fix">那是 output 暫存器，不是腳位電壓。看 pinconf 的 tristate，並用 <code>gpioset</code> 這種不經過自己程式的工具對照。</dd></dl></div>
         <div class="pit"><h4>照網路範例，以為開機就能用</h4><dl><dt>症狀</dt><dd>Python 範例在別人那裡能閃，在 JP6 上不亮。</dd><dt>後果</dt><dd>懷疑接線或程式。</dd><dt>正解</dt><dd class="fix">JP6 開機時這根腳的 pad 是 tristate。很多範例是 JP5 時代寫的，或作者先跑過 jetson-io（它產生的就是 pinmux overlay）。</dd></dl></div>
-        <div class="pit"><h4>沒讀就寫 /dev/mem</h4><dl><dt>症狀</dt><dd>憑印象的位址直接寫入。</dd><dt>後果</dt><dd>位址錯了就會改到別的硬體，而且沒有錯誤訊息。</dd><dt>正解</dt><dd class="fix">先讀、拆欄位和 debugfs 比對；<code>pad_pin29.py</code> 把「低位元組不符就拒寫」寫死。</dd></dl></div>
+        <div class="pit"><h4>沒讀就寫 /dev/mem</h4><dl><dt>症狀</dt><dd>憑印象的位址直接寫入。</dd><dt>後果</dt><dd>位址錯了就會改到別的硬體，而且沒有錯誤訊息。</dd><dt>正解</dt><dd class="fix">先查 pinctrl driver 的對照表，再讀、拆欄位和 debugfs 比對；<code>pad_pin29.py</code> 把「低位元組不符就拒寫」寫死。</dd></dl></div>
         <div class="pit"><h4>gpioset 結束後 LED 還亮著</h4><dl><dt>症狀</dt><dd><code>gpioset --mode=time --sec=3 ... 105=1</code> 結束很久了，LED 仍亮。</dd><dt>後果</dt><dd>line 已經沒人管，腳位卻一直輸出 3.3 V。</dd><dt>正解</dt><dd class="fix">Tegra 釋放 line 時不會歸零。程式要自己最後寫 0 再釋放；4-b 的 driver 在 <code>remove()</code> 裡也要這樣做。</dd></dl></div>
         <div class="pit"><h4>以為 pinconf 一個 group 一行</h4><dl><dt>症狀</dt><dd>驗收腳本用 <code>grep</code> 只抓到 <code>115 (soc_gpio32_pq5):</code>，兩項假 FAIL。</dd><dt>後果</dt><dd>腳本說 pad 沒開，但其實開了。</dd><dt>正解</dt><dd class="fix">那個檔案是「名稱一行、每個設定一行」，改用 awk 收到下一個 group 為止。</dd></dl></div>
         <div class="pit"><h4>Jetson.GPIO 不認得 Super</h4><dl><dt>症狀</dt><dd>import 就丟出 <code>Could not determine Jetson model</code>。</dd><dt>後果</dt><dd>官方 Python 函式庫在這台不能用。</dd><dt>正解</dt><dd class="fix">Python 實驗改用 libgpiod；入庫的 C++ 版直接用 kernel 的 GPIO v2 uAPI。</dd></dl></div>
@@ -578,7 +615,7 @@ PASS pad restored to low byte 0x58 «6»
         <li class="y">line 的使用權：執行中 <code>gpioinfo</code> 看得到 consumer，第二個使用者拿到 busy，結束後釋放；驗收<b class="hl-ok">0 failure</b>。</li>
         <li class="y">Ctrl-C / SIGTERM 中斷時也會先寫 0 再釋放；每次寫入都檢查回傳值。</li>
         <li class="n">沒有自動驗證：程式結束時腳位是否為 low（line 釋放後 debugfs 不再列出），只靠看到 LED 熄滅；寫入失敗的路徑也無法從外部觸發。SIGKILL / crash 時 LED 仍可能留在亮的狀態。</li>
-        <li class="n">pad 是用 <code>/dev/mem</code> 硬改的，kernel 不知情，重開機就消失；bit 10 的意義和暫存器位址都沒有對照 TRM。</li>
+        <li class="n">pad 是用 <code>/dev/mem</code> 硬改的，kernel 不知情，重開機就消失；bit 10 的意義和暫存器位址只對照過上游 kernel 的 driver，沒有對照 TRM 和這台 NVIDIA kernel 的原始碼。</li>
       </ul>
       <p>下一步 4-b 回到原本的計畫：Device Tree 描述這顆 LED，platform driver 在 <code>probe()</code> 裡用 <code>devm_gpiod_get()</code> 拿到 GPIO。而本章用 <code>/dev/mem</code> 做的事，會改成寫在 overlay 裡的 pinctrl 狀態，在 <code>probe()</code> 之前由 kernel 自動套用。到時候 <code>edge_gpio_blink</code> 也有新用途：driver 載入期間跑它，應該要拿到 busy。</p>
       <details class="quiz"><summary>1. debugfs 顯示 PQ.05 輸出 <code>hi</code>，LED 卻不亮。列出兩種可能，各要怎麼查？</summary><p>pad 被 tristate（看 debugfs <code>pinconf-groups</code> 的 <code>tristate=</code>，或讀 pinmux 暫存器）；接線問題（LED 方向接反、沒接到 pin 30，可以把 LED 改接 pin 1 的常時 3.3 V 確認 LED 本身是好的）。</p></details>

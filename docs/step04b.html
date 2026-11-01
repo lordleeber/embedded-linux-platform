@@ -687,7 +687,7 @@ PASS dmesg shows 3 probe / 3 remove «8»
         <li><span class="mk">3</span><span>同一條 line 同時只能有一個使用者：driver 持有時，userspace 的 uAPI 請求拿到 <code>EBUSY</code>。</span></li>
         <li><span class="mk">4</span><span><b class="hl-ok">LED 閃了 5 次</b>（人眼確認）：第一次由我們的 kernel driver 點亮。其他步驟（<code>on/off</code> 檢查、device 測試、rmmod 前的寫 1）間隔只有幾毫秒，看起來是快閃。</span></li>
         <li><span class="mk">5</span><span>腳本以 fd 7 開著 <code>/dev/edge_gpio</code> 時 rmmod 被拒絕：<code>.owner = THIS_MODULE</code> 讓開著的檔案持有 module 的參考。</span></li>
-        <li><span class="mk">6</span><span>rmmod 之後 pad 仍是 <code>tristate=0</code>：pinctrl 狀態不會在 unbind 時還原。另外注意 <code>gpio-mode</code>：driver 持有 line、LED 正常閃時是 0，rmmod 後才變 1。這推翻了 4-a 原本「bit 10 在請求 line 時設定」的推論（4-a 的章已更正）。</span></li>
+        <li><span class="mk">6</span><span>rmmod 之後 pad 仍是 <code>tristate=0</code>：pinctrl 狀態不會在 unbind 時還原。另外注意 <code>gpio-mode</code>：driver 持有 line、LED 正常閃時是 0，rmmod 後才變 1。這推翻了 4-a 原本「bit 10 在請求 line 時設成 1」的推論：照上游 kernel v6.12 的寫法，請求時清成 0（GPIO），釋放時才設成 1（SFIO），和這裡的實測相符（4-a 的章已更正）。</span></li>
         <li><span class="mk">7</span><span>每一輪都在 rmmod 前寫 1，所以如果 <code>remove()</code> 沒有寫 0，LED 現在會是亮的。這一點腳本看不到，只能靠人眼（4b.5）。實測：慢閃 5 下、接著約 1 秒的快閃之後 LED 熄滅。</span></li>
         <li><span class="mk">8</span><span>probe 次數 = 輪數，每次 probe 都配一次 remove。腳本只印最後 4 行。</span></li>
       </ol>
@@ -718,7 +718,7 @@ PASS dmesg shows 3 probe / 3 remove «8»
         <li class="y">pad 由 DT 的 pinctrl 狀態在 probe 前打開，不再需要 devmem；LED 由 kernel driver 控制（人眼確認）。</li>
         <li class="y">driver 持有 line 時 userspace 拿到 busy；rmmod 後 line 釋放；開著檔案時 rmmod 被拒。三輪驗收<b class="hl-ok">0 failure</b>。</li>
         <li class="n">沒有實測：active-low。只有靜態測試（active-low dtbo 的 flags 是 1）和程式邏輯（全用邏輯值 API）支持它；沒有改接線（3.3 V → 電阻 → LED → pin 29）驗證。</li>
-        <li class="n">pad 暫存器 bit 10 的意義與設定時機仍不清楚（沒有對照 TRM）。</li>
+        <li class="n">pad 暫存器 bit 10 的意義與設定時機只對照過上游 kernel 的 driver，沒有對照 TRM 和這台 NVIDIA kernel 的原始碼。</li>
       </ul>
       <p>到這裡 LED 是「輸出」：userspace 叫它亮它就亮。Step 5 反過來，接一顆按鈕當「輸入」：按下時 GPIO 觸發中斷，driver 在 IRQ handler 裡喚醒正在 <code>read()</code> 等待的 userspace 程式。同樣是 DT 描述、descriptor API，只是多了 <code>gpiod_to_irq()</code> 和 wait queue。</p>
       <details class="quiz"><summary>1. overlay 裝好了，insmod 也成功，但 <code>/dev/edge_gpio</code> 沒出現。先查哪兩件事？</summary><p><code>/proc/device-tree/edge-led</code> 在不在（overlay 有沒有被合併，例如被 jetson-io 洗掉）；在的話看它的 <code>compatible</code> 和 driver 的 <code>of_match_table</code> 是否一字不差。dmesg 有沒有 <code>cannot get led gpio</code> 也要看。</p></details>
