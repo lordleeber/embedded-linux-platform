@@ -568,6 +568,55 @@ waiting_for_supplier</pre>
 <pre class="out"><span class="prompt">$</span> tr -d '\0' &lt; /proc/device-tree/aliases/i2c7; echo
 /bus@0/i2c@c250000</pre>
       <p>i2c core 建立 adapter 時，先查 aliases 裡有沒有指向這個節點的 <code>i2cN</code>，有就用 N 當 bus 編號。所以 <code>i2c@c250000</code> 是 <code>i2c-7</code>、<code>i2c@c240000</code> 是 <code>i2c-1</code>，和節點在樹裡的順序無關。原廠樹另外給這兩個節點取了標籤：pin 3/5 那個叫 <code>hdr40_i2c1</code>（「header 上的第 1 組 I2C」），pin 27/28 那個叫 <code>gen2_i2c</code>。<b class="hl-bad">三套名字（節點位址、bus 編號、標籤）裡的數字彼此無關</b>，Step 9 的紀錄特別提醒：OLED 接在 pin 27/28，Step 10-a 的節點要掛在 <code>&amp;gen2_i2c</code>，不能沿用 overlay 裡現成的 <code>&amp;hdr40_i2c1</code>。</p>
+      <h3>aliases 是什麼，為什麼它能指定編號</h3>
+      <p><code>/aliases</code> 是根目錄下的一個特殊節點，內容是一張「短名字 → 節點完整路徑」的對照表。每個屬性的值就是一條路徑字串，它不描述任何硬體，也不會有 driver 綁到這個節點。這張表是原廠 dts 的作者為這塊板子寫的，dts 裡通常寫成 <code>i2c7 = &amp;某標籤;</code>，由 dtc 編譯時換成路徑。把 I2C 的部分全部列出來：</p>
+<pre class="cmd">for a in /proc/device-tree/aliases/i2c*; do printf '%s = ' "${a##*/}"; tr -d '\0' &lt; "$a"; echo; done</pre>
+<pre class="out"><span class="prompt">$</span> for a in /proc/device-tree/aliases/i2c*; do printf '%s = ' "${a##*/}"; tr -d '\0' &lt; "$a"; echo; done
+i2c0 = /bus@0/i2c@3160000
+i2c1 = /bus@0/i2c@c240000
+i2c2 = /bus@0/i2c@3180000
+i2c3 = /bus@0/i2c@3190000
+i2c4 = /bpmp/i2c
+i2c5 = /bus@0/i2c@31b0000
+i2c6 = /bus@0/i2c@31c0000
+i2c7 = /bus@0/i2c@c250000
+i2c8 = /bus@0/i2c@31e0000</pre>
+      <p>它能決定編號，是因為 kernel 的 i2c core 主動查這張表，並照上面的數字編號，DT 本身沒有強制力。查表的地方在 <code>drivers/i2c/i2c-core-base.c</code> 的 <code>i2c_add_adapter()</code>（上游 v5.15，<code>...</code> 是省略的部分；這台只裝了 headers，沒有這個檔案）：</p>
+<pre>int i2c_add_adapter(struct i2c_adapter *adapter)
+{
+	struct device *dev = &amp;adapter-&gt;dev;
+	int id;
+
+	if (dev-&gt;of_node) {
+		id = of_alias_get_id(dev-&gt;of_node, "i2c");
+		if (id &gt;= 0) {
+			adapter-&gt;nr = id;
+			return __i2c_add_numbered_adapter(adapter);
+		}
+	}
+
+	mutex_lock(&amp;core_lock);
+	id = idr_alloc(&amp;i2c_adapter_idr, adapter,
+		       __i2c_first_dynamic_bus_num, 0, GFP_KERNEL);
+	...</pre>
+      <p>所以流程是：<code>i2c@c250000</code> 的 driver probe 時向 i2c core 註冊 adapter，i2c core 查到 <code>i2c7</code> 指向這個節點，這個 adapter 就成為 <code>i2c-7</code>，<code>/dev/i2c-7</code> 的名字也由此而來。沒有 alias 的 adapter 走下半段，從動態編號區拿號碼。編號是雙方的約定：dts 作者提供資料，subsystem 決定要不要採用。<code>serial0</code>、<code>mmc0</code>、<code>rtc0</code> 也在這張表裡，但每個 subsystem 是否採用，要各自看 code。</p>
+      <p>實際建立的 bus 可以對照這張表：</p>
+<pre class="cmd">grep -H . /sys/bus/i2c/devices/i2c-*/name</pre>
+<pre class="out"><span class="prompt">$</span> grep -H . /sys/bus/i2c/devices/i2c-*/name
+/sys/bus/i2c/devices/i2c-11/name:NVIDIA SOC i2c adapter 0
+/sys/bus/i2c/devices/i2c-0/name:3160000.i2c
+/sys/bus/i2c/devices/i2c-5/name:31b0000.i2c
+/sys/bus/i2c/devices/i2c-10/name:i2c-2-mux (chan_id 0)
+/sys/bus/i2c/devices/i2c-9/name:i2c-2-mux (chan_id 0)
+/sys/bus/i2c/devices/i2c-1/name:c240000.i2c
+/sys/bus/i2c/devices/i2c-7/name:c250000.i2c
+/sys/bus/i2c/devices/i2c-4/name:Tegra BPMP I2C adapter
+/sys/bus/i2c/devices/i2c-2/name:3180000.i2c</pre>
+      <ul>
+        <li><b>沒有 alias 的 adapter 都從 9 開始：</b><code>i2c-9</code>、<code>i2c-10</code>（I2C mux 的通道）和 <code>i2c-11</code> 不在 aliases 裡。i2c core 初始化時用 <code>of_alias_get_highest_id("i2c")</code> 找出最大的號碼，把動態編號的起點設成它加 1，這裡是 8 + 1 = 9，保留給 aliases 的號碼就不會被搶走。</li>
+        <li><b>有 alias 不代表 bus 存在：</b>aliases 有 <code>i2c3</code>、<code>i2c6</code>、<code>i2c8</code>，系統裡卻沒有這三條 bus。它們指向的節點都是 <code>status = "disabled"</code>，沒有 device 也就沒有 adapter，號碼就空著。</li>
+      </ul>
+      <p>如果沒有 aliases，編號就要看 driver probe 的先後，換 kernel 版本或調整開機順序，<code>i2c-7</code> 都可能變成別的號碼，<code>i2cget -y 7</code> 這類腳本和 <code>/sys/bus/i2c/devices/7-0041</code> 這類路徑也會跟著失效。</p>
     </div>
   </section>
 
@@ -644,7 +693,16 @@ waiting_for_supplier</pre>
         </svg>
         <figcaption>圖 0.4 — 選訊號、輸出、輸入、上下拉都是 pad 裡的開關，全都由 pinmux 暫存器設定。GPIO controller 只負責「想輸出 1」；JP6 開機時 pin 29 的輸出驅動器是斷開的（tristate），所以 1 到不了腳位。</figcaption>
       </figure>
-      <p>JP6 剛開機時，pin 29 的 pad 暫存器低位元組是 <code>0x58</code>（4-a 會實際讀到），二進位 <code>0101 1000</code>：bit 6（input）= 1、bit 4（tristate）= 1、bit 3:2（pull）= <code>10</code> 也就是上拉、bit 1:0（function）= 0，正好是圖上的三個開關。另外 pad 還有驅動強度、Schmitt trigger、高壓 I/O 這些電氣選項，<code>nvidia,io-high-voltage</code> 就是其中一個（下面 NVIDIA 的 overlay 會看到），本書用不到。「GPIO 模式」這個開關（GPIO 還是 SFIO）在 Tegra 上不在 pinmux 暫存器裡，而是由 GPIO controller 自己的暫存器決定，line 被請求時 GPIO driver 會切過去；這是依上游 <code>gpio-tegra186</code> driver 的寫法推論的，這台沒有原始碼可以對照。</p>
+      <p>JP6 剛開機時，pin 29 的 pad 暫存器低位元組是 <code>0x58</code>（4-a 會實際讀到），二進位 <code>0101 1000</code>。bit 從右邊、從 0 開始編號，所以 bit 6 是從右數的第 7 個；<code>bit 3:2</code> 指從 bit 3 到 bit 2 這兩個 bit，高位寫在前面：</p>
+      <table>
+        <thead><tr><th>bit</th><th>7</th><th>6</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th><th>0</th></tr></thead>
+        <tbody>
+          <tr><td><code>0x58</code></td><td>0</td><td><b>1</b></td><td>0</td><td><b>1</b></td><td><b>1</b></td><td>0</td><td>0</td><td>0</td></tr>
+          <tr><td>欄位</td><td></td><td>input</td><td></td><td>tristate</td><td colspan="2">pull</td><td colspan="2">function</td></tr>
+        </tbody>
+      </table>
+      <p>也就是 bit 6（input）= 1、bit 4（tristate）= 1、bit 3:2（pull）= <code>10</code> 也就是上拉、bit 1:0（function）= 0，正好是圖上的三個開關。從 0 開始編號的好處是 bit N 的權重正好是 2 的 N 次方，編號可以直接拿來計算：<code>1 &lt;&lt; 6</code> = <code>0x40</code>、<code>1 &lt;&lt; 4</code> = <code>0x10</code>、<code>2 &lt;&lt; 2</code> = <code>0x08</code>，加起來就是 <code>0x58</code>。</p>
+      <p>另外 pad 還有驅動強度、Schmitt trigger、高壓 I/O 這些電氣選項，<code>nvidia,io-high-voltage</code> 就是其中一個（下面 NVIDIA 的 overlay 會看到），本書用不到。「GPIO 模式」這個開關（GPIO 還是 SFIO）在 Tegra 上不在 pinmux 暫存器裡，而是由 GPIO controller 自己的暫存器決定，line 被請求時 GPIO driver 會切過去；這是依上游 <code>gpio-tegra186</code> driver 的寫法推論的，這台沒有原始碼可以對照。</p>
 
       <h3>pinmux：每個 pad 一個暫存器</h3>
       <p><code>pinmux@2430000</code> 是 SoC 裡的一塊暫存器區（<code>reg</code> 長度 <code>0x19100</code>，DT.5），每個 pad 在裡面佔一個 32-bit 暫存器，4-a 會讀寫的就是其中 pin 29 的那個。always-on 電源域的 pad 另外有一塊，NVIDIA 的 overlay 裡用 <code>pinmux_aon</code> 這個標籤引用。DT 的 binding header 裡的常數，就是直接照暫存器欄位的值定義的：</p>
@@ -657,8 +715,29 @@ waiting_for_supplier</pre>
 23:#define TEGRA_PIN_PULL_UP				2</pre>
       <p><code>PULL_UP</code> 是 2，就是上面 <code>0x58</code> 裡 pull 欄位（bit 3:2）的 <code>10</code>；tristate、enable-input 都是 0／1 的開關。所以 DT 裡寫 <code>nvidia,pull = &lt;TEGRA_PIN_PULL_UP&gt;</code>，最後就是 pinctrl driver 把 2 寫進那兩個 bit。</p>
 
-      <h3>pinctrl：driver 不寫暫存器，只要「狀態」</h3>
-      <p>如果每個 driver 都自己去寫 pinmux 暫存器，兩個 driver 就可能搶同一個 pad，而且 driver 要知道每一代 SoC 的暫存器位置。pinctrl 把這件事收到一個地方：只有 pinctrl driver 會碰 pinmux 暫存器，其他人用 DT 描述「我需要哪些 pad 設成什麼樣子」，這叫一個<b>狀態</b>（state）。DT 裡的寫法分兩半：</p>
+      <h3>pinctrl：其他 driver 不碰 pinmux 暫存器，只在 DT 指定「狀態」</h3>
+      <p>如果每個 driver 都自己去寫 pinmux 暫存器，兩個 driver 就可能搶同一個 pad，而且 driver 要知道每一代 SoC 的暫存器位置。pinctrl 把這件事收到一個地方：只有 pinctrl driver 會碰 pinmux 暫存器，其他人用 DT 描述「我需要哪些 pad 設成什麼樣子」，這叫一個<b>狀態</b>（state）。</p>
+      <p>會碰暫存器的是 <code>tegra234-pinctrl</code>，NVIDIA 專門為這顆 SoC 寫的 pinctrl driver。它編進 kernel（<code>CONFIG_PINCTRL_TEGRA234=y</code>），所以 <code>lsmod</code> 看不到，也不用 <code>insmod</code>。它和其他 driver 一樣靠 <code>compatible</code> 綁上節點，只是它管的硬體正好是 pinmux 這個區塊：</p>
+<pre class="cmd">readlink -f /sys/bus/platform/devices/*.pinmux/driver</pre>
+<pre class="out"><span class="prompt">$</span> readlink -f /sys/bus/platform/devices/*.pinmux/driver
+/sys/bus/platform/drivers/tegra234-pinctrl
+/sys/bus/platform/drivers/tegra234-pinctrl</pre>
+      <table>
+        <thead><tr><th>節點</th><th><code>compatible</code></th><th>暫存器範圍</th></tr></thead>
+        <tbody>
+          <tr><td><code>2430000.pinmux</code></td><td><code>nvidia,tegra234-pinmux</code></td><td><code>0x02430000</code> 起，長 <code>0x19100</code></td></tr>
+          <tr><td><code>c300000.pinmux</code></td><td><code>nvidia,tegra234-pinmux-aon</code></td><td><code>0x0c300000</code> 起，長 <code>0x4000</code></td></tr>
+        </tbody>
+      </table>
+      <p>pin 29 的 pad 暫存器在 <code>0x02430068</code>，落在第一個範圍內，所以由這個 driver 負責。以 4-b 的 <code>edge_gpio</code> 為例，流程是這樣：</p>
+<pre>insmod edge_gpio.ko
+  → platform bus 比對 compatible，找到 edge-led 節點
+  → driver core 在 probe() 之前看到節點上的 pinctrl-names = "default"
+  → 順著 pinctrl-0 找到 pad 設定節點
+  → 交給 tegra234-pinctrl，由它寫 pinmux 暫存器
+  → 呼叫 edge_gpio 的 probe()，這時 pad 已經設好了</pre>
+      <p>所以 <code>edge_gpio</code> 的程式碼裡看不到任何 pinmux 操作，它甚至不知道 pad 暫存器的位址。kernel 符號表裡有 <code>tegra234_pinctrl_probe</code> 和 <code>tegra_pinconf_group_set</code>，但這台沒有 kernel 原始碼，「實際寫入由它執行」是依這些證據和 pinctrl 的架構判斷的。</p>
+      <p>DT 裡的寫法分兩半：</p>
       <ul>
         <li><b>設定節點</b>放在 pinmux 節點底下：<code>nvidia,pins</code> 用 pad 名稱指定是哪個 pad，其他屬性各對應一個欄位（<code>nvidia,function</code>、<code>nvidia,pull</code>、<code>nvidia,tristate</code>、<code>nvidia,enable-input</code>）。屬性名稱前面的 <code>nvidia,</code> 表示這是 Tegra pinctrl binding 自己的格式，別家 SoC 寫法不同。</li>
         <li><b>引用的一方</b>用 <code>pinctrl-names</code> 列出狀態名稱，<code>pinctrl-0</code>、<code>pinctrl-1</code>… 依序是各狀態的設定節點（phandle）。名稱叫 <code>"default"</code> 的狀態，driver core 會在 driver 的 <code>probe()</code> 被呼叫之前自動套用。</li>
