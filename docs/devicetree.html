@@ -715,8 +715,29 @@ i2c8 = /bus@0/i2c@31e0000</pre>
 23:#define TEGRA_PIN_PULL_UP				2</pre>
       <p><code>PULL_UP</code> 是 2，就是上面 <code>0x58</code> 裡 pull 欄位（bit 3:2）的 <code>10</code>；tristate、enable-input 都是 0／1 的開關。所以 DT 裡寫 <code>nvidia,pull = &lt;TEGRA_PIN_PULL_UP&gt;</code>，最後就是 pinctrl driver 把 2 寫進那兩個 bit。</p>
 
-      <h3>pinctrl：driver 不寫暫存器，只要「狀態」</h3>
-      <p>如果每個 driver 都自己去寫 pinmux 暫存器，兩個 driver 就可能搶同一個 pad，而且 driver 要知道每一代 SoC 的暫存器位置。pinctrl 把這件事收到一個地方：只有 pinctrl driver 會碰 pinmux 暫存器，其他人用 DT 描述「我需要哪些 pad 設成什麼樣子」，這叫一個<b>狀態</b>（state）。DT 裡的寫法分兩半：</p>
+      <h3>pinctrl：其他 driver 不碰 pinmux 暫存器，只在 DT 指定「狀態」</h3>
+      <p>如果每個 driver 都自己去寫 pinmux 暫存器，兩個 driver 就可能搶同一個 pad，而且 driver 要知道每一代 SoC 的暫存器位置。pinctrl 把這件事收到一個地方：只有 pinctrl driver 會碰 pinmux 暫存器，其他人用 DT 描述「我需要哪些 pad 設成什麼樣子」，這叫一個<b>狀態</b>（state）。</p>
+      <p>會碰暫存器的是 <code>tegra234-pinctrl</code>，NVIDIA 專門為這顆 SoC 寫的 pinctrl driver。它編進 kernel（<code>CONFIG_PINCTRL_TEGRA234=y</code>），所以 <code>lsmod</code> 看不到，也不用 <code>insmod</code>。它和其他 driver 一樣靠 <code>compatible</code> 綁上節點，只是它管的硬體正好是 pinmux 這個區塊：</p>
+<pre class="cmd">readlink -f /sys/bus/platform/devices/*.pinmux/driver</pre>
+<pre class="out"><span class="prompt">$</span> readlink -f /sys/bus/platform/devices/*.pinmux/driver
+/sys/bus/platform/drivers/tegra234-pinctrl
+/sys/bus/platform/drivers/tegra234-pinctrl</pre>
+      <table>
+        <thead><tr><th>節點</th><th><code>compatible</code></th><th>暫存器範圍</th></tr></thead>
+        <tbody>
+          <tr><td><code>2430000.pinmux</code></td><td><code>nvidia,tegra234-pinmux</code></td><td><code>0x02430000</code> 起，長 <code>0x19100</code></td></tr>
+          <tr><td><code>c300000.pinmux</code></td><td><code>nvidia,tegra234-pinmux-aon</code></td><td><code>0x0c300000</code> 起，長 <code>0x4000</code></td></tr>
+        </tbody>
+      </table>
+      <p>pin 29 的 pad 暫存器在 <code>0x02430068</code>，落在第一個範圍內，所以由這個 driver 負責。以 4-b 的 <code>edge_gpio</code> 為例，流程是這樣：</p>
+<pre>insmod edge_gpio.ko
+  → platform bus 比對 compatible，找到 edge-led 節點
+  → driver core 在 probe() 之前看到節點上的 pinctrl-names = "default"
+  → 順著 pinctrl-0 找到 pad 設定節點
+  → 交給 tegra234-pinctrl，由它寫 pinmux 暫存器
+  → 呼叫 edge_gpio 的 probe()，這時 pad 已經設好了</pre>
+      <p>所以 <code>edge_gpio</code> 的程式碼裡看不到任何 pinmux 操作，它甚至不知道 pad 暫存器的位址。kernel 符號表裡有 <code>tegra234_pinctrl_probe</code> 和 <code>tegra_pinconf_group_set</code>，但這台沒有 kernel 原始碼，「實際寫入由它執行」是依這些證據和 pinctrl 的架構判斷的。</p>
+      <p>DT 裡的寫法分兩半：</p>
       <ul>
         <li><b>設定節點</b>放在 pinmux 節點底下：<code>nvidia,pins</code> 用 pad 名稱指定是哪個 pad，其他屬性各對應一個欄位（<code>nvidia,function</code>、<code>nvidia,pull</code>、<code>nvidia,tristate</code>、<code>nvidia,enable-input</code>）。屬性名稱前面的 <code>nvidia,</code> 表示這是 Tegra pinctrl binding 自己的格式，別家 SoC 寫法不同。</li>
         <li><b>引用的一方</b>用 <code>pinctrl-names</code> 列出狀態名稱，<code>pinctrl-0</code>、<code>pinctrl-1</code>… 依序是各狀態的設定節點（phandle）。名稱叫 <code>"default"</code> 的狀態，driver core 會在 driver 的 <code>probe()</code> 被呼叫之前自動套用。</li>
