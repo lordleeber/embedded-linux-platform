@@ -388,6 +388,27 @@ PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
         return 1;
     }</pre></figure>
       <p>和 Step 3 的 <code>edge_test_cli</code> 一樣是 <code>open</code> 加 <code>ioctl</code>，差別在 ioctl 的結果：<code>GPIO_V2_GET_LINE_IOCTL</code> 成功後，kernel 在 <code>req.fd</code> 裡回傳一個<b>新的檔案描述子</b>，代表「這條 line 的使用權」。之後的操作都對這個 fd 做。line 已經被別人持有時，請求會失敗，<code>errno</code> 是 <code>EBUSY</code>。<code>consumer</code> 是給人看的名字，<code>gpioinfo</code> 會顯示誰正在用這條 line。</p>
+      <p>所以這支程式手上有<b>兩個</b> fd，分工不同：</p>
+      <table>
+        <thead><tr><th>fd</th><th>從哪來</th><th>代表什麼</th><th>拿來做什麼</th></tr></thead>
+        <tbody>
+          <tr><td><code>chip</code></td><td><code>open("/dev/gpiochip0")</code></td><td>整顆 GPIO controller</td><td>只用一次：<code>GPIO_V2_GET_LINE_IOCTL</code> 請求 line</td></tr>
+          <tr><td><code>req.fd</code></td><td>kernel 在 ioctl 成功時填進 <code>req</code></td><td>請求到的 line（這裡只有 105）</td><td>寫值：<code>GPIO_V2_LINE_SET_VALUES_IOCTL</code></td></tr>
+        </tbody>
+      </table>
+      <p>line 的使用權綁在 <code>req.fd</code> 上：這個 fd 還開著，line 就是你的；<code>close(req.fd)</code>，或程式結束時由 kernel 自動關掉，line 就被釋放。<code>close(chip)</code> 只是關掉 controller 的那個 fd。想親眼看看的話，在程式閃燈時另開一個終端機跑 <code>ls -l /proc/$(pgrep edge_gpio_blink)/fd</code>，會看到一個指向 <code>/dev/gpiochip0</code>，另一個是 <code>anon_inode:gpio-line</code>，後者就是 <code>req.fd</code>。</p>
+      <h3>ioctl 號碼與 <code>req{}</code></h3>
+      <p><code>GPIO_V2_GET_LINE_IOCTL</code> 和 Step 3 自己定義的 <code>EDGE_TEST_GET_VALUE</code> 是同一種東西（見 <a href="step03.html">Step 3</a> 的 ioctl 號碼拆解），只是這次由 kernel 的 GPIO 子系統定義，在 <code>/usr/include/linux/gpio.h</code>：</p>
+      <figure class="snippet"><figcaption>/usr/include/linux/gpio.h（這台 Jetson 上的版本）</figcaption>
+<pre>#define GPIO_V2_GET_LINE_IOCTL _IOWR(0xB4, 0x07, struct gpio_v2_line_request)</pre></figure>
+      <p>在這台機器上編譯印出來是 <code>0xc250b407</code>：方向 3（<code>_IOWR</code>，雙向）、大小 592（整個 <code>struct gpio_v2_line_request</code>）、magic <code>0xB4</code>（GPIO 子系統的代號）、序號 7。方向必須是雙向，因為這個 ioctl 不只把請求傳進 kernel，kernel 還要把 <code>req.fd</code> 寫回來；如果只能單向傳資料，你就拿不到新的 fd。</p>
+      <p><code>gpio_v2_line_request req{}</code> 結尾的 <code>{}</code> 會把整個 struct 清成 0。不加的話，區域變數的內容就是 stack 上殘留的垃圾值。程式只填了四個欄位，但 592 byte 裡的其他欄位 kernel 一樣會讀：<code>padding[5]</code> 和 <code>config.padding[5]</code> 是保留給未來版本用的，kernel 要求它們全是 0；<code>config.num_attrs</code> 表示後面附了幾個額外設定（debounce、個別 line 的 flags 等）。在這台機器上實測，用 input 請求 line 105，故意把其中一項設成非 0：</p>
+      <figure class="snippet"><figcaption>實測：只改一個沒填的欄位，其他都清 0（暫存目錄裡的小程式，不在 repo 裡）</figcaption>
+<pre>all zero               rc=0 ok
+req.padding != 0       rc=-1 Invalid argument
+config.padding != 0    rc=-1 Invalid argument
+num_attrs = 99         rc=-1 Invalid argument</pre></figure>
+      <p>不清零的話，最糟的情況不是每次都失敗，而是<b>有時成功、有時 <code>EINVAL</code></b>，結果取決於 stack 上剛好留下什麼，這種 bug 很難重現。kernel 要求保留欄位必須是 0，以後的版本才能賦予它們意義，而不會讓舊程式出錯。傳給 kernel 的 struct 一律先清零再填欄位，後面的 <code>gpio_v2_line_values v{}</code> 也一樣。</p>
       <p>第二個 ioctl 設定輸出值，最後關掉 fd 就是釋放：</p>
       <figure class="listing"><figcaption>apps/edge_gpio_blink.cpp@11b16f9:49–72 — 寫 1 / 0，不管怎麼結束都先寫 0 再釋放</figcaption>
 <pre data-start="49" data-hot="51,52,53,54,61,62,66,70">    int rc = 0;
@@ -414,7 +435,8 @@ PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
     close(req.fd);                                 // release the line
     close(chip);
     return rc;</pre></figure>
-      <p><code>mask</code> 和 <code>bits</code> 都是位元遮罩：一次請求可以包含多條 line，第 n 個 bit 對應 <code>offsets[n]</code>。這裡只請求一條，所以只用 bit 0。迴圈跑 10 次，偶數次寫 1、奇數次寫 0，就是 5 次閃爍。</p>
+      <p><code>mask</code> 和 <code>bits</code> 都是位元遮罩：一次請求可以包含多條 line，第 n 個 bit 對應 <code>offsets[n]</code>。這裡只請求一條，所以只用 bit 0。要注意 bit 編號是 <code>offsets[]</code> 的索引，不是 GPIO 編號：控制 line 105 用的是 bit 0，不是 bit 105。<code>mask</code> 選出這次要寫的 line，<code>bits</code> 是要寫入的值；沒被 <code>mask</code> 選到的 line 保持原值，所以同時請求多條 line 時，一次 ioctl 也可以只改其中幾條。迴圈跑 10 次，偶數次寫 1、奇數次寫 0，每次寫完 <code>usleep(500000)</code> 停 500000 µs，也就是 0.5 秒，所以是 5 次閃爍、約 5 秒。</p>
+      <p><code>rc</code> 是 return code，也就是程式最後的結束碼（shell 裡用 <code>$?</code> 看）：先設成 0，出錯就改成 1，最後統一 <code>return rc</code>。請求 line 失敗時程式直接 <code>return 1</code>，因為那時候還沒拿到 line。拿到 line 之後就不能這樣做了：在迴圈裡直接 return 的話，LED 可能停在亮的狀態。所以出錯時只記下 <code>rc = 1</code>、<code>break</code>，讓程式照常走完收尾。</p>
       <p>迴圈結束後<b>不管原因是什麼，都再寫一次 0 才釋放</b>。這個順序很重要：Tegra 的 GPIO driver 釋放 line 時<b>不會</b>把輸出改回 0，最後寫的值會一直留著（見 4a.9）。迴圈會提早結束的情況有兩種：寫入失敗（每次 ioctl 都檢查回傳值，失敗就印出原因、回傳 1），以及收到 Ctrl-C 或 SIGTERM：</p>
       <figure class="listing"><figcaption>apps/edge_gpio_blink.cpp@11b16f9:18–30 — signal 只設旗標</figcaption>
 <pre data-start="18" data-hot="18,22,29,30">volatile std::sig_atomic_t stop = 0;
@@ -431,6 +453,24 @@ int main()
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);</pre></figure>
       <p>signal handler 只設一個旗標。<code>usleep()</code> 被 signal 打斷會提早回來，迴圈看到 <code>stop</code> 就離開，接著照常寫 0、釋放，最後印 <code>interrupted</code> 並回傳 1。如果沒有這段，在 LED 亮著的那半秒按下 Ctrl-C，程式會直接被殺掉，line 由 kernel 釋放，LED 就一直亮著。這兩處（寫入檢查、signal）都是 code review 指出後才補上的。</p>
+      <h3>signal 的細節</h3>
+      <p><b>Ctrl-C 和 SIGINT 不是同一件事。</b>Ctrl-C 是按鍵：終端機送出字元 <code>0x03</code>，kernel 的 tty driver 認出這是中斷字元（<code>stty -a</code> 裡的 <code>intr = ^C</code>），不把它交給程式當輸入，而是改送 SIGINT 給前景程式。同一個 signal 也可以用指令送出，程式分辨不出來源：</p>
+      <table>
+        <thead><tr><th>按鍵 / 指令</th><th>signal（編號）</th><th>這支程式怎麼處理</th></tr></thead>
+        <tbody>
+          <tr><td>Ctrl-C、<code>kill -INT &lt;pid&gt;</code></td><td>SIGINT（2）</td><td>有 handler：停止閃爍、寫 0、釋放，結束碼 1</td></tr>
+          <tr><td><code>kill &lt;pid&gt;</code>（不加選項的預設值）、<code>timeout</code></td><td>SIGTERM（15）</td><td>同上</td></tr>
+          <tr><td>Ctrl-\</td><td>SIGQUIT（3）</td><td>沒攔截：立刻終止，不收尾</td></tr>
+          <tr><td><code>kill -9 &lt;pid&gt;</code></td><td>SIGKILL（9）</td><td>無法攔截：立刻終止，不收尾</td></tr>
+        </tbody>
+      </table>
+      <p><code>kill</code> 的名字有點誤導，它其實是「送 signal」的指令，送哪一種由選項決定。handler 的作用也不是讓程式忽略 Ctrl-C，而是把「立刻終止」換成「盡快結束，但先收尾」：剩下的閃爍不會執行，只有迴圈後面的寫 0、印 <code>interrupted</code>、close 會執行。沒有 handler 時，SIGINT 由 kernel 直接終止程式，shell 看到的結束碼是 130（128 + 2）。</p>
+      <ul>
+        <li><b>為什麼 handler 只設旗標。</b>signal 可能在任何一行中間打進來，handler 裡只能呼叫 async-signal-safe 的函式，<code>perror</code>、<code>fputs</code> 都不在清單上。所以 handler 只記錄「有人要求停止」，收尾交給 <code>main()</code> 自己做。</li>
+        <li><b>為什麼是 <code>volatile std::sig_atomic_t</code>。</b><code>sig_atomic_t</code> 保證寫入不會只做一半就被打斷；<code>volatile</code> 讓編譯器每次都重新讀 <code>stop</code>，不會把迴圈條件裡的值放在 register 裡不再更新。</li>
+        <li><b>最壞情況會晚 0.5 秒。</b>signal 如果剛好在「檢查完 <code>!stop</code>」之後、「進入 <code>usleep</code>」之前送達，<code>usleep</code> 就沒有東西可以打斷它，會睡滿 0.5 秒，到下一次檢查才離開迴圈。只是慢一點，收尾不會漏掉。如果改用 C++ 的 <code>std::this_thread::sleep_for</code> 也會是這樣：libstdc++ 的版本被 signal 打斷後會自己把剩下的時間睡完。</li>
+        <li><b>連按 Ctrl-C 也不會強制結束。</b>glibc 的 <code>signal()</code> 裝好的 handler 會一直有效，第二次 SIGINT 只是再設一次旗標。</li>
+      </ul>
       <h3>和 Python 版對照</h3>
       <p>做這一步之前，先用 Python 的 libgpiod（<code>python3-libgpiod</code>，v1 API）做過同樣的實驗，在板子上實測可以閃。這段不在 repo 裡，放在這裡是為了對照：</p>
       <figure class="snippet"><figcaption>Python 對照版（不在 repo 裡；需要 sudo apt install python3-libgpiod）</figcaption>
