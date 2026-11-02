@@ -472,7 +472,7 @@ int main()
         <li><b>連按 Ctrl-C 也不會強制結束。</b>glibc 的 <code>signal()</code> 裝好的 handler 會一直有效，第二次 SIGINT 只是再設一次旗標。</li>
       </ul>
       <h3>和 Python 版對照</h3>
-      <p>做這一步之前，先用 Python 的 libgpiod（<code>python3-libgpiod</code>，v1 API）做過同樣的實驗，在板子上實測可以閃。這段不在 repo 裡，放在這裡是為了對照：</p>
+      <p>pad 打開之後，用 Python 的 libgpiod（<code>python3-libgpiod</code>，v1 API）做過同樣的實驗，在板子上實測可以閃。<b>pad 沒打開時，它和 <code>gpioset</code> 一樣不會亮</b>：libgpiod 底下呼叫的是同一組 ioctl（<code>gpioset</code> 本身就是 libgpiod 附帶的指令），只能改到 GPIO controller 的暫存器，碰不到 pad。換一種程式語言不會繞過 4a.4 那一步。這段不在 repo 裡，放在這裡是為了對照：</p>
       <figure class="snippet"><figcaption>Python 對照版（不在 repo 裡；需要 sudo apt install python3-libgpiod）</figcaption>
 <pre>import time
 
