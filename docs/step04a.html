@@ -367,7 +367,42 @@ PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
     print(f"after:  {decode(reg[index])}")
     return 0</pre></figure>
       <p><code>open</code> 和 <code>close</code> 只在暫存器「看起來就是這個 pad」時才寫：低位元組是開機值 <code>0x58</code>，或者低位元組是 <code>0x00</code> <b>而且</b> bit 10 為 1（實測打開後的值 <code>0x400</code>）。其他值代表位址錯了、或這根腳被設成別的功能，一律拒寫並回傳 1。第一版只要低位元組是 <code>0x00</code> 就當成「已開啟」，code review 指出：很多不相干的位址讀出來就是 <code>0x00000000</code>，萬一位址錯了，<code>close</code> 會把 <code>0x58</code> 寫進一個不認識的暫存器。所以全 0 一律拒寫。代價是：剛開機、還沒有程式請求過 line 時（bit 10 可能還是 0），<code>open</code> 之後會得到 <code>0x000</code>，這時 <code>close</code> 會被拒絕，要先跑過一次 <code>edge_gpio_blink</code>。</p>
-      <p>寫入時只動三個欄位，其他 bit 原樣保留。存取方式是把 <code>/dev/mem</code> 從 <code>0x02430000</code> mmap 一頁進來，再用 32-bit 的 memoryview 讀寫第 <code>0x68 / 4</code> 格。這有兩個已知限制，寫在腳本開頭：CPython 沒有保證這是單一一次 32-bit 匯流排存取（實測一直正常）；讀和寫之間，kernel 的 pinctrl driver 理論上也可能改到同一個暫存器。對一個沒有任何 device 使用的 pad、只在實驗時用的工具來說可以接受。這個修改 kernel 完全不知道，重開機就會消失。</p>
+      <p>寫入時只動三個欄位，其他 bit 原樣保留。存取方式是把 <code>/dev/mem</code> 從 <code>0x02430000</code> mmap 一頁進來，再用 32-bit 的 memoryview 讀寫第 <code>0x68 / 4</code> 格：</p>
+      <figure class="listing"><figcaption>scripts/pad_pin29.py@11b16f9:86–97 — 把 pinmux 那一頁對應進來，當成 32-bit 陣列</figcaption>
+<pre data-start="86" data-hot="86,91,92,93">        fd = os.open(args.mem, os.O_RDWR | os.O_SYNC)
+    except OSError as e:
+        print(f"error: {args.mem}: {e.strerror}", file=sys.stderr)
+        return 2
+    try:
+        with mmap.mmap(fd, mmap.PAGESIZE, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+                       offset=PINMUX_BASE) as page:
+            reg = memoryview(page).cast("I")  # one aligned 32-bit access per index
+            try:
+                return apply(reg, REG_OFFSET // 4, args.action)
+            finally:
+                reg.release()</pre></figure>
+      <p><code>mmap</code> 是 Python 標準函式庫的模組，不用另外安裝。它是用 C 寫的擴充模組（這台在 <code>/usr/lib/python3.10/lib-dynload/mmap.cpython-310-aarch64-linux-gnu.so</code>），只是包了一層 Linux 的 <code>mmap(2)</code> system call，和 C 程式 <code>#include &lt;sys/mman.h&gt;</code> 用的是同一個。<code>mmap</code> 把檔案的一段內容對應到 process 的記憶體裡，之後讀寫那段記憶體，就等於讀寫那個檔案。對 <code>/dev/mem</code> 來說，讀寫那段記憶體就是讀寫實體位址，也就是硬體暫存器：</p>
+      <table>
+        <thead><tr><th>參數</th><th>意思</th></tr></thead>
+        <tbody>
+          <tr><td><code>fd</code></td><td><code>/dev/mem</code>，代表整個實體位址空間的特殊檔案</td></tr>
+          <tr><td><code>mmap.PAGESIZE</code></td><td>對應一頁（4096 byte）。mmap 以頁為單位，offset 也必須對齊頁的邊界，所以從 <code>0x02430000</code> 開始，而不是直接從 <code>0x02430068</code> 開始</td></tr>
+          <tr><td><code>MAP_SHARED</code></td><td>寫入會直接寫到底層，也就是真的寫進暫存器，而不是寫到 process 自己的私有副本</td></tr>
+          <tr><td><code>PROT_READ | PROT_WRITE</code></td><td>這段記憶體可以讀，也可以寫</td></tr>
+          <tr><td><code>offset=PINMUX_BASE</code></td><td>從實體位址 <code>0x02430000</code> 開始，也就是 pinmux 暫存器所在的那一頁</td></tr>
+        </tbody>
+      </table>
+      <p><code>memoryview(page).cast("I")</code> 把這一頁當成 32-bit 整數的陣列，<code>reg[0x68 // 4]</code> 就是 <code>0x02430068</code> 那個暫存器。不用 <code>lseek</code> 加 <code>read</code> / <code>write</code>，是因為 kernel 處理那類存取時，不保證剛好是一次 32-bit 的存取；mmap 之後，存取就是 CPU 對那個位址做一般的 load / store，比較可控。</p>
+      <p>這有兩個已知限制，寫在腳本開頭：CPython 沒有保證這是單一一次 32-bit 匯流排存取（實測一直正常）；讀和寫之間，kernel 的 pinctrl driver 理論上也可能改到同一個暫存器。對一個沒有任何 device 使用的 pad、只在實驗時用的工具來說可以接受。這個修改 kernel 完全不知道，重開機就會消失。</p>
+      <h3>為什麼這支用 Python，不用 C / C++</h3>
+      <p>repo 裡沒有記錄這個決定的理由（<code>phase02.md</code> 只規劃了檔名），以下是從程式碼和它的定位推回去的：</p>
+      <ul>
+        <li><b>它是臨時工具，不是產品碼。</b>它放在 <code>scripts/</code>，不在 <code>apps/</code>，只在 4-a 實驗時用來打開 pad。4-b 改用 Device Tree 的 pinctrl 之後就不再需要了。這個專案要長期留下、會進 image 的東西用 C++，驗收和實驗用的工具用 bash 或 Python。</li>
+        <li><b>不用建置。</b>直接 <code>sudo python3 scripts/pad_pin29.py open</code> 就能跑，不必先跑 CMake，也避免用 root 建置、在 <code>build/</code> 留下 root 擁有的檔案（Step 2 踩過的坑）。</li>
+        <li><b>好測試。</b><code>--mem</code> 參數讓 <code>tests/test_pad_pin29.py</code> 用一個稀疏檔假裝成 <code>/dev/mem</code>，在同一個 unittest 裡就能測讀改寫和拒寫，不需要 root，也不會碰到硬體。</li>
+        <li><b>邏輯很單純。</b>讀一個 32-bit 值、檢查、清幾個 bit、寫回去，Python 寫起來短、容易讀。</li>
+      </ul>
+      <p>代價就是上面第一個限制：<b>暫存器存取其實是 C 比較適合的工作。</b>C 寫成 <code>volatile uint32_t *reg</code>，編譯器保證會產生一條 32-bit 的 load 和一條 store；Python 這邊靠的是 CPython 目前剛好這樣實作，不是規格上的保證。對一個只在實驗時用、4-b 之後就退役的工具來說，這個取捨可以接受；如果要長期留下，或是要碰很多暫存器，就該改用 C，或直接用現成的 <code>busybox devmem</code>。</p>
     </div>
   </section>
 
