@@ -151,7 +151,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <p><b>先說清楚：在 Jetson 上用 GPIO，平常不用自己寫 driver。</b>這一章自己寫 <code>edge_gpio</code>，是為了用最小的例子學 platform driver、Device Tree 配對、<code>probe()</code> 和 <code>devm_gpiod_get()</code>。後面的 I2C、SPI driver 都會用到這些。正規做法依情境分成四種：</p>
       <ul>
         <li><b>userspace 直接控制（最常見）</b>：用 libgpiod（<code>gpioset</code> / <code>gpioget</code> / <code>gpiomon</code>，或 C / C++ / Python library），走 <code>/dev/gpiochipN</code>，也就是 4-a、5-a 的做法；或用 NVIDIA 的 Python 套件 Jetson.GPIO。舊的 <code>/sys/class/gpio</code> 已經棄用。</li>
-        <li><b>pad 設定交給工具</b>：用 <code>sudo /opt/nvidia/jetson-io/jetson-io.py</code> 產生設定 pinmux 的 overlay，不用像 4-a 的 <code>pad_pin29.py</code> 那樣直接寫暫存器。</li>
+        <li><b>pad 設定寫成 pinmux overlay</b>：JP6 開機時 header 腳的 pad 多半是 tristate。一般 GPIO 的正規做法是用 Device Tree 描述 pad 設定，也就是這一章 overlay 裡的 pinctrl 節點；或修改 pinmux 設定後重新燒錄。<code>/opt/nvidia/jetson-io/jetson-io.py</code> 只能把 header 腳切成 SPI、PWM、I2S、時脈輸出這類特殊功能，<b>沒有「一般 GPIO」這個選項</b>。網路上「先跑 jetson-io 就能用」，多半是靠它選特殊功能時順帶把 pad 打開（見 4-a 的 pad 一節）。4-a 的 <code>pad_pin29.py</code> 直接寫暫存器，只適合實驗。</li>
         <li><b>要放在 kernel 裡，先找現成的 driver，只寫 DT</b>：LED 用 <code>compatible = "gpio-leds"</code>，介面是 <code>/sys/class/leds/</code>，可以接 trigger；按鍵用 <code>"gpio-keys"</code>，介面是 <code>/dev/input/eventN</code>，內建 debounce。拿這一章來說，overlay 的 <code>compatible</code> 改成 <code>gpio-leds</code>，就不需要 <code>edge_gpio.ko</code>。</li>
         <li><b>真的要自己寫的情況</b>：GPIO 只是某個裝置的一部分（感測器的 reset、enable、中斷腳），由該裝置的 driver 用 <code>devm_gpiod_get()</code> 取得；或時序要求 userspace 跟不上；或要接到 kernel 的其他 subsystem。</li>
       </ul>
@@ -174,10 +174,10 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <!-- column 1 -->
         <rect class="s-box" x="14" y="50" width="200" height="56" rx="9" style="stroke: var(--line)"/>
         <text class="s-key" x="114" y="73" text-anchor="middle">jetson-io.py</text>
-        <text class="s-sm" x="114" y="94" text-anchor="middle">產生 pinmux overlay（常見）</text>
+        <text class="s-sm" x="114" y="94" text-anchor="middle">只有特殊功能，沒有 GPIO 選項</text>
         <rect class="s-box" x="14" y="120" width="200" height="56" rx="9" style="stroke: var(--drv); stroke-width: 3; fill: color-mix(in srgb, var(--drv) 14%, var(--surface))"/>
         <text class="s-key" x="114" y="143" text-anchor="middle">自寫 pinctrl 節點</text>
-        <text class="s-sm" x="114" y="164" text-anchor="middle">放在自己的 overlay 裡</text>
+        <text class="s-sm" x="114" y="164" text-anchor="middle">pinmux overlay（正規做法）</text>
         <rect class="s-box" x="14" y="190" width="200" height="56" rx="9" style="stroke: var(--user)"/>
         <text class="s-key" x="114" y="213" text-anchor="middle">直接寫暫存器</text>
         <text class="s-sm" x="114" y="234" text-anchor="middle">pad_pin29.py，重開機失效</text>
@@ -217,7 +217,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <line x1="14" y1="370" x2="64" y2="370" stroke="var(--user)" stroke-width="2" stroke-dasharray="6 4"/>
         <text class="s-sm" x="76" y="374">上一章 4-a：直接寫暫存器 → userspace → /dev/gpiochip0</text>
       </svg>
-      <figcaption>圖 4.1 — 點亮一顆 LED 要做三個決定，每一欄是一個決定的幾種做法。標「常見」的是一般專案的首選，4-a 和 4-b 兩條路線都不是最常見的組合，因為它們的目的是讓你看到底層：4-a 看 pad 暫存器與 GPIO character device，4-b 看 Device Tree 與 platform driver。三欄大致可以自由組合，例如 jetson-io.py + userspace 是最省事的一條，自寫 pinctrl 節點 + <code>gpio-leds</code> 則不用寫任何 C code。</figcaption>
+      <figcaption>圖 4.1 — 點亮一顆 LED 要做三個決定，每一欄是一個決定的幾種做法。pad 這一欄，4-b 的自寫 pinctrl 節點就是一般 GPIO 的正規做法；<code>jetson-io.py</code> 是給 SPI、PWM 這類特殊功能用的，4-a 的直接寫暫存器只適合實驗。第二欄的首選是 userspace（標「常見」），4-b 自己寫 driver 是為了讓你看到 Device Tree 配對與 platform driver。三欄大致可以自由組合，例如自寫 pinctrl 節點加 <code>gpio-leds</code>，就不用寫任何 C code。</figcaption>
     </figure>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_gpio/{edge_gpio.c, Makefile}</span>、<span class="new">dts/{edge-gpio-overlay.dts, Makefile}</span>、<span class="new">scripts/install_edge_gpio_overlay.py</span>、<span class="new">scripts/verify_edge_gpio.sh</span>、<span class="new">tests/test_edge_gpio_static.py</span>、<span class="new">tests/test_install_overlay.py</span>、<span class="new">tests/test_edge_gpio_device.py</span>；修改 scripts/verify_edge_test.sh、scripts/pad_pin29.py（註解）、.gitignore、CLAUDE.md、phase02.md、docs/{baseline.md, step02.html, step03.html, step04a.html} · 本章程式碼停在 <code>b73b2a9</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">

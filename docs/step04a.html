@@ -403,6 +403,15 @@ PULLS = {0: "none", 1: "down", 2: "up", 3: "reserved"}</pre></figure>
         <li><b>邏輯很單純。</b>讀一個 32-bit 值、檢查、清幾個 bit、寫回去，Python 寫起來短、容易讀。</li>
       </ul>
       <p>代價就是上面第一個限制：<b>暫存器存取其實是 C 比較適合的工作。</b>C 寫成 <code>volatile uint32_t *reg</code>，編譯器保證會產生一條 32-bit 的 load 和一條 store；Python 這邊靠的是 CPython 目前剛好這樣實作，不是規格上的保證。對一個只在實驗時用、4-b 之後就退役的工具來說，這個取捨可以接受；如果要長期留下，或是要碰很多暫存器，就該改用 C，或直接用現成的 <code>busybox devmem</code>。</p>
+      <h3>為什麼不用 jetson-io.py</h3>
+      <p>NVIDIA 附了一個設定 40-pin header 的工具 <code>sudo /opt/nvidia/jetson-io/jetson-io.py</code>，很多教學會叫你先跑它。這一步不用它，有四個原因：</p>
+      <ul>
+        <li><b>它沒有「一般 GPIO」這個選項。</b>工具的判斷寫在板子上的 <code>/opt/nvidia/jetson-io/Jetson/pmx.py</code>：pad 在 GPIO 模式（sfio = 0）的腳一律算 disable，畫面上顯示 <code>unused</code>。它能做的是把腳切成特殊功能（SFIO），例如 SPI、PWM、I2S。pin 29 在它讀的 <code>/boot/tegra234-p3767-0000+p3509-a02-hdr40.dtbo</code> 裡只有一個選項：<code>nvidia,function = "extperiph3"</code>，也就是外部時脈輸出，不是 GPIO。選了它，pad 會順帶變成 <code>tristate=0</code>、<code>enable-input=0</code>，網路上「先跑 jetson-io，GPIO 就能用」多半是靠這個附帶效果。這招在這塊板子上能不能點亮 LED，沒有實測過。</li>
+        <li><b>這一步要看見 pad。</b>4-a 是因為「driver 全 PASS、LED 不亮」才拆出來的，目的是把電路、pad、GPIO line 分開驗證。直接讀寫暫存器，tristate、enable-input、pull 三個欄位怎麼影響 LED 一清二楚；jetson-io 把這些全部包起來了。</li>
+        <li><b>每改一次都要重開機。</b>jetson-io 是寫一個 overlay 進 extlinux.conf，開機時由 UEFI 合併，這台又沒有 runtime overlay（見 4-b 的安裝一節）。驗收要在同一次開機裡對照「pad 關著不亮、打開才閃」，<code>pad_pin29.py open</code> / <code>close</code> 可以馬上切換。jetson-io 是互動式的文字介面，也不好寫進驗收腳本。</li>
+        <li><b>它會重寫開機設定。</b>它會重寫整個 <code>JetsonIO</code> label，4-b 加進去的 <code>edge-gpio-overlay.dtbo</code> 可能被洗掉。</li>
+      </ul>
+      <p>一般 GPIO 的 pad 正規做法，是把 pad 設定寫進 Device Tree：4-b 的 overlay 會加一個 pinctrl 節點，kernel 在 probe 前自動套用，<code>pad_pin29.py</code> 就退役了。</p>
     </div>
   </section>
 
