@@ -435,6 +435,75 @@ grep OVERLAYS /boot/extlinux/extlinux.conf</pre>
     <div class="rail"><span class="no">4b.5</span><b>driver</b><span class="dot" style="background: var(--drv)"></span>edge_gpio.c</div>
     <div class="content">
       <h2>driver：認得一個 compatible，要一個 GPIO</h2>
+      <p>這一節依序看 <code>edge_gpio.c</code> 的四段：配對表、<code>probe()</code>、<code>write()</code>、<code>remove()</code>。它們都不會自己跑起來，每一段都是被外面的某個人呼叫。先看全貌：</p>
+      <figure class="figure">
+        <svg viewBox="0 0 760 410" role="img" aria-label="edge_gpio driver 的四個入口：insmod 註冊配對表，比對 Device Tree 的 compatible；driver core 配對成功後呼叫 probe，probe 從 led-gpios 拿到 GPIO descriptor 並用 misc_register 產生 /dev/edge_gpio；userspace 寫入時呼叫 write，經 gpiod_set_value_cansleep 驅動 pin 29 的 LED；rmmod 時呼叫 remove，關掉節點、把 LED 寫 0，devm 交還 GPIO">
+          <defs>
+            <marker id="m4b5" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="24">誰呼叫</text>
+          <text class="s-mono" x="246" y="24">DRIVER（本節依序看）</text>
+          <text class="s-mono" x="560" y="24">從 DT 拿 / 對外產生</text>
+
+          <!-- row 1: match table -->
+          <rect class="s-box" x="14" y="40" width="190" height="60" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="109" y="65" text-anchor="middle">insmod</text>
+          <text class="s-sm" x="109" y="86" text-anchor="middle">edge_gpio.ko</text>
+          <rect class="s-box" x="246" y="40" width="270" height="60" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="381" y="65" text-anchor="middle">① of_match_table</text>
+          <text class="s-sm" x="381" y="86" text-anchor="middle">註冊 platform_driver，比對 compatible</text>
+          <rect class="s-box" x="560" y="40" width="190" height="60" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-key" x="655" y="65" text-anchor="middle">edge-led 節點</text>
+          <text class="s-sm" x="655" y="86" text-anchor="middle">compatible = "edge,gpio-led"</text>
+          <line class="sv-down" x1="205" y1="70" x2="242" y2="70" marker-end="url(#m4b5)"/>
+          <line class="sv-down" style="stroke-dasharray: 6 4" x1="559" y1="70" x2="520" y2="70" marker-end="url(#m4b5)"/>
+
+          <!-- row 2: probe -->
+          <rect class="s-box" x="14" y="120" width="190" height="90" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="109" y="157" text-anchor="middle">driver core</text>
+          <text class="s-sm" x="109" y="178" text-anchor="middle">配對成功、套好 pinctrl 後</text>
+          <rect class="s-box" x="246" y="120" width="270" height="90" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="381" y="145" text-anchor="middle">② probe()</text>
+          <text class="s-sm" x="381" y="168" text-anchor="middle">devm_gpiod_get(dev, "led", OUT_LOW)</text>
+          <text class="s-sm" x="381" y="190" text-anchor="middle">misc_register()</text>
+          <rect class="s-box" x="560" y="120" width="190" height="40" rx="9" style="stroke: var(--accent)"/>
+          <text class="s-sm" x="655" y="145" text-anchor="middle">led-gpios → descriptor</text>
+          <rect class="s-box" x="560" y="170" width="190" height="40" rx="9" style="stroke: var(--user)"/>
+          <text class="s-sm" x="655" y="195" text-anchor="middle">出現 /dev/edge_gpio</text>
+          <line class="sv-down" x1="205" y1="165" x2="242" y2="165" marker-end="url(#m4b5)"/>
+          <line class="sv-down" style="stroke-dasharray: 6 4" x1="559" y1="140" x2="520" y2="158" marker-end="url(#m4b5)"/>
+          <line class="sv-down" x1="517" y1="186" x2="556" y2="190" marker-end="url(#m4b5)"/>
+
+          <!-- row 3: write -->
+          <rect class="s-box" x="14" y="230" width="190" height="70" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="109" y="258" text-anchor="middle">echo 1 &gt;</text>
+          <text class="s-sm" x="109" y="280" text-anchor="middle">/dev/edge_gpio</text>
+          <rect class="s-box" x="246" y="230" width="270" height="70" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="381" y="253" text-anchor="middle">③ write()</text>
+          <text class="s-sm" x="381" y="274" text-anchor="middle">kstrtouint_from_user，檢查 ≤ 1</text>
+          <text class="s-sm" x="381" y="291" text-anchor="middle">gpiod_set_value_cansleep(led, v)</text>
+          <rect class="s-box" x="560" y="230" width="190" height="70" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="655" y="258" text-anchor="middle">pin 29 → LED</text>
+          <text class="s-sm" x="655" y="280" text-anchor="middle">極性由 gpiolib 反相</text>
+          <line class="sv-down" x1="205" y1="265" x2="242" y2="265" marker-end="url(#m4b5)"/>
+          <line class="sv-down" x1="517" y1="265" x2="556" y2="265" marker-end="url(#m4b5)"/>
+
+          <!-- row 4: remove -->
+          <rect class="s-box" x="14" y="320" width="190" height="70" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="109" y="348" text-anchor="middle">rmmod</text>
+          <text class="s-sm" x="109" y="370" text-anchor="middle">檔案開著時會被擋下</text>
+          <rect class="s-box" x="246" y="320" width="270" height="70" rx="9" style="stroke: var(--drv)"/>
+          <text class="s-key" x="381" y="343" text-anchor="middle">④ remove()</text>
+          <text class="s-sm" x="381" y="364" text-anchor="middle">misc_deregister → LED 寫 0</text>
+          <text class="s-sm" x="381" y="381" text-anchor="middle">之後 devm 交還 GPIO 與記憶體</text>
+          <rect class="s-box" x="560" y="320" width="190" height="70" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="655" y="348" text-anchor="middle">節點消失</text>
+          <text class="s-sm" x="655" y="370" text-anchor="middle">LED 熄、line 交還</text>
+          <line class="sv-down" x1="205" y1="355" x2="242" y2="355" marker-end="url(#m4b5)"/>
+          <line class="sv-down" x1="517" y1="355" x2="556" y2="355" marker-end="url(#m4b5)"/>
+        </svg>
+        <figcaption>圖 4.3 — driver 只有四個入口，各由一個外部事件觸發：insmod、driver core 配對成功、userspace 的 write、rmmod。虛線是從 Device Tree 讀進來的資訊（4b.3 的 <code>fragment@0</code>），實線往右是 driver 對外產生的東西。①② 對應 4b.2 路徑圖的第二、四站，③ 對應第五站。</figcaption>
+      </figure>
       <p>driver 的最後一段宣告「我認得哪些裝置」：</p>
       <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:123–142 — 配對表與 platform_driver</figcaption>
 <pre data-start="123" data-hot="124,127,134,139,142">static const struct of_device_id edge_gpio_of_match[] = {
