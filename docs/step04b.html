@@ -236,6 +236,12 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <p>4-a 的 <code>edge_gpio_blink</code> 把「<code>gpiochip0</code> 的 line 105」寫死在 C++ 裡，pad 要另外用 root 跑 <code>pad_pin29.py</code> 打開。換一塊板子、LED 改接別根腳、改成反向接法，就得改程式、重新編譯，而 pad 的設定 kernel 完全不知道。</p>
       <p>Linux 在 ARM 板子上的做法是把「板子上有什麼、接在哪裡」寫成 <b>Device Tree</b>（語法與機制見 <a href="devicetree.html">Device Tree 入門</a>），driver 只說「我認得哪一種裝置」。開機時 kernel 讀 Device Tree，為每個節點建立一個 device；platform bus 拿 device 的 <code>compatible</code> 去比對已註冊 driver 的清單，對上了就呼叫那個 driver 的 <code>probe()</code>。driver 在 <code>probe()</code> 裡向 kernel 要「這個 device 的 led GPIO」，拿到的已經是 DT 裡寫好的那根腳和極性。</p>
       <p><b>互動雙方</b>：controller 是 Jetson 上的 kernel driver <code>edge_gpio.ko</code>，target 是 GPIO controller 與 pin 29 的 pad，最後是麵包板上的 LED。userspace 只看到 <code>/dev/edge_gpio</code>：寫 <code>1</code> 亮、寫 <code>0</code> 暗。<b>這一步不做</b>：IRQ、按鈕（Step 5-a、5-b）。</p>
+      <p><b>這一章的兩個重點</b>：</p>
+      <ol>
+        <li><b>用 Device Tree 描述硬體</b>：裝置節點寫 <code>compatible</code> 和 <code>led-gpios</code>（接在哪根腳、極性），pinctrl 節點寫 pad 設定，取代 4-a 的 <code>pad_pin29.py</code>；再用 cpp + dtc 編成 <code>.dtbo</code>，交給 UEFI 在開機時合併（4b.3、4b.4）。</li>
+        <li><b>寫一個 platform driver</b>：用 <code>compatible</code> 配對、在 <code>probe()</code> / <code>remove()</code> 拿取與歸還資源、用 <code>devm_gpiod_get()</code> 依名稱拿 GPIO，driver 裡沒有腳位編號（4b.5）。</li>
+      </ol>
+      <p><code>/dev/edge_gpio</code> 雖然是 char device，卻不是本章的重點：Step 2 已經教過 char device，這裡用 <code>misc_register()</code> 幾行帶過。「DT 節點 + <code>compatible</code> 配對 + 在 <code>probe()</code> 用 <code>devm_</code> 拿資源」這套模式，後面的 <code>edge_button</code>、<code>edge_ina219</code>、<code>edge_oled</code>、<code>edge_ctrl</code> 會一直沿用，只是 bus 從 platform 換成 I2C。</p>
       <dl class="terms">
         <dt>Device Tree</dt><dd>描述硬體的一棵樹，編譯成二進位的 <code>.dtb</code>，開機時交給 kernel。每個節點描述一個裝置：它是什麼（<code>compatible</code>）、用到哪些資源（暫存器、GPIO、中斷）。</dd>
         <dt>overlay</dt><dd>疊在原廠 <code>.dtb</code> 上的補丁（<code>.dtbo</code>）。不改原廠檔案，開機時由 bootloader 合併；kernel 看到的是合併後的樹，在 <code>/proc/device-tree</code> 可以查看。</dd>
@@ -576,6 +582,28 @@ grep OVERLAYS /boot/extlinux/extlinux.conf</pre>
         </svg>
         <figcaption>圖 4.4 — driver 只有四個入口，各由一個外部事件觸發：insmod、driver core 配對成功、userspace 的 write、rmmod。虛線是從 Device Tree 讀進來的資訊（4b.3 的 <code>fragment@0</code>），實線往右是 driver 對外產生的東西。①② 對應 4b.2 路徑圖的第二、四站，③ 對應第五站。</figcaption>
       </figure>
+      <h3>platform driver 和 char device 是兩回事</h3>
+      <p>這兩個詞常一起出現，但回答的是不同方向的問題：<b>platform driver</b> 回答「這個 driver 管哪個硬體、什麼時候開始管」，是 kernel 對下（硬體那一側）的事；<b>char device</b> 回答「userspace 怎麼跟這個 driver 說話」，是對上的介面。上圖左欄的 driver core 與右上的 DT 屬於前者，<code>/dev/edge_gpio</code> 與 <code>write()</code> 屬於後者。</p>
+      <table>
+        <thead><tr><th></th><th>platform driver</th><th>char device</th></tr></thead>
+        <tbody>
+          <tr><td>解決的問題</td><td>driver 和裝置怎麼配對</td><td>userspace 怎麼存取</td></tr>
+          <tr><td>關鍵結構</td><td><code>struct platform_driver</code>、<code>of_match_table</code></td><td><code>struct file_operations</code>，用 <code>cdev</code> 或 <code>misc_register()</code> 註冊</td></tr>
+          <tr><td>進入點</td><td><code>probe()</code> / <code>remove()</code>，由 driver core 呼叫</td><td><code>open()</code> / <code>read()</code> / <code>write()</code> / <code>ioctl()</code>，userspace 呼叫時由 VFS 轉來</td></tr>
+          <tr><td>看得到的痕跡</td><td><code>/sys/bus/platform/drivers/edge_gpio/</code></td><td><code>/dev/edge_gpio</code>（major / minor）</td></tr>
+        </tbody>
+      </table>
+      <p>所以一個 driver 可以兩者都是、只是其中一個，或兩個都不是：</p>
+      <table>
+        <thead><tr><th>driver</th><th>對下：怎麼配對</th><th>對上：給 userspace 的介面</th></tr></thead>
+        <tbody>
+          <tr><td>Step 2 <code>edge_test</code></td><td>沒有：沒有硬體，<code>module_init</code> 直接註冊</td><td>char device（自己配 major、建 class）</td></tr>
+          <tr><td>Step 4-b <code>edge_gpio</code>（本章）</td><td>platform driver</td><td>char device（misc）</td></tr>
+          <tr><td>kernel 的 <code>gpio-leds</code></td><td>platform driver</td><td>不是 char device：<code>/sys/class/leds/</code></td></tr>
+          <tr><td>Step 8 <code>edge_ina219</code></td><td>I2C client driver</td><td>不是 char device：hwmon（sysfs）</td></tr>
+        </tbody>
+      </table>
+      <p>本章把兩者接在 <code>probe()</code> 裡：配對成功、拿到 GPIO 之後才 <code>misc_register()</code>，<code>remove()</code> 時先 <code>misc_deregister()</code>。所以沒有 DT 節點就不會 probe，<code>/dev/edge_gpio</code> 也不會出現；Step 2 的 <code>edge_test</code> 沒有對下這一層，insmod 就一定有節點。</p>
       <p>driver 的最後一段宣告「我認得哪些裝置」：</p>
       <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:123–142 — 配對表與 platform_driver</figcaption>
 <pre data-start="123" data-hot="124,127,134,139,142">static const struct of_device_id edge_gpio_of_match[] = {
@@ -599,6 +627,23 @@ static struct platform_driver edge_gpio_driver = {
 };
 module_platform_driver(edge_gpio_driver);</pre></figure>
       <p><code>of_match_table</code> 裡的字串和 overlay 的 <code>compatible</code> 一模一樣，靜態測試會比對兩邊。<code>MODULE_DEVICE_TABLE</code> 把這張表寫進 <code>.ko</code>，讓 udev 之類的工具知道這個 module 支援哪些裝置。<code>module_platform_driver()</code> 展開成 module 載入時註冊 driver、卸載時取消註冊。<code>suppress_bind_attrs</code> 關掉 sysfs 的手動 unbind：unbind 會釋放 driver 的資料，而那時可能還有人開著 <code>/dev/edge_gpio</code>；rmmod 則已經由 <code>.owner</code> 擋住（檔案開著時 module 不能卸載，驗收會測）。</p>
+      <h3>只寫 probe / remove 還不算 platform driver</h3>
+      <p><code>edge_gpio_probe</code> 和 <code>edge_gpio_remove</code> 只是兩個普通的 C 函式，名字可以隨便取，kernel 不會因為名字叫 <code>*_probe</code> 就呼叫它。讓這個 module 成為 platform driver 的，是上面節錄裡的三件事：</p>
+      <ol>
+        <li><b>用 <code>struct platform_driver</code> 把函式掛上去</b>：<code>.probe</code>、<code>.remove</code> 的型別規定參數是 <code>struct platform_device *</code>，也就是 platform bus 傳進來的那個裝置。</li>
+        <li><b>向 platform bus 註冊</b>：<code>module_platform_driver()</code> 展開成在 <code>module_init</code> 呼叫 <code>platform_driver_register()</code>、在 <code>module_exit</code> 呼叫 <code>platform_driver_unregister()</code>。</li>
+        <li><b>告訴 bus 要配哪些裝置</b>：<code>of_match_table</code>。driver core 還有一個依 <code>.driver.name</code> 配對的退路，但那要有人用同名字建立 platform_device，DT 不會這樣做。</li>
+      </ol>
+      <table>
+        <thead><tr><th>缺了什麼</th><th>insmod 之後</th></tr></thead>
+        <tbody>
+          <tr><td>沒有 <code>struct platform_driver</code> 與註冊</td><td>只是兩個沒人呼叫的函式（編譯器可能警告 <code>defined but not used</code>）；insmod 照樣成功</td></tr>
+          <tr><td>有註冊、沒有配對表</td><td><code>/sys/bus/platform/drivers/edge_gpio/</code> 出現，但下面沒有任何裝置</td></tr>
+          <tr><td>三件都有、DT 沒有節點</td><td>同上；這就是 4b.8 驗收的「不 probe」模式</td></tr>
+          <tr><td>三件都有、DT 也有節點</td><td>呼叫 <code>probe()</code>，出現 <code>/dev/edge_gpio</code></td></tr>
+        </tbody>
+      </table>
+      <p>所以 probe / remove 是 platform driver 的<b>回呼</b>，不是讓它成為 platform driver 的條件。後面的 I2C driver 是同一個模式，換成 <code>struct i2c_driver</code> 和 <code>module_i2c_driver()</code>，回呼的參數換成 <code>struct i2c_client *</code>。</p>
       <figure class="listing"><figcaption>kernel/edge_gpio/edge_gpio.c@b73b2a9:78–109 — probe：要 GPIO、開 /dev/edge_gpio</figcaption>
 <pre data-start="78" data-hot="84,89,91,98,99">static int edge_gpio_probe(struct platform_device *pdev)
 {
@@ -866,6 +911,7 @@ PASS dmesg shows 3 probe / 3 remove «8»
       <details class="quiz"><summary>2. <code>devm_gpiod_get(dev, "led", ...)</code> 去 DT 找的是哪個屬性？如果 overlay 把屬性名稱寫成 <code>led-gpio</code> 會怎樣？</summary><p>找 <code>led-gpios</code>。gpiolib 也接受舊式單數 <code>led-gpio</code>，所以通常還是找得到；但靜態測試和本書都以 <code>-gpios</code> 為準。寫成完全不同的名字（例如 <code>gpios-led</code>）就會 probe 失敗，dmesg 印出 <code>cannot get led gpio</code>。</p></details>
       <details class="quiz"><summary>3. 改成 active-low 接法時，driver 要改哪裡？</summary><p>一行都不用改。只換成 active-low 的 dtbo（<code>GPIO_ACTIVE_LOW</code>）並重開機；<code>gpiod_set_value_cansleep(led, 1)</code> 會由 gpiolib 輸出實體 low，<code>GPIOD_OUT_LOW</code> 的初值會輸出實體 high（LED 熄）。</p></details>
       <details class="quiz"><summary>4. 為什麼 <code>remove()</code> 要在 <code>misc_deregister()</code> 之後才寫 0，而不是之前？</summary><p>先取消註冊，就不會再有新的 open 或 write 進來；如果先寫 0，中間仍可能有人寫 1，LED 就在 remove 之後保持亮著。</p></details>
+      <details class="quiz"><summary>5. 把 <code>module_platform_driver(edge_gpio_driver);</code> 這行刪掉，overlay 照裝，insmod 會發生什麼事？</summary><p>insmod 成功，但 driver 沒有註冊到 platform bus，driver core 不知道它存在，<code>probe()</code> 永遠不會被呼叫，<code>/dev/edge_gpio</code> 不會出現，<code>/sys/bus/platform/drivers/</code> 下也沒有 <code>edge_gpio</code>。光寫好 probe / remove 不算 platform driver。</p></details>
     </div>
   </section>
 

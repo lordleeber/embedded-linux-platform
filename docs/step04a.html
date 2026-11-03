@@ -166,6 +166,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       <p>為了排除「是不是我們的 driver 寫錯」，再用系統內建的 <code>gpioset</code> 直接控制同一條 line，完全不經過我們的程式碼。結果一樣不亮。兩條獨立的路得到同一個結果，代表問題在比 GPIO 更底層的地方。</p>
       <p>所以原本的 Step 4 拆成兩步：<b>4-a（本章）</b>先在 userspace 把問題分層、確認 LED 真的點得亮；<b>4-b</b> 再回到 kernel driver，並用 Device Tree 正式處理 pad。原本的 Step 4 也已經累積了約 930 行，超過每步約 800 行的上限，拆開剛好。</p>
       <p><b>互動雙方</b>：controller 是 Jetson 上的 userspace 程式 <code>edge_gpio_blink</code>，target 是 SoC 的 GPIO controller 和 pin 29 的 pad，最後接到麵包板上的 LED。<b>這一步不做</b>：kernel driver、Device Tree、IRQ、按鈕；也不把 <code>/dev/mem</code> 當成正式做法。</p>
+      <p><b>和一般做法的關係</b>：本章分成兩半，定位不一樣。<b>控制 GPIO</b> 的那一半，用 <code>/dev/gpiochipN</code> 在 userspace 請求 line、寫值，正是一般專案最常見的做法（libgpiod 底下做的就是同樣幾個 ioctl），不需要寫 driver。<b>打開 pad</b> 的那一半則只是實驗：直接寫暫存器讓你看見 pad，但 kernel 不知情、重開機就消失。一般 GPIO 的正規做法是把 pad 設定寫成 pinmux overlay（4-b）；NVIDIA 的 <code>jetson-io.py</code> 沒有一般 GPIO 選項（見 4a.4 最後一小節）。各種做法怎麼組合，見 <a href="step04b.html">4-b</a> 開頭的路線圖。</p>
       <dl class="terms">
         <dt>GPIO line</dt><dd>GPIO controller 裡的一條可控制的訊號，通常對應晶片上的一根腳。程式用「哪個 controller 的第幾條 line」指定它。</dd>
         <dt>gpiochip</dt><dd>kernel 把每個 GPIO controller 開放成一個字元裝置 <code>/dev/gpiochipN</code>。userspace 打開它、用 ioctl 請求 line，就能控制 GPIO，不需要寫 driver。</dd>
