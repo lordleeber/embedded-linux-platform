@@ -138,6 +138,97 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 6-a · I2C（userspace，廠商範例）</div>
     <h1>先讀懂廠商給的 ina219.py</h1>
     <p class="lede">Phase 3 要為 UPS 模組上的 INA219 電流感測器寫 I2C driver。動手之前，先看廠商怎麼用它：Waveshare 附了一支 175 行的 Python 範例，<code>python3 ina219.py</code> 直接就能印出電池電壓、電流、功率、電量。這一章不寫新程式，而是逐行讀懂它<b class="hl-key">對晶片寫了什麼、讀了什麼、怎麼換算</b>。下一步 6-b 拿掉 Python library 自己讀 register，Step 7 再把同一套操作搬進 kernel，到時這份範例就是對照組。</p>
+    <figure class="figure" id="wiring">
+      <svg viewBox="0 0 820 440" role="img" aria-label="UPS Power Module (C) 的裝法。左：側視圖，Jetson Orin Nano 開發板用四根銅柱疊在 UPS 模組上方，模組上的 pogo pin 往上頂住載板背面，I2C 那組對著 40-pin header 的 pin 3 / pin 5；三顆 21700 電池裝在模組背面；19 V 變壓器插模組的 15V–19V 輸入。右：模組俯視圖，標出四組 pogo pin（電源輸出、電源鍵、狀態指示、I2C）與板邊的 OUTPUT、BOOT、ON/OFF、PWR、15V–19V">
+        <text class="s-mono" x="20" y="24">側視：疊在一起</text>
+        <rect class="s-box" x="110" y="44" width="150" height="30" rx="4" style="stroke: var(--line)"/>
+        <text class="s-sm" x="185" y="64" text-anchor="middle">模組 + 散熱器</text>
+        <rect x="290" y="62" width="56" height="12" rx="2" style="fill: #2a2d33; stroke: var(--hw)"/>
+        <text class="s-sm" x="318" y="56" text-anchor="middle" style="fill: var(--hw)">40-pin header</text>
+        <rect x="40" y="74" width="320" height="12" rx="2" style="fill: #1f5f3f; stroke: #3f8f66"/>
+        <text class="s-sm" x="366" y="84" style="fill: var(--ink)">← Jetson 載板</text>
+        <line x1="296" y1="86" x2="296" y2="92" stroke="#d4b25c" stroke-width="2"/>
+        <line x1="306" y1="86" x2="306" y2="92" stroke="#d4b25c" stroke-width="2"/>
+        <line x1="316" y1="86" x2="316" y2="92" stroke="#d4b25c" stroke-width="2"/>
+        <line x1="326" y1="86" x2="326" y2="92" stroke="#d4b25c" stroke-width="2"/>
+        <line x1="336" y1="86" x2="336" y2="92" stroke="#d4b25c" stroke-width="2"/>
+        <rect x="46" y="86" width="8" height="70" style="fill: #b8955a"/>
+        <rect x="346" y="86" width="8" height="70" style="fill: #b8955a"/>
+        <rect x="40" y="156" width="320" height="12" rx="2" style="fill: #1b1d21; stroke: #6c727a"/>
+        <text class="s-sm" x="366" y="166" style="fill: var(--ink)">← UPS 模組</text>
+        <line x1="92" y1="156" x2="92" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="92" cy="88" r="2" style="fill: #d4b25c"/>
+        <line x1="99" y1="156" x2="99" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="99" cy="88" r="2" style="fill: #d4b25c"/>
+        <text class="s-sm" x="95" y="186" text-anchor="middle" style="fill: #d4b25c">電源輸出</text>
+        <line x1="180" y1="156" x2="180" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="180" cy="88" r="2" style="fill: #d4b25c"/>
+        <line x1="187" y1="156" x2="187" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="187" cy="88" r="2" style="fill: #d4b25c"/>
+        <text class="s-sm" x="183" y="186" text-anchor="middle" style="fill: #d4b25c">電源鍵</text>
+        <line x1="240" y1="156" x2="240" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="240" cy="88" r="2" style="fill: #d4b25c"/>
+        <line x1="247" y1="156" x2="247" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="247" cy="88" r="2" style="fill: #d4b25c"/>
+        <text class="s-sm" x="243" y="186" text-anchor="middle" style="fill: #d4b25c">狀態</text>
+        <line x1="312" y1="156" x2="312" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="312" cy="88" r="2" style="fill: #d4b25c"/>
+        <line x1="319" y1="156" x2="319" y2="88" stroke="#d4b25c" stroke-width="2.4"/>
+        <circle cx="319" cy="88" r="2" style="fill: #d4b25c"/>
+        <text class="s-sm" x="315" y="186" text-anchor="middle" style="fill: #d4b25c">I2C</text>
+        <rect x="60" y="200" width="280" height="40" rx="8" style="fill: #22252a; stroke: #50565e"/>
+        <text class="s-sm" x="200" y="223" text-anchor="middle">模組背面：3 × 21700 電池座</text>
+        <rect class="s-box" x="20" y="280" width="150" height="40" rx="8" style="stroke: var(--line)"/>
+        <text class="s-sm" x="95" y="305" text-anchor="middle">19 V 變壓器</text>
+        <path d="M170,300 L352,300 Q362,300 362,290 L362,168" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text class="s-sm" x="190" y="318">插模組的 15V–19V 輸入</text>
+        <text class="s-sm" x="20" y="356">I2C pogo pin 頂住 header 的 pin 3（SDA）/ pin 5（SCL）背面</text>
+        <text class="s-sm" x="20" y="376">→ Linux 的 i2c-7，INA219 在 0x41</text>
+        <text class="s-sm" x="20" y="404">電源輸出 pogo pin 從下方供電給載板</text>
+        <text class="s-mono" x="450" y="24">俯視：UPS 模組（Jetson 拿掉）</text>
+        <rect x="450" y="50" width="330" height="260" rx="8" style="fill: #1b1d21; stroke: #6c727a; stroke-width: 1.5"/>
+        <circle cx="472" cy="72" r="9" style="fill: #b8955a; stroke: #7d6235"/>
+        <circle cx="472" cy="72" r="3.5" style="fill: #3b3f45"/>
+        <circle cx="758" cy="72" r="9" style="fill: #b8955a; stroke: #7d6235"/>
+        <circle cx="758" cy="72" r="3.5" style="fill: #3b3f45"/>
+        <circle cx="472" cy="260" r="9" style="fill: #b8955a; stroke: #7d6235"/>
+        <circle cx="472" cy="260" r="3.5" style="fill: #3b3f45"/>
+        <circle cx="758" cy="260" r="9" style="fill: #b8955a; stroke: #7d6235"/>
+        <circle cx="758" cy="260" r="3.5" style="fill: #3b3f45"/>
+        <circle cx="550" cy="66" r="3.4" style="fill: #d4b25c"/>
+        <circle cx="559" cy="66" r="3.4" style="fill: #d4b25c"/>
+        <text class="s-sm" x="554" y="92" text-anchor="middle" style="fill: #d4b25c">電源鍵</text>
+        <circle cx="625" cy="66" r="3.4" style="fill: #d4b25c"/>
+        <circle cx="634" cy="66" r="3.4" style="fill: #d4b25c"/>
+        <text class="s-sm" x="629" y="92" text-anchor="middle" style="fill: #d4b25c">狀態指示</text>
+        <circle cx="766" cy="160" r="3.4" style="fill: #d4b25c"/>
+        <circle cx="766" cy="169" r="3.4" style="fill: #d4b25c"/>
+        <circle cx="766" cy="178" r="3.4" style="fill: #d4b25c"/>
+        <text class="s-sm" x="756" y="174" text-anchor="end" style="fill: #d4b25c">I2C</text>
+        <circle cx="464" cy="210" r="3.4" style="fill: #d4b25c"/>
+        <circle cx="464" cy="219" r="3.4" style="fill: #d4b25c"/>
+        <text class="s-sm" x="476" y="220" style="fill: #d4b25c">電源輸出</text>
+        <text class="s-lbl" x="615.0" y="160" text-anchor="middle" style="fill: var(--ink)">UPS Power Module (C)</text>
+        <text class="s-sm" x="615.0" y="180" text-anchor="middle">pogo pin 朝上，對著載板背面</text>
+        <rect x="468" y="304" width="24" height="18" rx="2" style="fill: #0c0d0f; stroke: #50565e"/>
+        <text x="480" y="332" transform="rotate(45 480 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">OUTPUT</text>
+        <circle cx="526" cy="314" r="3.5" style="fill: #e5534b"/>
+        <circle cx="535" cy="314" r="3.5" style="fill: #57c785"/>
+        <text x="530" y="332" transform="rotate(45 530 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">PWR/ACT</text>
+        <rect x="566" y="306" width="12" height="10" rx="2" style="fill: #3b3f45; stroke: #9aa0a6"/>
+        <text x="572" y="332" transform="rotate(45 572 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">BOOT</text>
+        <rect x="606" y="306" width="18" height="12" rx="2" style="fill: #c9ccd1"/>
+        <text x="615" y="332" transform="rotate(45 615 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">ON/OFF</text>
+        <rect x="654" y="306" width="12" height="10" rx="2" style="fill: #3b3f45; stroke: #9aa0a6"/>
+        <text x="660" y="332" transform="rotate(45 660 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">PWR</text>
+        <circle cx="698" cy="314" r="3.5" style="fill: #e5534b"/>
+        <circle cx="707" cy="314" r="3.5" style="fill: #57c785"/>
+        <text x="702" y="332" transform="rotate(45 702 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">CHRG/DONE</text>
+        <rect x="738" y="304" width="24" height="18" rx="2" style="fill: #0c0d0f; stroke: #50565e"/>
+        <text x="750" y="332" transform="rotate(45 750 332)" style="font-family: var(--font-mono); font-size: 9.5px; fill: var(--muted)">15V–19V</text>
+      </svg>
+      <figcaption>圖 6.1 — UPS Power Module (C) 不用杜邦線：Jetson Orin Nano 開發板用四根銅柱和螺絲鎖在模組上方，模組上的 pogo pin（彈簧針）往上頂住載板背面的接點，位置由螺絲孔固定，所以只有一種裝法。四組 pogo pin 依 Waveshare 的標示是電源輸出、電源鍵、狀態指示和 I2C；I2C 那組頂的是 40-pin header 的 pin 3（SDA）/ pin 5（SCL），在 Linux 上是 <code>i2c-7</code>，INA219 在 0x41（6a.8 的掃描）。三顆 21700 電池裝在模組背面，19 V 變壓器插模組的 15V–19V 輸入，模組再經電源輸出 pogo pin 供電給 Jetson。官方說明要求：先裝電池，裝 Jetson 之前開關撥到 OFF（否則 pogo pin 可能碰到別的電路），開機前確認 pogo pin 對準。元件位置照 <a href="https://www.waveshare.com/wiki/UPS_Power_Module_(C)">Waveshare wiki</a> 的標示圖畫成示意。</figcaption>
+    </figure>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">third_party/waveshare_ups_c/{ina219.py, README.md}</span>、<span class="new">tests/test_ina219_sample.py</span>、<span class="new">scripts/verify_ina219_sample.sh</span>；修改 CLAUDE.md、ROADMAP.md、phase03.md、docs/{baseline.md, hardware-wiring.md, step05b.html, index.html} · 本章程式碼停在 <code>4ce1456</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
@@ -202,7 +293,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <text class="s-sm" x="590" y="226">Step 7 換成</text>
           <text class="s-sm" x="590" y="244">自己的 I2C driver</text>
         </svg>
-        <figcaption>圖 6.1 — 這一章整條路上沒有「我們寫的 driver」：Python 透過 i2c-dev 直接對晶片收發 byte，register 的意義全在 userspace 解讀。Step 7 會把「解讀」搬進 kernel。</figcaption>
+        <figcaption>圖 6.2 — 這一章整條路上沒有「我們寫的 driver」：Python 透過 i2c-dev 直接對晶片收發 byte，register 的意義全在 userspace 解讀。Step 7 會把「解讀」搬進 kernel。</figcaption>
       </figure>
       <p>controller 的那一格是傳輸在線上的樣子（依 SMBus 的 block read 格式）：先以寫入方向送出 register 編號，不放開 bus（RESTART），再以讀取方向收兩個 byte。這一步沒有接示波器或邏輯分析儀，<b>線上的波形沒有實測</b>，這裡寫的是格式。</p>
     </div>
@@ -460,7 +551,7 @@ KeyboardInterrupt «4»</pre>
       <table>
         <thead><tr><th>overlay 在 Step 4-b / 5-b 做的事</th><th>這一章為什麼不需要</th></tr></thead>
         <tbody>
-          <tr><td><b>讓我們的 driver 被 probe</b>：platform driver 靠 DT 節點的 <code>compatible</code> 配對，沒有節點，<code>insmod</code> 了也不會呼叫 <code>probe()</code></td><td>沒有我們的 driver。範例走 <b class="hl-key">i2c-dev</b>：開 <code>/dev/i2c-7</code>、用 <code>I2C_SLAVE</code> ioctl 指定位址 0x41，再收發 byte。kernel 只負責把 byte 送上線，不知道 0x41 是什麼晶片；register 的意義全在 Python 裡（圖 6.1）</td></tr>
+          <tr><td><b>讓我們的 driver 被 probe</b>：platform driver 靠 DT 節點的 <code>compatible</code> 配對，沒有節點，<code>insmod</code> 了也不會呼叫 <code>probe()</code></td><td>沒有我們的 driver。範例走 <b class="hl-key">i2c-dev</b>：開 <code>/dev/i2c-7</code>、用 <code>I2C_SLAVE</code> ioctl 指定位址 0x41，再收發 byte。kernel 只負責把 byte 送上線，不知道 0x41 是什麼晶片；register 的意義全在 Python 裡（圖 6.2）</td></tr>
           <tr><td><b>告訴 driver 硬體接在哪</b>：<code>led-gpios</code>、<code>button-gpios</code> 寫在 DT 裡，driver 不寫死腳位</td><td>bus 7、位址 0x41 直接寫死在範例裡（6a.3、6a.7）</td></tr>
           <tr><td><b>設定 pad</b>：pin 29 開機是 tristate（4-a 的坑），pin 33 要上拉；overlay 帶了 pinctrl 狀態</td><td>NVIDIA 的基礎 Device Tree 已經啟用 <code>c250000.i2c</code>（<code>status = "okay"</code>，400 kHz），開機就有 <code>/dev/i2c-7</code>。pin 3 / 5 是 header 上專用的 I2C 腳位，直接接 SoC、不經 TXB0108（5-b 查過的載板規格書）</td></tr>
         </tbody>

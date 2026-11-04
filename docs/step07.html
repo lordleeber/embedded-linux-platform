@@ -134,6 +134,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 7 · I2C（kernel，自己的 client driver）</div>
     <h1>自製 INA219 I2C kernel driver</h1>
     <p class="lede">6-b 在 userspace 用 <code>/dev/i2c-7</code> 自己讀 register；這一步把同一件事搬進 kernel。在 overlay 裡為 header 的 I2C 控制器加一個 <code>ina219@41</code> 子節點，kernel 開機時就會建立一個 <b class="hl-key">I2C client</b>；我們寫的 <code>edge_ina219.ko</code> 註冊一個 <code>struct i2c_driver</code>，compatible 相符時 kernel 呼叫它的 <code>probe()</code>。之後 userspace 只要 <code>cat</code> 一個 sysfs 檔，driver 就去讀晶片、換算好再回傳。驗收的標準是：<b class="hl-key">driver 讀到的值和 6-b 的 <code>ina219_raw</code> 一致</b>。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 6-a 相同（UPS Power Module (C) 疊在 Jetson 下方，I2C 經 pogo pin 接 pin 3 / 5），見 <a href="step06a.html#wiring">6-a 的圖 6.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ina219/{edge_ina219.c, Makefile, README.md}</span>、<span class="new">include/edge_ina219_conv.h</span>、<span class="new">tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py}</span>、<span class="new">scripts/verify_edge_ina219.sh</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, ina219-registers.md, step06b.html, index.html} · 本章程式碼停在 <code>c818fea</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

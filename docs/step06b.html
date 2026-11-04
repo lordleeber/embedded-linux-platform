@@ -136,6 +136,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 6-b · I2C（userspace，自己讀 register）</div>
     <h1>不用 Python library 讀 INA219</h1>
     <p class="lede">6-a 讀懂了廠商範例，但它靠 <code>python3-smbus</code> 幫忙收發 byte。寫 kernel driver 之前，這一步把那層拿掉：先用 i2c-tools 的 <code>i2cget</code> / <code>i2cset</code> 手動讀寫 register，再寫一支 C++ 小工具 <code>ina219_raw</code> 直接對 <code>/dev/i2c-7</code> 發 ioctl，自己把兩個 byte 拼成 16-bit 值、自己換算成電壓和電流。目的是在寫 driver 前確認<b class="hl-key">線、bus、位址、register map、byte order</b> 都對。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 6-a 相同（UPS Power Module (C) 疊在 Jetson 下方，I2C 經 pogo pin 接 pin 3 / 5），見 <a href="step06a.html#wiring">6-a 的圖 6.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">tools/{ina219_raw.cpp, ina219_decode.h}</span>、<span class="new">tests/{test_ina219_decode.cpp, test_ina219_raw.py}</span>、<span class="new">scripts/verify_ina219_raw.sh</span>、<span class="new">docs/ina219-registers.md</span>；修改 CMakeLists.txt、CLAUDE.md、phase03.md、docs/{baseline.md, hardware-wiring.md, step06a.html, index.html} · 本章程式碼停在 <code>1091520</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

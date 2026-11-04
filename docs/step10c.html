@@ -148,6 +148,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 10-c · INA219 → hwmon → OLED</div>
     <h1>OLED：電池數值上螢幕</h1>
     <p class="lede">Phase 3 做出了 INA219 的 hwmon driver，Phase 4 做出了 OLED driver 和字型。這一步把兩頭接起來：一支 userspace 程式每秒讀 hwmon 的電壓、電流、功率，排成 <code>BAT / V / I / P</code> 四行，整張畫面寫進 <code>/dev/edge_oled</code>。兩個 driver <b class="hl-key">一行都沒改</b>。這一章的重點是「長時間跑」的程式該處理的事：讀不到、資料過時、螢幕拔掉、被要求結束。</p>
+    <div class="callout"><p><b>接線</b>：INA219 和 Step 6-a 相同（<a href="step06a.html#wiring">圖 6.1</a>），OLED 和 Step 9 相同（<a href="step09.html#wiring">圖 9.1</a>），兩組互不相干。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/telemetry.h</span>、<span class="new">apps/telemetry_display.cpp</span>、<span class="new">tests/test_telemetry.cpp</span>、<span class="new">tests/test_telemetry_display.py</span>、<span class="new">scripts/verify_telemetry_display.sh</span>、<span class="new">docs/step10c.html</span>；修改 CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, step10b.html, index.html} · 本章程式碼停在 <code>f8728e8</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

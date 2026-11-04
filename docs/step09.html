@@ -150,7 +150,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 9 · SSD1306 OLED（userspace 先證明協定）</div>
     <h1>OLED：先在 userspace 點亮 EDGE</h1>
     <p class="lede">Phase 3 的 INA219 是「讀 sensor」，這一步換成「控制 peripheral」：一片 128x64 的 OLED，控制器是 SSD1306。和 6-b 一樣，寫 driver 之前先用 userspace 工具證明三件事：<b>晶片在哪條 bus、哪個位址</b>，<b>送過去的 byte 該長什麼樣</b>，以及<b class="hl-key">每次執行都從頭初始化，不靠上一次留下的狀態</b>。這片螢幕不能讀回內容，所以畫面對不對最後要靠人眼確認，每張測試圖都特別設計成「一眼看得出方向對不對」。</p>
-    <figure class="figure">
+    <figure class="figure" id="wiring">
       <svg viewBox="0 0 760 480" role="img" aria-label="接線示意：SSD1306 OLED 模組的四支排針插在麵包板下半 j 列的第 6 到 9 欄（GND、VCC、SCL、SDA），模組本體垂到麵包板外。Jetson 40-pin header 的 pin 17（3.3 V）、pin 20（GND）、pin 27（SDA）、pin 28（SCL）各用一條杜邦線接到同一欄">
         <text class="s-mono" x="200" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="150" y="40" width="100" height="326" rx="8" style="stroke: var(--hw)"/>

@@ -134,6 +134,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 8 · hwmon（kernel 標準 subsystem）</div>
     <h1>INA219 接上 hwmon</h1>
     <p class="lede">Step 7 的 <code>edge_ina219</code> 已經會讀晶片、會換算，但交給 userspace 的是它自己取名的五個檔（<code>bus_mv</code>、<code>current_ua</code>…），別的程式要先認識這個 driver 才讀得懂。這一步<b>讀取與換算的部分一行都沒改</b>，只換掉交出數值的方式：driver 向 <b class="hl-key">hwmon</b> subsystem 註冊「我有兩個電壓、一個電流、一個功率」，<code>/sys/class/hwmon/hwmonN/</code> 底下的檔名、單位、格式都由 kernel 規定，和這台板子上 NVIDIA 的 <code>ina3221</code> 是同一套。驗收除了讀得到值，還要證明<b class="hl-key">出錯時回 errno、卸載後不留舊的檔案</b>。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 6-a 相同（UPS Power Module (C) 疊在 Jetson 下方，I2C 經 pogo pin 接 pin 3 / 5），見 <a href="step06a.html#wiring">6-a 的圖 6.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 修改 kernel/edge_ina219/{edge_ina219.c, README.md}、include/edge_ina219_conv.h、tests/{test_edge_ina219_conv.cpp, test_edge_ina219_static.py, test_edge_ina219_device.py, test_check_listings.py, test_check_test_counts.py}、scripts/{verify_edge_ina219.sh, check_listings.py, check_test_counts.py}、CLAUDE.md、phase03.md、docs/{baseline.md, step07.html, index.html}；新增 <span class="new">docs/step08.html</span> · 本章程式碼停在 <code>88091db</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

@@ -218,6 +218,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       </svg>
       <figcaption>圖 5.1 — 按鍵和 LED 一樣要做三個決定。這一章三欄都換成自己來：overlay 的 pinctrl 節點設定 pad（driver probe 時套用），自己寫的 <code>edge_button.ko</code> 持有 GPIO、登記中斷、做 debounce，再用自訂的 <code>/dev/edge_button</code> 把事件交給 userspace。這樣做是為了學 GPIO IRQ 和 wait queue。實務上，只是要在程式裡等按鍵，上一章 5-a 的 userspace 做法就夠了；要讓按鍵變成鍵盤輸入，用第二欄的 <code>gpio-keys</code>，只寫 DT、不寫 C code。</figcaption>
     </figure>
+    <div class="callout"><p><b>接線</b>：和 Step 5-a 完全相同（pin 33 按鍵、pin 1 經 330 Ω 上拉、pin 34 GND），見 <a href="step05a.html#wiring">5-a 的圖 5.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_button/{edge_button.c, Makefile}</span>、<span class="new">include/edge_button.h</span>、<span class="new">apps/edge_button_wait.cpp</span>、<span class="new">scripts/verify_edge_button.sh</span>、<span class="new">tests/test_edge_button_static.py</span>、<span class="new">tests/test_edge_button_device.py</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_edge_gpio_static.py、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, index.html} · 本章程式碼停在 <code>c871fd4</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

@@ -142,7 +142,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 5-a · GPIO edge event（userspace）</div>
     <h1>按鍵事件不一定要寫 driver</h1>
     <p class="lede">Step 4 先在 userspace 點亮 LED（4-a），再寫 kernel driver（4-b）。按鍵也照這個順序：這一章不寫任何 kernel code，只用 kernel 本來就有的 GPIO character device，請它在按鍵的邊緣上產生事件。程式呼叫 <code>read()</code> 之後一樣會睡著、一樣不吃 CPU、一樣有 debounce。中斷、佇列、wait queue 都由 kernel 的 <b class="hl-key">gpiolib-cdev</b> 處理；下一章 5-b 再把這些在自己的 driver 裡親手寫一遍。</p>
-    <figure class="figure">
+    <figure class="figure" id="wiring">
       <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 1（3.3 V）、pin 33（PH.00）、pin 34（GND）各用一條杜邦線接到麵包板。pin 33 接第 4 欄上半，330 Ω 電阻從第 4 欄跨到第 8 欄，pin 1 接第 8 欄上半；兩腳按鍵插在上半，一腳在第 4 欄、一腳在第 2 欄，pin 34 接第 2 欄上半。下方是對應的電路圖">
         <text class="s-mono" x="200" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="150" y="40" width="100" height="306" rx="8" style="stroke: var(--hw)"/>

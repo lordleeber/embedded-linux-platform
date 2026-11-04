@@ -147,7 +147,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 4-a · userspace GPIO</div>
     <h1>先在 userspace 點亮 pin 29</h1>
     <p class="lede">這是第一次接上真正的硬體：一顆接在 40-pin header 第 29 腳的紅色 LED。原本的計畫是直接寫 kernel driver，結果 driver 每一項檢查都通過，LED 卻始終不亮。問題不在程式碼，而在晶片腳位的 <b class="hl-key">pad</b>：JP6 開機時它是斷開的。這一步先不碰 kernel，用一支最精簡的 C++ 程式和一支設定 pad 的腳本，把「電路、pad、GPIO line」分層驗清楚。</p>
-    <figure class="figure">
+    <figure class="figure" id="wiring">
       <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 29（PQ.05）和 pin 30（GND）各用一條杜邦線接到麵包板上半。pin 29 接第 8 欄，330 Ω 電阻從第 8 欄跨到第 4 欄，LED 長腳（正極）插第 4 欄、短腳（負極）插第 3 欄，pin 30 接第 3 欄。下方是對應的電路圖">
         <text class="s-mono" x="200" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="150" y="40" width="100" height="306" rx="8" style="stroke: var(--hw)"/>

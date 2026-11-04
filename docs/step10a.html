@@ -147,6 +147,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 10-a · SSD1306 OLED（kernel driver 骨架）</div>
     <h1>OLED：把協定搬進 kernel</h1>
     <p class="lede">Step 9 用 userspace 工具證明了「該送哪些 byte」。這一步把同一串 byte 交給一個自己寫的 I2C client driver <code>edge_oled</code>：probe 時初始化面板，driver 持有一份 1024 byte 的畫面，userspace 經 <code>/dev/edge_oled</code> 寫整張畫面、清除、填滿。重點不在畫圖，而在 <b class="hl-key">裝置的生命週期</b>：錯誤怎麼往上回報、OLED 斷電後怎麼恢復、driver 被 unbind 時還開著的檔案怎麼辦。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 9 完全相同（OLED 插麵包板，pin 17 / 20 / 27 / 28），見 <a href="step09.html#wiring">Step 9 的圖 9.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_oled/{edge_oled.c, Makefile}</span>、<span class="new">include/edge_oled.h</span>、<span class="new">include/edge_oled_proto.h</span>、<span class="new">apps/edge_oled_ctl.cpp</span>、<span class="new">tests/test_edge_oled_{proto.cpp, static.py, device.py}</span>、<span class="new">scripts/verify_edge_oled.sh</span>、<span class="new">docs/step10a.html</span>；修改 dts/edge-gpio-overlay.dts、tools/{oled_probe.cpp, ssd1306.h}、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, ssd1306-notes.md, hardware-wiring.md, step09.html, index.html} · 本章程式碼停在 <code>4479e44</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

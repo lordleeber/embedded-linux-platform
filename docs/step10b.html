@@ -156,6 +156,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 10-b · SSD1306 OLED（文字）</div>
     <h1>OLED：把字畫成 pixel</h1>
     <p class="lede">SSD1306 不認得字。Step 10-a 的 driver 只收整張 1024 byte 的畫面，所以「顯示 EDGE」其實是先在 userspace 把每個字查表、變成一排排的點，畫進那 1024 byte，再整張寫下去。這一步做了一套 5x7 的 ASCII 字型和畫字的函式，並處理<b class="hl-key">邊界</b>：一行太長、字跨過 page、表裡沒有的字元。另外結掉 10-a 留下的一筆帳：OLED 在兩次寫入之間斷電又接回時，螢幕會一直黑著。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 9 完全相同（OLED 插麵包板，pin 17 / 20 / 27 / 28），見 <a href="step09.html#wiring">Step 9 的圖 9.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/oled_text.h</span>、<span class="new">tests/test_oled_text.cpp</span>、<span class="new">tests/test_edge_oled_text.py</span>、<span class="new">scripts/verify_edge_oled_text.sh</span>、<span class="new">docs/step10b.html</span>；修改 apps/edge_oled_ctl.cpp、kernel/edge_oled/edge_oled.c、tests/test_edge_oled_static.py、CMakeLists.txt、CLAUDE.md、phase04.md、docs/{baseline.md, step10a.html, index.html} · 本章程式碼停在 <code>d04f7ac</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>

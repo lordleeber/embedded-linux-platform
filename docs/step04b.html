@@ -219,6 +219,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
       </svg>
       <figcaption>圖 4.1 — 點亮一顆 LED 要做三個決定，每一欄是一個決定的幾種做法。pad 這一欄，4-b 的自寫 pinctrl 節點就是一般 GPIO 的正規做法；<code>jetson-io.py</code> 是給 SPI、PWM 這類特殊功能用的，4-a 的直接寫暫存器只適合實驗。第二欄的首選是 userspace（標「常見」），4-b 自己寫 driver 是為了讓你看到 Device Tree 配對與 platform driver。三欄大致可以自由組合，例如自寫 pinctrl 節點加 <code>gpio-leds</code>，就不用寫任何 C code。</figcaption>
     </figure>
+    <div class="callout"><p><b>接線</b>：和 Step 4-a 完全相同（pin 29 → 330 Ω → LED → pin 30），見 <a href="step04a.html#wiring">4-a 的圖 4.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_gpio/{edge_gpio.c, Makefile}</span>、<span class="new">dts/{edge-gpio-overlay.dts, Makefile}</span>、<span class="new">scripts/install_edge_gpio_overlay.py</span>、<span class="new">scripts/verify_edge_gpio.sh</span>、<span class="new">tests/test_edge_gpio_static.py</span>、<span class="new">tests/test_install_overlay.py</span>、<span class="new">tests/test_edge_gpio_device.py</span>；修改 scripts/verify_edge_test.sh、scripts/pad_pin29.py（註解）、.gitignore、CLAUDE.md、phase02.md、docs/{baseline.md, step02.html, step03.html, step04a.html} · 本章程式碼停在 <code>b73b2a9</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
