@@ -1090,6 +1090,14 @@ FAIL 75 of 100 reads wrong</pre>
           <tr><td>SWDIO、SWCLK、GND、3.3V</td><td>ST-Link V2 的同名腳；Blue Pill 由 ST-Link 供電，ST-Link 的 USB 插 Jetson</td></tr>
         </tbody>
       </table>
+      <h3 id="common-ground">為什麼 GND 一定要接：共地</h3>
+      <p>I2C 只有 SDA、SCL 兩條訊號線，但實際上要三條線才能動，第三條是 GND。原因有兩個：</p>
+      <ul>
+        <li><b>高低是相對於 GND 量的</b>：電壓永遠是兩點之間的差。Jetson 判斷 SDA 是 0 還是 1，量的是 SDA 對 <b>Jetson 的 GND</b>；STM32 把 SDA 拉低，拉到的是 <b>STM32 的 GND</b>。兩邊的 0 V 是同一個點，STM32 的「低」在 Jetson 看來才是低。</li>
+        <li><b>GND 是回流的路</b>：STM32 拉低 SDA / SCL 時，電流從 Jetson 載板的上拉電阻流進那條線，經過 STM32 內部的電晶體流到它的 GND，再回到 Jetson 的 GND。電流要繞一圈才流得動，GND 就是回程。</li>
+      </ul>
+      <p>沒有共地時，兩邊的 0 V 可能差零點幾伏，或根本浮動不定：Jetson 看到的低電位不夠低、或把沒人拉的線誤判成低，表現出來是 NACK、<code>Remote I/O error</code>、讀到亂碼，而且時好時壞。電位差再大，還可能超過腳位的耐壓。</p>
+      <p>這台有一個容易誤會的地方：ST-Link 的 USB 插在 Jetson 上，USB 線本身就有 GND，所以拔掉 pin 25 那條線，兩邊其實還是經過「ST-Link → USB 線 → Jetson」共地，通常照樣能通。不要靠它：這條回程繞了一大圈，迴路大、容易受雜訊干擾；ST-Link 一改插別的電源，共地就沒了。所以 I2C 的兩條訊號線旁邊，一定要直接接一條 GND。</p>
       <p>上拉電阻不用另外加，Jetson 載板上已經有了。一支 header pin 只插得下一條杜邦線，pin 27 / 28 原本是 OLED 的，這一步先把 OLED 拔掉（腳本看到 0x3c 時會檢查它還在，沒看到就 SKIP）。ST-Link 第一次插 Jetson 時，USB 節點是 <code>root:root 0664</code>，OpenOCD 會報 <code>LIBUSB_ERROR_ACCESS</code>，要先裝 PlatformIO 的 udev 規則（指令在 <code>firmware/stm32f103/README.md</code>，要 sudo）。之後在 repo 根目錄：</p>
 <pre class="cmd">~/.platformio/penv/bin/pio run -d firmware/stm32f103 -t upload</pre>
 <pre class="out">** Programming Started **
