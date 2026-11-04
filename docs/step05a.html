@@ -143,7 +143,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <h1>按鍵事件不一定要寫 driver</h1>
     <p class="lede">Step 4 先在 userspace 點亮 LED（4-a），再寫 kernel driver（4-b）。按鍵也照這個順序：這一章不寫任何 kernel code，只用 kernel 本來就有的 GPIO character device，請它在按鍵的邊緣上產生事件。程式呼叫 <code>read()</code> 之後一樣會睡著、一樣不吃 CPU、一樣有 debounce。中斷、佇列、wait queue 都由 kernel 的 <b class="hl-key">gpiolib-cdev</b> 處理；下一章 5-b 再把這些在自己的 driver 裡親手寫一遍。</p>
     <figure class="figure">
-      <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 1（3.3 V）、pin 33（PH.00）、pin 34（GND）各用一條杜邦線接到麵包板。pin 33 接第 4 欄上半，330 Ω 電阻從第 4 欄跨到第 8 欄，pin 1 接第 8 欄上半；兩腳按鍵在第 4 欄跨過中間的溝槽，一腳在上半、一腳在下半，pin 34 接第 4 欄下半。下方是對應的電路圖">
+      <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 1（3.3 V）、pin 33（PH.00）、pin 34（GND）各用一條杜邦線接到麵包板。pin 33 接第 4 欄上半，330 Ω 電阻從第 4 欄跨到第 8 欄，pin 1 接第 8 欄上半；兩腳按鍵插在上半，一腳在第 4 欄、一腳在第 2 欄，pin 34 接第 2 欄上半。下方是對應的電路圖">
         <text class="s-mono" x="200" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="150" y="40" width="100" height="306" rx="8" style="stroke: var(--hw)"/>
         <text class="s-sm" x="200" y="166" text-anchor="middle">⋮</text>
@@ -190,7 +190,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <rect x="340" y="208" width="290" height="20" style="fill: var(--bg)"/>
         <rect x="417" y="110" width="18" height="96" rx="4" style="fill: #e8c547; fill-opacity: 0.22"/>
         <rect x="505" y="110" width="18" height="96" rx="4" style="fill: #e5534b; fill-opacity: 0.22"/>
-        <rect x="417" y="230" width="18" height="96" rx="4" style="fill: #b8bcc2; fill-opacity: 0.22"/>
+        <rect x="373" y="110" width="18" height="96" rx="4" style="fill: #b8bcc2; fill-opacity: 0.22"/>
         <text class="s-sm" x="360" y="104" text-anchor="middle" style="font-size: 9px">1</text>
         <rect x="357" y="115" width="6" height="6" rx="1" style="fill: var(--muted); fill-opacity: 0.45"/>
         <rect x="357" y="135" width="6" height="6" rx="1" style="fill: var(--muted); fill-opacity: 0.45"/>
@@ -342,25 +342,28 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <circle cx="514" cy="158" r="3" style="fill: #c9ccd1"/>
         <rect x="447" y="128" width="46" height="16" rx="4" style="fill: var(--surface); stroke: var(--line)"/>
         <text class="s-sm" x="470" y="140" text-anchor="middle" style="fill: var(--ink)">330 Ω</text>
-        <rect x="409" y="201" width="34" height="34" rx="5" style="fill: #3b3f45; stroke: #9aa0a6; stroke-width: 1.5"/>
-        <circle cx="426" cy="218" r="10" style="fill: #22252a; stroke: #9aa0a6"/>
-        <line x1="426" y1="198" x2="426" y2="201" stroke="var(--hw)" stroke-width="2"/>
+        <rect x="386" y="168" width="36" height="40" rx="5" style="fill: #3b3f45; stroke: #9aa0a6; stroke-width: 1.5"/>
+        <circle cx="404" cy="188" r="11" style="fill: #22252a; stroke: #9aa0a6"/>
+        <line x1="382" y1="198" x2="388" y2="198" stroke="var(--hw)" stroke-width="2"/>
+        <circle cx="382" cy="198" r="4.5" style="fill: var(--hw)"/>
+        <line x1="426" y1="198" x2="420" y2="198" stroke="var(--hw)" stroke-width="2"/>
         <circle cx="426" cy="198" r="4.5" style="fill: var(--hw)"/>
-        <line x1="426" y1="238" x2="426" y2="235" stroke="var(--hw)" stroke-width="2"/>
-        <circle cx="426" cy="238" r="4.5" style="fill: var(--hw)"/>
-        <text class="s-sm" x="452" y="222" style="fill: var(--ink)">← 兩腳按鍵跨過溝槽：一腳在上半、一腳在下半</text>
-        <path d="M186,70 L200,56 L498,56 C514,56 514,64 514,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M186,70 L200,56 L498,56 C514,56 514,64 514,118" fill="none" stroke="#e5534b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M186,252 L200,240 L290,240 C318,240 318,72 346,72 L410,72 C426,72 426,80 426,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M186,252 L200,240 L290,240 C318,240 318,72 346,72 L410,72 C426,72 426,80 426,118" fill="none" stroke="#e8c547" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L410,372 C426,372 426,362 426,318" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L410,372 C426,372 426,362 426,318" fill="none" stroke="#b8bcc2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <text class="s-sm" x="440" y="222" style="fill: var(--ink)">↖ 兩腳按鍵：第 2、4 欄各一腳</text>
+        <path d="M186,70 L200,52 L498,52 C514,52 514,62 514,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M186,70 L200,52 L498,52 C514,52 514,62 514,118" fill="none" stroke="#e5534b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M186,252 L200,240 L290,240 C318,240 318,66 346,66 L410,66 C426,66 426,76 426,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M186,252 L200,240 L290,240 C318,240 318,66 346,66 L410,66 C426,66 426,76 426,118" fill="none" stroke="#e8c547" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M214,252 L226,265 L292,265 C334,265 334,80 366,80 C382,80 382,92 382,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M214,252 L226,265 L292,265 C334,265 334,80 366,80 C382,80 382,92 382,118" fill="none" stroke="#b8bcc2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         <rect x="510" y="109" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #e5534b; stroke-width: 1.5"/>
         <rect x="422" y="109" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #e8c547; stroke-width: 1.5"/>
-        <rect x="422" y="309" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #b8bcc2; stroke-width: 1.5"/>
-        <text class="s-sm" x="524" y="52" style="fill: #e5534b">3.3 V → 第 8 欄</text>
-        <text class="s-sm" x="436" y="84" style="fill: #e8c547">訊號 → 第 4 欄</text>
-        <text class="s-sm" x="438" y="376" style="fill: #b8bcc2">GND → 第 4 欄下半</text>
+        <rect x="378" y="109" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #b8bcc2; stroke-width: 1.5"/>
+        <line x1="346" y1="386" x2="372" y2="386" stroke="#e5534b" stroke-width="3.5" stroke-linecap="round"/>
+        <text class="s-sm" x="382" y="390" style="fill: #e5534b">紅：pin 1（3.3 V）→ 第 8 欄</text>
+        <line x1="346" y1="406" x2="372" y2="406" stroke="#e8c547" stroke-width="3.5" stroke-linecap="round"/>
+        <text class="s-sm" x="382" y="410" style="fill: #e8c547">黃：pin 33（訊號）→ 第 4 欄</text>
+        <line x1="346" y1="426" x2="372" y2="426" stroke="#b8bcc2" stroke-width="3.5" stroke-linecap="round"/>
+        <text class="s-sm" x="382" y="430" style="fill: #b8bcc2">灰：pin 34（GND）→ 第 2 欄</text>
         <text class="s-mono" x="20" y="384">電路</text>
         <text class="s-sm" x="20" y="414" style="fill: #e5534b">pin 1</text>
         <line x1="58" y1="410" x2="90" y2="410" stroke="var(--ink)" stroke-width="1.5"/>
@@ -377,7 +380,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <line x1="190" y1="449" x2="190" y2="460" stroke="var(--ink)" stroke-width="1.5"/>
         <text class="s-sm" x="200" y="464" style="fill: #b8bcc2">pin 34（GND）</text>
       </svg>
-      <figcaption>圖 5.1 — 這一章的接線。三條杜邦線從 header 接到麵包板：紅 = pin 1（3.3 V）、黃 = pin 33（PH.00，訊號）、灰 = pin 34（GND），線的顏色不拘。麵包板上下半各自的每一欄（a–e、f–j）是連通的，色塊標出用到的三段。330 Ω 電阻一端和 pin 1 同欄、一端和 pin 33 同欄，就是把 pin 33 上拉到 3.3 V。兩腳按鍵在第 4 欄跨過中間的溝槽：上半那一腳和 pin 33 同一段，下半那一腳和 GND 同一段。溝槽兩側不相通，所以只有按下時 pin 33 才接到 GND。欄號和位置只是示意，照連通關係接就好。</figcaption>
+      <figcaption>圖 5.1 — 這一章的接線。三條杜邦線從 header 接到麵包板：紅 = pin 1（3.3 V）、黃 = pin 33（PH.00，訊號）、灰 = pin 34（GND），線的顏色不拘。麵包板上下半各自的每一欄（a–e、f–j）是連通的，色塊標出用到的三段。330 Ω 電阻一端和 pin 1 同欄、一端和 pin 33 同欄，就是把 pin 33 上拉到 3.3 V。兩腳按鍵的兩隻腳插在上半的第 4 欄和第 2 欄：第 4 欄和 pin 33、電阻同一段，第 2 欄和 GND 同一段。不同欄之間不相通，所以只有按下時 pin 33 才接到 GND。欄號和位置只是示意，照連通關係接就好。</figcaption>
     </figure>
     <figure class="figure">
       <svg viewBox="0 0 760 384" role="img" aria-label="讀一顆 GPIO 按鍵要做三個決定。pad 設定：jetson-io.py、自寫 pinctrl 節點、直接寫暫存器、開機預設值。誰持有 GPIO：userspace、kernel 現成 driver gpio-keys、kernel 自寫 driver、裝置 driver 附帶。userspace 看到的介面：/dev/gpiochipN、/dev/input/eventN、/dev/edge_button、該裝置的介面。本章 5-a 的路線是開機預設值、userspace、/dev/gpiochip0；下一章 5-b 的路線是自寫 pinctrl 節點、kernel 自寫 driver、/dev/edge_button">
