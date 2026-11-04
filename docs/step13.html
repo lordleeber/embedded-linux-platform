@@ -149,6 +149,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 13 · I2C client driver</div>
     <h1>edge_ctrl：把自己的 MCU 接進 kernel</h1>
     <p class="lede">Step 11–12-b 在 Blue Pill 上寫好了一份 register protocol，Jetson 這邊一直用 i2c-tools 直接打 register。這一步在 Jetson 的 kernel 寫一個 I2C client driver，讓 application <b class="hl-key">讀寫檔案就好</b>：<code>cat adc</code> 得到 <code>2068</code>，<code>echo 1 &gt; led</code> 點亮 LED，不用再知道 pointer、byte 順序和 <code>/dev/i2c-1</code>。重點是 driver 和 firmware 對同一份 register map 的理解<b class="hl-key">不能分歧</b>，而且 bus 出錯時不能自作主張。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 12-b 完全相同（A0 接在分壓中點、按鍵不按），見 <a href="step12b.html#wiring">12-b 的圖 12.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">kernel/edge_ctrl/{edge_ctrl.c, Makefile, README.md}、include/edge_ctrl_regs.h、tests/{test_edge_ctrl_regs.cpp, test_edge_ctrl_static.py, test_edge_ctrl_device.py}、scripts/verify_edge_ctrl.sh、docs/step13.html</span>；修改 dts/edge-gpio-overlay.dts、CMakeLists.txt、tests/test_stm32_i2c_target.py、CLAUDE.md、phase05.md、docs/{baseline.md, step12b.html, index.html} · firmware 沒有改（仍是 FW 0.3 / map 1.1） · 本章程式碼停在 <code>693fa0c</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式（cat、echo、i2c-tools）</span>
