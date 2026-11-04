@@ -147,6 +147,69 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <div class="eyebrow">Jetson Orin Nano · Step 4-a · userspace GPIO</div>
     <h1>先在 userspace 點亮 pin 29</h1>
     <p class="lede">這是第一次接上真正的硬體：一顆接在 40-pin header 第 29 腳的紅色 LED。原本的計畫是直接寫 kernel driver，結果 driver 每一項檢查都通過，LED 卻始終不亮。問題不在程式碼，而在晶片腳位的 <b class="hl-key">pad</b>：JP6 開機時它是斷開的。這一步先不碰 kernel，用一支最精簡的 C++ 程式和一支設定 pad 的腳本，把「電路、pad、GPIO line」分層驗清楚。</p>
+    <figure class="figure">
+      <svg viewBox="0 0 760 384" role="img" aria-label="點亮一顆 GPIO LED 要做三個決定。pad 設定：jetson-io.py、自寫 pinctrl 節點、直接寫暫存器。誰持有 GPIO：userspace、kernel 現成 driver、kernel 自寫 driver、裝置 driver 附帶。userspace 看到的介面：/dev/gpiochipN、/sys/class/leds、/dev/edge_gpio、該裝置的介面。本章 4-a 的路線是直接寫暫存器、userspace、/dev/gpiochip0；下一章 4-b 的路線是自寫 pinctrl 節點、kernel 自寫 driver、/dev/edge_gpio">
+        <defs>
+          <marker id="m4aRRoute" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="var(--user)"/></marker>
+          <marker id="m4aRRouteB" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--drv)"/></marker>
+        </defs>
+        <text class="s-mono" x="14" y="30">① PAD / PINMUX 設定</text>
+        <text class="s-mono" x="280" y="30">② 誰持有 GPIO</text>
+        <text class="s-mono" x="546" y="30">③ USERSPACE 看到的介面</text>
+
+        <!-- routes, drawn under the boxes -->
+        <path d="M214,148 C247,148 247,218 280,218 L480,218 C513,218 513,218 546,218 L540,218" fill="none" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#m4aRRouteB)"/>
+        <path d="M214,218 C247,218 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
+        <path d="M214,218 C247,218 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="4" marker-end="url(#m4aRRoute)"/>
+
+        <!-- column 1 -->
+        <rect class="s-box" x="14" y="50" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="114" y="73" text-anchor="middle">jetson-io.py</text>
+        <text class="s-sm" x="114" y="94" text-anchor="middle">只有特殊功能，沒有 GPIO 選項</text>
+        <rect class="s-box" x="14" y="120" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="114" y="143" text-anchor="middle">自寫 pinctrl 節點</text>
+        <text class="s-sm" x="114" y="164" text-anchor="middle">pinmux overlay（正規做法）</text>
+        <rect class="s-box" x="14" y="190" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="114" y="213" text-anchor="middle">直接寫暫存器</text>
+        <text class="s-sm" x="114" y="234" text-anchor="middle">pad_pin29.py，重開機失效</text>
+
+        <!-- column 2 -->
+        <rect class="s-box" x="280" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="380" y="73" text-anchor="middle">userspace</text>
+        <text class="s-sm" x="380" y="94" text-anchor="middle">libgpiod / Jetson.GPIO（常見）</text>
+        <rect class="s-box" x="280" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="380" y="143" text-anchor="middle">kernel 現成 driver</text>
+        <text class="s-sm" x="380" y="164" text-anchor="middle">gpio-leds，只寫 DT</text>
+        <rect class="s-box" x="280" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="380" y="213" text-anchor="middle">kernel 自寫 driver</text>
+        <text class="s-sm" x="380" y="234" text-anchor="middle">edge_gpio.ko</text>
+        <rect class="s-box" x="280" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="380" y="283" text-anchor="middle">裝置 driver 附帶</text>
+        <text class="s-sm" x="380" y="304" text-anchor="middle">感測器的 reset / enable 腳</text>
+
+        <!-- column 3 -->
+        <rect class="s-box" x="546" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="646" y="73" text-anchor="middle">/dev/gpiochipN</text>
+        <text class="s-sm" x="646" y="94" text-anchor="middle">GPIO character device</text>
+        <rect class="s-box" x="546" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="646" y="143" text-anchor="middle">/sys/class/leds/</text>
+        <text class="s-sm" x="646" y="164" text-anchor="middle">可以接 trigger</text>
+        <rect class="s-box" x="546" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="646" y="213" text-anchor="middle">/dev/edge_gpio</text>
+        <text class="s-sm" x="646" y="234" text-anchor="middle">自訂介面：寫 0 / 1</text>
+        <rect class="s-box" x="546" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="646" y="283" text-anchor="middle">該裝置自己的介面</text>
+        <text class="s-sm" x="646" y="304" text-anchor="middle">GPIO 不直接露給 userspace</text>
+
+        <!-- legend -->
+        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
+        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="4"/>
+        <text class="s-sm" x="76" y="350">本章 4-a：直接寫暫存器 → userspace → /dev/gpiochip0</text>
+        <line x1="14" y1="370" x2="64" y2="370" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="s-sm" x="76" y="374">下一章 4-b：自寫 pinctrl → 自寫 driver → /dev/edge_gpio</text>
+      </svg>
+      <figcaption>圖 4.1 — 點亮一顆 LED 要做三個決定，每一欄是一個決定的幾種做法。這一章走最短的路，先讓 LED 亮起來：用 <code>pad_pin29.py</code> 直接寫暫存器打開 pad，再由 userspace 程式透過 <code>/dev/gpiochip0</code> 控制。第二欄的 userspace 本來就是最常見的做法；第一欄的直接寫暫存器只適合實驗，一般 GPIO 的正規做法是自寫 pinctrl 節點，下一章 4-b 會做（<code>jetson-io.py</code> 只能把腳切成 SPI、PWM 這類特殊功能）。4-b 同時把第二欄換成自己寫的 driver，那是為了學 platform driver，不是因為 LED 需要。</figcaption>
+    </figure>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_blink.cpp</span>、<span class="new">scripts/pad_pin29.py</span>、<span class="new">scripts/verify_edge_gpio_blink.sh</span>、<span class="new">tests/test_edge_gpio_blink.py</span>、<span class="new">tests/test_pad_pin29.py</span>；修改 CMakeLists.txt、ROADMAP.md、phase02.md、docs/hardware-wiring.md · 本章程式碼停在 <code>11b16f9</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式</span>
@@ -229,7 +292,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
           <text class="s-sm" x="600" y="268">清掉 tristate、</text>
           <text class="s-sm" x="600" y="286">input、pull</text>
         </svg>
-        <figcaption>圖 4.1 — <code>gpioinfo</code> 和 debugfs 只看得到 SoC 那一站的 output 暫存器。JP6 開機時 PAD 那一站是斷開的，所以軟體層全部 PASS，LED 仍然不亮；<code>pad_pin29.py</code> 走右邊那條路，繞過 kernel 直接把 pad 打開。</figcaption>
+        <figcaption>圖 4.2 — <code>gpioinfo</code> 和 debugfs 只看得到 SoC 那一站的 output 暫存器。JP6 開機時 PAD 那一站是斷開的，所以軟體層全部 PASS，LED 仍然不亮；<code>pad_pin29.py</code> 走右邊那條路，繞過 kernel 直接把 pad 打開。</figcaption>
       </figure>
       <p>這張圖也說明了為什麼驗收一定要有人看 LED：腳本能讀到的最底層是 SoC 的暫存器和 pad 的設定，腳位上的實際電壓只有 LED（或三用電表）看得到。</p>
     </div>
@@ -301,7 +364,7 @@ gpiochip1 [tegra234-gpio-aon] (32 lines)
           <text class="s-sm" x="678" y="172" text-anchor="middle">function 00</text>
           <text class="s-sm" x="10" y="218">紅框 = pad_pin29.py open 清掉的三個欄位；其他 bit 一律保留</text>
         </svg>
-        <figcaption>圖 4.2 — 低位元組 <code>0x58</code> 拆開來是 pull=up（<code>0x08</code>）、tristate（<code>0x10</code>）、input（<code>0x40</code>）。只清掉這三個欄位就得到 <code>0x400</code>，LED 就亮了。</figcaption>
+        <figcaption>圖 4.3 — 低位元組 <code>0x58</code> 拆開來是 pull=up（<code>0x08</code>）、tristate（<code>0x10</code>）、input（<code>0x40</code>）。只清掉這三個欄位就得到 <code>0x400</code>，LED 就亮了。</figcaption>
       </figure>
       <ul>
         <li><b>tristate（bit 4）</b>：1 = 輸出驅動器斷開。這是 LED 不亮的原因，非清不可。</li>
