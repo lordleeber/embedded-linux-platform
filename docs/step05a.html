@@ -143,169 +143,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     <h1>按鍵事件不一定要寫 driver</h1>
     <p class="lede">Step 4 先在 userspace 點亮 LED（4-a），再寫 kernel driver（4-b）。按鍵也照這個順序：這一章不寫任何 kernel code，只用 kernel 本來就有的 GPIO character device，請它在按鍵的邊緣上產生事件。程式呼叫 <code>read()</code> 之後一樣會睡著、一樣不吃 CPU、一樣有 debounce。中斷、佇列、wait queue 都由 kernel 的 <b class="hl-key">gpiolib-cdev</b> 處理；下一章 5-b 再把這些在自己的 driver 裡親手寫一遍。</p>
     <figure class="figure">
-      <svg viewBox="0 0 760 384" role="img" aria-label="讀一顆 GPIO 按鍵要做三個決定。pad 設定：jetson-io.py、自寫 pinctrl 節點、直接寫暫存器、開機預設值。誰持有 GPIO：userspace、kernel 現成 driver gpio-keys、kernel 自寫 driver、裝置 driver 附帶。userspace 看到的介面：/dev/gpiochipN、/dev/input/eventN、/dev/edge_button、該裝置的介面。本章 5-a 的路線是開機預設值、userspace、/dev/gpiochip0；下一章 5-b 的路線是自寫 pinctrl 節點、kernel 自寫 driver、/dev/edge_button">
-        <defs>
-          <marker id="m5aRRoute" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="var(--user)"/></marker>
-          <marker id="m5aRRouteB" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--drv)"/></marker>
-        </defs>
-        <text class="s-mono" x="14" y="30">① PAD / PINMUX 設定</text>
-        <text class="s-mono" x="280" y="30">② 誰持有 GPIO（中斷、debounce）</text>
-        <text class="s-mono" x="546" y="30">③ USERSPACE 看到的介面</text>
-
-        <!-- routes, drawn under the boxes -->
-        <path d="M214,148 C247,148 247,218 280,218 L480,218 C513,218 513,218 546,218 L540,218" fill="none" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#m5aRRouteB)"/>
-        <path d="M214,288 C247,288 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
-        <path d="M214,288 C247,288 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="4" marker-end="url(#m5aRRoute)"/>
-
-        <!-- column 1 -->
-        <rect class="s-box" x="14" y="50" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="114" y="73" text-anchor="middle">jetson-io.py</text>
-        <text class="s-sm" x="114" y="94" text-anchor="middle">只有特殊功能，沒有 GPIO 選項</text>
-        <rect class="s-box" x="14" y="120" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
-        <text class="s-key" x="114" y="143" text-anchor="middle">自寫 pinctrl 節點</text>
-        <text class="s-sm" x="114" y="164" text-anchor="middle">overlay，driver probe 時套用</text>
-        <rect class="s-box" x="14" y="190" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="114" y="213" text-anchor="middle">直接寫暫存器</text>
-        <text class="s-sm" x="114" y="234" text-anchor="middle">實驗用，重開機失效</text>
-        <rect class="s-box" x="14" y="260" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
-        <text class="s-key" x="114" y="283" text-anchor="middle">開機預設值</text>
-        <text class="s-sm" x="114" y="304" text-anchor="middle">輸入本來就開著，外接上拉</text>
-
-        <!-- column 2 -->
-        <rect class="s-box" x="280" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
-        <text class="s-key" x="380" y="73" text-anchor="middle">userspace</text>
-        <text class="s-sm" x="380" y="94" text-anchor="middle">gpiolib-cdev / libgpiod（常見）</text>
-        <rect class="s-box" x="280" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="380" y="143" text-anchor="middle">kernel 現成 driver</text>
-        <text class="s-sm" x="380" y="164" text-anchor="middle">gpio-keys，內建 debounce</text>
-        <rect class="s-box" x="280" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
-        <text class="s-key" x="380" y="213" text-anchor="middle">kernel 自寫 driver</text>
-        <text class="s-sm" x="380" y="234" text-anchor="middle">edge_button.ko</text>
-        <rect class="s-box" x="280" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="380" y="283" text-anchor="middle">裝置 driver 附帶</text>
-        <text class="s-sm" x="380" y="304" text-anchor="middle">感測器的中斷腳</text>
-
-        <!-- column 3 -->
-        <rect class="s-box" x="546" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
-        <text class="s-key" x="646" y="73" text-anchor="middle">/dev/gpiochipN</text>
-        <text class="s-sm" x="646" y="94" text-anchor="middle">read() 拿 gpio_v2_line_event</text>
-        <rect class="s-box" x="546" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="646" y="143" text-anchor="middle">/dev/input/eventN</text>
-        <text class="s-sm" x="646" y="164" text-anchor="middle">input 子系統，像鍵盤</text>
-        <rect class="s-box" x="546" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
-        <text class="s-key" x="646" y="213" text-anchor="middle">/dev/edge_button</text>
-        <text class="s-sm" x="646" y="234" text-anchor="middle">自訂 16-byte 事件</text>
-        <rect class="s-box" x="546" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
-        <text class="s-key" x="646" y="283" text-anchor="middle">該裝置自己的介面</text>
-        <text class="s-sm" x="646" y="304" text-anchor="middle">GPIO 不直接露給 userspace</text>
-
-        <!-- legend -->
-        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
-        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="4"/>
-        <text class="s-sm" x="76" y="350">本章 5-a：開機預設值 → userspace（gpiolib-cdev）→ /dev/gpiochip0</text>
-        <line x1="14" y1="370" x2="64" y2="370" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4"/>
-        <text class="s-sm" x="76" y="374">下一章 5-b：自寫 pinctrl → 自寫 driver → /dev/edge_button</text>
-      </svg>
-      <figcaption>圖 5.1 — 按鍵和 LED 一樣要做三個決定，差別在第一欄多了「開機預設值」：PH.00 開機時輸入就是開的，上拉由外接的 330 Ω 負責，所以這一章完全不設 pad（5a.8 會實測）。第二欄這一章用 userspace，中斷、debounce、事件佇列都由 kernel 的 gpiolib-cdev 包辦，程式只用 ioctl 指定。下一章 5-b 把同一件事搬進自己寫的 driver，pad 改由 overlay 的 pinctrl 節點設定。若只是要讓按鍵變成鍵盤輸入，正規做法是第二欄的 <code>gpio-keys</code>，只寫 DT、不寫 C code。</figcaption>
-    </figure>
-    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_button.cpp</span>、<span class="new">scripts/verify_edge_gpio_button.sh</span>、<span class="new">tests/test_edge_gpio_button.py</span>；修改 CMakeLists.txt、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, step05b.html, index.html} · 本章程式碼停在 <code>389af41</code>（合併 commit）</p>
-    <div class="legend" aria-label="顏色代表的執行者">
-      <span style="--c: var(--user)">userspace 程式</span>
-      <span style="--c: var(--kern)">kernel 核心（gpiolib、gpiolib-cdev、IRQ 子系統、VFS）</span>
-      <span style="--c: var(--drv)">我們寫的 driver（這一章沒有）</span>
-      <span style="--c: var(--hw)">硬體（SoC、載板、麵包板）</span>
-      <span style="--c: var(--accent)">資料與資料流向</span>
-    </div>
-  </header>
-
-  <section id="why">
-    <div class="rail"><span class="no">5a.1</span><b>起點</b>為什麼</div>
-    <div class="content">
-      <h2>同一顆按鍵，先不寫 driver</h2>
-      <p>4-a 的 <code>edge_gpio_blink</code> 透過 <code>/dev/gpiochip0</code> 請求一條 line 當輸出。同一個介面也能請求輸入，而且可以要求 kernel 在電位變化時通知：請求時加上「偵測上升、下降邊緣」的旗標，kernel 就會替這條 line 登記中斷；中斷進來時，它把一筆事件放進這次請求自己的佇列。程式對請求拿到的 fd 呼叫 <code>read()</code>，沒有事件就睡著。</p>
-      <p><b>互動雙方</b>：硬體端是按鍵和 GPIO controller（中斷來源）；kernel 裡處理中斷和佇列的是 gpiolib 的 character device 部分（<code>gpiolib-cdev</code>），不是我們寫的；userspace 是 <code>edge_gpio_button</code>，它透過 ioctl 請求 line，再對 line 的 fd 做 blocking <code>read()</code>。<b>這一步不做</b>：kernel driver、Device Tree 的修改、<code>poll()</code>（Phase 8）。</p>
-      <dl class="terms">
-        <dt>gpiolib-cdev</dt><dd>kernel 裡實作 <code>/dev/gpiochipN</code> 的那部分 gpiolib。4-a 用它設定輸出值，這一章用它的邊緣事件功能。</dd>
-        <dt>line request</dt><dd>用 <code>GPIO_V2_GET_LINE_IOCTL</code> 向 chip 請求一或多條 line，成功後拿到一個新的 fd（<code>req.fd</code>）。之後的讀寫、設定都對這個 fd 做；關掉它就釋放 line。</dd>
-        <dt>edge event</dt><dd>請求時加 <code>GPIO_V2_LINE_FLAG_EDGE_RISING</code> / <code>_FALLING</code>，每次邊緣都會在 <code>req.fd</code> 上產生一筆 <code>struct gpio_v2_line_event</code>（時間戳、上升或下降、序號）。</dd>
-        <dt>rising / falling</dt><dd>uAPI header 的定義是「inactive → active」/「active → inactive」，看的是<b>邏輯值</b>。加了 <code>ACTIVE_LOW</code> 之後，按下（實體低電位）就是 rising。</dd>
-        <dt>debounce 屬性</dt><dd><code>GPIO_V2_LINE_ATTR_ID_DEBOUNCE</code> 加上 <code>debounce_period_us</code>，請 kernel 過濾短於這個時間的變化（kernel 5.10 起支援）。</dd>
-      </dl>
-    </div>
-  </section>
-
-  <section id="path">
-    <div class="rail"><span class="no">5a.2</span><b>路徑</b>按下 → read()</div>
-    <div class="content">
-      <h2>一次按壓經過哪些站</h2>
-      <figure class="figure">
-        <svg viewBox="0 0 720 470" role="img" aria-label="按鍵把 pin 33 拉到 GND；GPIO controller 偵測到邊緣發出中斷；kernel 的 gpiolib-cdev 做 debounce、把 gpio_v2_line_event 放進這次請求的佇列並叫醒 reader；userspace 的 edge_gpio_button 從 read(req.fd) 返回並印出事件；整條路上沒有我們寫的 kernel code">
-          <defs>
-            <marker id="m5aDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
-          </defs>
-          <text class="s-mono" x="14" y="52">HARDWARE</text>
-          <rect class="s-box" x="130" y="20" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
-          <text class="s-key" x="350" y="45" text-anchor="middle">按鍵把 pin 33 拉到 GND</text>
-          <text class="s-sm" x="350" y="66" text-anchor="middle">330 Ω 上拉；經載板的 TXB0108 → SoC pad PH.00</text>
-          <text class="s-mono" x="14" y="142">GPIO / IRQ</text>
-          <rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
-          <text class="s-key" x="350" y="135" text-anchor="middle">GPIO controller 偵測到邊緣 → 中斷</text>
-          <text class="s-sm" x="350" y="156" text-anchor="middle">中斷是 gpiolib-cdev 在請求時替我們登記的</text>
-          <text class="s-mono" x="14" y="232">GPIOLIB-CDEV</text>
-          <rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
-          <text class="s-key" x="350" y="225" text-anchor="middle">debounce → gpio_v2_line_event 進佇列</text>
-          <text class="s-sm" x="350" y="246" text-anchor="middle">每個請求一個佇列；叫醒睡在 read 的人</text>
-          <text class="s-mono" x="14" y="322">READ</text>
-          <rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
-          <text class="s-key" x="350" y="315" text-anchor="middle">read(req.fd) 醒來，複製一筆事件</text>
-          <text class="s-sm" x="350" y="336" text-anchor="middle">wchan：do_wait_intr（kernel 的 wait queue）</text>
-          <text class="s-mono" x="14" y="412">USERSPACE</text>
-          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--user)"/>
-          <text class="s-key" x="350" y="405" text-anchor="middle">edge_gpio_button：rising → pressed</text>
-          <text class="s-sm" x="350" y="426" text-anchor="middle">略過不改變狀態的事件，印出 seq=1 pressed t=…</text>
-          <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m5aDown)"/>
-          <line class="sv-down" x1="200" y1="169" x2="200" y2="196" marker-end="url(#m5aDown)"/>
-          <line class="sv-down" x1="200" y1="259" x2="200" y2="286" marker-end="url(#m5aDown)"/>
-          <line class="sv-down" x1="200" y1="349" x2="200" y2="376" marker-end="url(#m5aDown)"/>
-          <text class="s-sm" x="590" y="226">5-b 這裡是</text>
-          <text class="s-sm" x="590" y="244">我們的 driver</text>
-          <text class="s-sm" x="590" y="316">5-b：睡在</text>
-          <text class="s-sm" x="590" y="334">edge_button_read</text>
-        </svg>
-        <figcaption>圖 5.2 — 圖裡沒有任何「我們寫的 driver」顏色的方框：IRQ、debounce、佇列、wait queue 都是 kernel 內建的。5-b 會把中間兩站換成自己寫的 <code>edge_button.ko</code>。</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section id="number">
-    <div class="rail"><span class="no">5a.3</span><b>編號</b>pin 33 = line 43</div>
-    <div class="content">
-      <h2>同一根腳的五個名字</h2>
-      <p>按鍵接的 header pin 33，和 4-a 的 pin 29 一樣，在不同層有不同的名字：</p>
-      <table>
-        <thead><tr><th>名字</th><th>是什麼</th><th>誰這樣叫</th></tr></thead>
-        <tbody>
-          <tr><td><code>pin 33</code></td><td>40-pin header 上的腳位編號</td><td>接線時</td></tr>
-          <tr><td><code>GPIO13</code></td><td>這根腳的功能名稱</td><td>Jetson 文件（載板規格書的 40-pin 表）</td></tr>
-          <tr><td><code>PH.00</code></td><td>SoC 的 port/pin：port H 的第 0 支</td><td>SoC，<code>gpioinfo</code> 的 line 名稱也是它</td></tr>
-          <tr><td><code>soc_gpio21_ph0</code></td><td>這根腳的 pad 名稱</td><td>pinctrl（5-b 的 overlay 用它設定 pad）</td></tr>
-          <tr><td><b class="hl-key">line 43</b></td><td><code>gpiochip0</code> 裡的 line 編號</td><td>userspace 的 GPIO 工具，和這章的程式</td></tr>
-        </tbody>
-      </table>
-      <p>在任何目錄執行（不需要 root）：</p>
-<pre class="cmd">gpioinfo gpiochip0 | grep '"PH.00"'</pre>
-<pre class="out">	line  43:      "PH.00"       unused   input  active-high</pre>
-      <p>line 編號的算法和 4-a 相同：<code>gpiochip0</code> 把每個 port 實際有的腳依序接起來編號。<a href="step04a.html#number">4a.3</a> 的表裡 port H 從 43 開始，PH.00 是第 0 支，所以 <b class="hl-key">43 + 0 = 43</b>。Device Tree 則用 <code>port × 8 + pin</code>：H 是第 7 個 port（A 是 0），所以同一根腳在 DT 裡是 7 × 8 + 0 = 56，5-b 的 overlay 寫成 <code>TEGRA234_MAIN_GPIO(H, 0)</code>。這章的程式只用 line 43，DT 編號要到 5-b 才會用到。</p>
-      <p>電路還用到 header 上另外兩根腳，它們是電源和地，不是 GPIO，所以沒有上面那些名字：</p>
-      <table>
-        <thead><tr><th>腳位</th><th>用途</th></tr></thead>
-        <tbody>
-          <tr><td><code>pin 1</code></td><td>3.3 V，經 330 Ω 上拉 pin 33（沒按時讀到高電位）</td></tr>
-          <tr><td><code>pin 34</code></td><td>GND，按鍵的另一腳（按下時把 pin 33 拉到低電位）</td></tr>
-        </tbody>
-      </table>
-      <figure class="figure">
-      <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 1（3.3 V）、pin 33（PH.00）、pin 34（GND）各用一條杜邦線接到麵包板。pin 33 接第 4 欄上半，330 Ω 電阻從第 4 欄跨到第 8 欄，pin 1 接第 8 欄上半；四腳按鍵跨在中間溝槽上，對角兩腳分別在第 4 欄上半和第 2 欄下半，pin 34 接第 2 欄下半。下方是對應的電路圖">
+      <svg viewBox="0 0 760 470" role="img" aria-label="接線示意：Jetson 40-pin header 的 pin 1（3.3 V）、pin 33（PH.00）、pin 34（GND）各用一條杜邦線接到麵包板。pin 33 接第 4 欄上半，330 Ω 電阻從第 4 欄跨到第 8 欄，pin 1 接第 8 欄上半；兩腳按鍵在第 4 欄跨過中間的溝槽，一腳在上半、一腳在下半，pin 34 接第 4 欄下半。下方是對應的電路圖">
         <text class="s-mono" x="200" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="150" y="40" width="100" height="306" rx="8" style="stroke: var(--hw)"/>
         <text class="s-sm" x="200" y="166" text-anchor="middle">⋮</text>
@@ -352,7 +190,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <rect x="340" y="208" width="290" height="20" style="fill: var(--bg)"/>
         <rect x="417" y="110" width="18" height="96" rx="4" style="fill: #e8c547; fill-opacity: 0.22"/>
         <rect x="505" y="110" width="18" height="96" rx="4" style="fill: #e5534b; fill-opacity: 0.22"/>
-        <rect x="373" y="230" width="18" height="96" rx="4" style="fill: #b8bcc2; fill-opacity: 0.22"/>
+        <rect x="417" y="230" width="18" height="96" rx="4" style="fill: #b8bcc2; fill-opacity: 0.22"/>
         <text class="s-sm" x="360" y="104" text-anchor="middle" style="font-size: 9px">1</text>
         <rect x="357" y="115" width="6" height="6" rx="1" style="fill: var(--muted); fill-opacity: 0.45"/>
         <rect x="357" y="135" width="6" height="6" rx="1" style="fill: var(--muted); fill-opacity: 0.45"/>
@@ -504,26 +342,25 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <circle cx="514" cy="158" r="3" style="fill: #c9ccd1"/>
         <rect x="447" y="128" width="46" height="16" rx="4" style="fill: var(--surface); stroke: var(--line)"/>
         <text class="s-sm" x="470" y="140" text-anchor="middle" style="fill: var(--ink)">330 Ω</text>
-        <rect x="370" y="188" width="68" height="60" rx="6" style="fill: #3b3f45; stroke: #9aa0a6; stroke-width: 1.5"/>
-        <circle cx="404" cy="218" r="15" style="fill: #22252a; stroke: #9aa0a6"/>
-        <circle cx="382" cy="198" r="4" style="fill: none; stroke: #9aa0a6; stroke-width: 1.5"/>
+        <rect x="409" y="201" width="34" height="34" rx="5" style="fill: #3b3f45; stroke: #9aa0a6; stroke-width: 1.5"/>
+        <circle cx="426" cy="218" r="10" style="fill: #22252a; stroke: #9aa0a6"/>
+        <line x1="426" y1="198" x2="426" y2="201" stroke="var(--hw)" stroke-width="2"/>
         <circle cx="426" cy="198" r="4.5" style="fill: var(--hw)"/>
-        <circle cx="382" cy="238" r="4.5" style="fill: var(--hw)"/>
-        <circle cx="426" cy="238" r="4" style="fill: none; stroke: #9aa0a6; stroke-width: 1.5"/>
-        <line x1="426" y1="198" x2="382" y2="238" stroke="var(--hw)" stroke-width="1.5" stroke-dasharray="3 3"/>
-        <text class="s-sm" x="448" y="222" style="fill: var(--ink)">← 四腳按鍵跨在溝槽上，用對角兩腳（粉紅點）</text>
+        <line x1="426" y1="238" x2="426" y2="235" stroke="var(--hw)" stroke-width="2"/>
+        <circle cx="426" cy="238" r="4.5" style="fill: var(--hw)"/>
+        <text class="s-sm" x="452" y="222" style="fill: var(--ink)">← 兩腳按鍵跨過溝槽：一腳在上半、一腳在下半</text>
         <path d="M186,70 L200,56 L498,56 C514,56 514,64 514,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M186,70 L200,56 L498,56 C514,56 514,64 514,118" fill="none" stroke="#e5534b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M186,252 L200,240 L290,240 C318,240 318,72 346,72 L410,72 C426,72 426,80 426,118" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M186,252 L200,240 L290,240 C318,240 318,72 346,72 L410,72 C426,72 426,80 426,118" fill="none" stroke="#e8c547" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L366,372 C382,372 382,362 382,318" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L366,372 C382,372 382,362 382,318" fill="none" stroke="#b8bcc2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L410,372 C426,372 426,362 426,318" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M214,252 L226,265 L290,265 C318,265 318,372 346,372 L410,372 C426,372 426,362 426,318" fill="none" stroke="#b8bcc2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         <rect x="510" y="109" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #e5534b; stroke-width: 1.5"/>
         <rect x="422" y="109" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #e8c547; stroke-width: 1.5"/>
-        <rect x="378" y="309" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #b8bcc2; stroke-width: 1.5"/>
+        <rect x="422" y="309" width="8" height="12" rx="1.5" style="fill: #1b1d21; stroke: #b8bcc2; stroke-width: 1.5"/>
         <text class="s-sm" x="524" y="52" style="fill: #e5534b">3.3 V → 第 8 欄</text>
         <text class="s-sm" x="436" y="84" style="fill: #e8c547">訊號 → 第 4 欄</text>
-        <text class="s-sm" x="394" y="376" style="fill: #b8bcc2">GND → 第 2 欄下半</text>
+        <text class="s-sm" x="438" y="376" style="fill: #b8bcc2">GND → 第 4 欄下半</text>
         <text class="s-mono" x="20" y="384">電路</text>
         <text class="s-sm" x="20" y="414" style="fill: #e5534b">pin 1</text>
         <line x1="58" y1="410" x2="90" y2="410" stroke="var(--ink)" stroke-width="1.5"/>
@@ -540,9 +377,171 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <line x1="190" y1="449" x2="190" y2="460" stroke="var(--ink)" stroke-width="1.5"/>
         <text class="s-sm" x="200" y="464" style="fill: #b8bcc2">pin 34（GND）</text>
       </svg>
-      <figcaption>圖 5.3 — 這一章的接線。三條杜邦線從 header 接到麵包板：紅 = pin 1（3.3 V）、黃 = pin 33（PH.00，訊號）、灰 = pin 34（GND），線的顏色不拘。麵包板上下半各自的每一欄（a–e、f–j）是連通的，色塊標出用到的三段。330 Ω 電阻一端和 pin 1 同欄、一端和 pin 33 同欄，就是把 pin 33 上拉到 3.3 V。四腳按鍵的腳兩兩相通，方向放錯就會一直「按著」或永遠不通；接<b>對角</b>兩腳，不管怎麼放，都只有按下時才會導通。欄號和位置只是示意，照連通關係接就好。</figcaption>
+      <figcaption>圖 5.1 — 這一章的接線。三條杜邦線從 header 接到麵包板：紅 = pin 1（3.3 V）、黃 = pin 33（PH.00，訊號）、灰 = pin 34（GND），線的顏色不拘。麵包板上下半各自的每一欄（a–e、f–j）是連通的，色塊標出用到的三段。330 Ω 電阻一端和 pin 1 同欄、一端和 pin 33 同欄，就是把 pin 33 上拉到 3.3 V。兩腳按鍵在第 4 欄跨過中間的溝槽：上半那一腳和 pin 33 同一段，下半那一腳和 GND 同一段。溝槽兩側不相通，所以只有按下時 pin 33 才接到 GND。欄號和位置只是示意，照連通關係接就好。</figcaption>
+    </figure>
+    <figure class="figure">
+      <svg viewBox="0 0 760 384" role="img" aria-label="讀一顆 GPIO 按鍵要做三個決定。pad 設定：jetson-io.py、自寫 pinctrl 節點、直接寫暫存器、開機預設值。誰持有 GPIO：userspace、kernel 現成 driver gpio-keys、kernel 自寫 driver、裝置 driver 附帶。userspace 看到的介面：/dev/gpiochipN、/dev/input/eventN、/dev/edge_button、該裝置的介面。本章 5-a 的路線是開機預設值、userspace、/dev/gpiochip0；下一章 5-b 的路線是自寫 pinctrl 節點、kernel 自寫 driver、/dev/edge_button">
+        <defs>
+          <marker id="m5aRRoute" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="var(--user)"/></marker>
+          <marker id="m5aRRouteB" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--drv)"/></marker>
+        </defs>
+        <text class="s-mono" x="14" y="30">① PAD / PINMUX 設定</text>
+        <text class="s-mono" x="280" y="30">② 誰持有 GPIO（中斷、debounce）</text>
+        <text class="s-mono" x="546" y="30">③ USERSPACE 看到的介面</text>
+
+        <!-- routes, drawn under the boxes -->
+        <path d="M214,148 C247,148 247,218 280,218 L480,218 C513,218 513,218 546,218 L540,218" fill="none" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#m5aRRouteB)"/>
+        <path d="M214,288 C247,288 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
+        <path d="M214,288 C247,288 247,78 280,78 L480,78 C513,78 513,78 546,78 L540,78" fill="none" stroke="var(--user)" stroke-width="4" marker-end="url(#m5aRRoute)"/>
+
+        <!-- column 1 -->
+        <rect class="s-box" x="14" y="50" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="114" y="73" text-anchor="middle">jetson-io.py</text>
+        <text class="s-sm" x="114" y="94" text-anchor="middle">只有特殊功能，沒有 GPIO 選項</text>
+        <rect class="s-box" x="14" y="120" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="114" y="143" text-anchor="middle">自寫 pinctrl 節點</text>
+        <text class="s-sm" x="114" y="164" text-anchor="middle">overlay，driver probe 時套用</text>
+        <rect class="s-box" x="14" y="190" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="114" y="213" text-anchor="middle">直接寫暫存器</text>
+        <text class="s-sm" x="114" y="234" text-anchor="middle">實驗用，重開機失效</text>
+        <rect class="s-box" x="14" y="260" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="114" y="283" text-anchor="middle">開機預設值</text>
+        <text class="s-sm" x="114" y="304" text-anchor="middle">輸入本來就開著，外接上拉</text>
+
+        <!-- column 2 -->
+        <rect class="s-box" x="280" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="380" y="73" text-anchor="middle">userspace</text>
+        <text class="s-sm" x="380" y="94" text-anchor="middle">gpiolib-cdev / libgpiod（常見）</text>
+        <rect class="s-box" x="280" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="380" y="143" text-anchor="middle">kernel 現成 driver</text>
+        <text class="s-sm" x="380" y="164" text-anchor="middle">gpio-keys，內建 debounce</text>
+        <rect class="s-box" x="280" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="380" y="213" text-anchor="middle">kernel 自寫 driver</text>
+        <text class="s-sm" x="380" y="234" text-anchor="middle">edge_button.ko</text>
+        <rect class="s-box" x="280" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="380" y="283" text-anchor="middle">裝置 driver 附帶</text>
+        <text class="s-sm" x="380" y="304" text-anchor="middle">感測器的中斷腳</text>
+
+        <!-- column 3 -->
+        <rect class="s-box" x="546" y="50" width="200" height="56" rx="9" style="stroke: var(--user); stroke-width: 3; fill: color-mix(in srgb, var(--user) 14%, var(--surface))"/>
+        <text class="s-key" x="646" y="73" text-anchor="middle">/dev/gpiochipN</text>
+        <text class="s-sm" x="646" y="94" text-anchor="middle">read() 拿 gpio_v2_line_event</text>
+        <rect class="s-box" x="546" y="120" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="646" y="143" text-anchor="middle">/dev/input/eventN</text>
+        <text class="s-sm" x="646" y="164" text-anchor="middle">input 子系統，像鍵盤</text>
+        <rect class="s-box" x="546" y="190" width="200" height="56" rx="9" style="stroke: var(--drv)"/>
+        <text class="s-key" x="646" y="213" text-anchor="middle">/dev/edge_button</text>
+        <text class="s-sm" x="646" y="234" text-anchor="middle">自訂 16-byte 事件</text>
+        <rect class="s-box" x="546" y="260" width="200" height="56" rx="9" style="stroke: var(--line)"/>
+        <text class="s-key" x="646" y="283" text-anchor="middle">該裝置自己的介面</text>
+        <text class="s-sm" x="646" y="304" text-anchor="middle">GPIO 不直接露給 userspace</text>
+
+        <!-- legend -->
+        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="12" stroke-opacity="0.22"/>
+        <line x1="14" y1="346" x2="64" y2="346" stroke="var(--user)" stroke-width="4"/>
+        <text class="s-sm" x="76" y="350">本章 5-a：開機預設值 → userspace（gpiolib-cdev）→ /dev/gpiochip0</text>
+        <line x1="14" y1="370" x2="64" y2="370" stroke="var(--drv)" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="s-sm" x="76" y="374">下一章 5-b：自寫 pinctrl → 自寫 driver → /dev/edge_button</text>
+      </svg>
+      <figcaption>圖 5.2 — 按鍵和 LED 一樣要做三個決定，差別在第一欄多了「開機預設值」：PH.00 開機時輸入就是開的，上拉由外接的 330 Ω 負責，所以這一章完全不設 pad（5a.8 會實測）。第二欄這一章用 userspace，中斷、debounce、事件佇列都由 kernel 的 gpiolib-cdev 包辦，程式只用 ioctl 指定。下一章 5-b 把同一件事搬進自己寫的 driver，pad 改由 overlay 的 pinctrl 節點設定。若只是要讓按鍵變成鍵盤輸入，正規做法是第二欄的 <code>gpio-keys</code>，只寫 DT、不寫 C code。</figcaption>
+    </figure>
+    <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">apps/edge_gpio_button.cpp</span>、<span class="new">scripts/verify_edge_gpio_button.sh</span>、<span class="new">tests/test_edge_gpio_button.py</span>；修改 CMakeLists.txt、CLAUDE.md、phase02.md、docs/{baseline.md, hardware-wiring.md, step04b.html, step05b.html, index.html} · 本章程式碼停在 <code>389af41</code>（合併 commit）</p>
+    <div class="legend" aria-label="顏色代表的執行者">
+      <span style="--c: var(--user)">userspace 程式</span>
+      <span style="--c: var(--kern)">kernel 核心（gpiolib、gpiolib-cdev、IRQ 子系統、VFS）</span>
+      <span style="--c: var(--drv)">我們寫的 driver（這一章沒有）</span>
+      <span style="--c: var(--hw)">硬體（SoC、載板、麵包板）</span>
+      <span style="--c: var(--accent)">資料與資料流向</span>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="rail"><span class="no">5a.1</span><b>起點</b>為什麼</div>
+    <div class="content">
+      <h2>同一顆按鍵，先不寫 driver</h2>
+      <p>4-a 的 <code>edge_gpio_blink</code> 透過 <code>/dev/gpiochip0</code> 請求一條 line 當輸出。同一個介面也能請求輸入，而且可以要求 kernel 在電位變化時通知：請求時加上「偵測上升、下降邊緣」的旗標，kernel 就會替這條 line 登記中斷；中斷進來時，它把一筆事件放進這次請求自己的佇列。程式對請求拿到的 fd 呼叫 <code>read()</code>，沒有事件就睡著。</p>
+      <p><b>互動雙方</b>：硬體端是按鍵和 GPIO controller（中斷來源）；kernel 裡處理中斷和佇列的是 gpiolib 的 character device 部分（<code>gpiolib-cdev</code>），不是我們寫的；userspace 是 <code>edge_gpio_button</code>，它透過 ioctl 請求 line，再對 line 的 fd 做 blocking <code>read()</code>。<b>這一步不做</b>：kernel driver、Device Tree 的修改、<code>poll()</code>（Phase 8）。</p>
+      <dl class="terms">
+        <dt>gpiolib-cdev</dt><dd>kernel 裡實作 <code>/dev/gpiochipN</code> 的那部分 gpiolib。4-a 用它設定輸出值，這一章用它的邊緣事件功能。</dd>
+        <dt>line request</dt><dd>用 <code>GPIO_V2_GET_LINE_IOCTL</code> 向 chip 請求一或多條 line，成功後拿到一個新的 fd（<code>req.fd</code>）。之後的讀寫、設定都對這個 fd 做；關掉它就釋放 line。</dd>
+        <dt>edge event</dt><dd>請求時加 <code>GPIO_V2_LINE_FLAG_EDGE_RISING</code> / <code>_FALLING</code>，每次邊緣都會在 <code>req.fd</code> 上產生一筆 <code>struct gpio_v2_line_event</code>（時間戳、上升或下降、序號）。</dd>
+        <dt>rising / falling</dt><dd>uAPI header 的定義是「inactive → active」/「active → inactive」，看的是<b>邏輯值</b>。加了 <code>ACTIVE_LOW</code> 之後，按下（實體低電位）就是 rising。</dd>
+        <dt>debounce 屬性</dt><dd><code>GPIO_V2_LINE_ATTR_ID_DEBOUNCE</code> 加上 <code>debounce_period_us</code>，請 kernel 過濾短於這個時間的變化（kernel 5.10 起支援）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="path">
+    <div class="rail"><span class="no">5a.2</span><b>路徑</b>按下 → read()</div>
+    <div class="content">
+      <h2>一次按壓經過哪些站</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 720 470" role="img" aria-label="按鍵把 pin 33 拉到 GND；GPIO controller 偵測到邊緣發出中斷；kernel 的 gpiolib-cdev 做 debounce、把 gpio_v2_line_event 放進這次請求的佇列並叫醒 reader；userspace 的 edge_gpio_button 從 read(req.fd) 返回並印出事件；整條路上沒有我們寫的 kernel code">
+          <defs>
+            <marker id="m5aDown" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="s-mono" x="14" y="52">HARDWARE</text>
+          <rect class="s-box" x="130" y="20" width="440" height="58" rx="9" style="stroke: var(--hw)"/>
+          <text class="s-key" x="350" y="45" text-anchor="middle">按鍵把 pin 33 拉到 GND</text>
+          <text class="s-sm" x="350" y="66" text-anchor="middle">330 Ω 上拉；經載板的 TXB0108 → SoC pad PH.00</text>
+          <text class="s-mono" x="14" y="142">GPIO / IRQ</text>
+          <rect class="s-box" x="130" y="110" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="135" text-anchor="middle">GPIO controller 偵測到邊緣 → 中斷</text>
+          <text class="s-sm" x="350" y="156" text-anchor="middle">中斷是 gpiolib-cdev 在請求時替我們登記的</text>
+          <text class="s-mono" x="14" y="232">GPIOLIB-CDEV</text>
+          <rect class="s-box" x="130" y="200" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="225" text-anchor="middle">debounce → gpio_v2_line_event 進佇列</text>
+          <text class="s-sm" x="350" y="246" text-anchor="middle">每個請求一個佇列；叫醒睡在 read 的人</text>
+          <text class="s-mono" x="14" y="322">READ</text>
+          <rect class="s-box" x="130" y="290" width="440" height="58" rx="9" style="stroke: var(--kern)"/>
+          <text class="s-key" x="350" y="315" text-anchor="middle">read(req.fd) 醒來，複製一筆事件</text>
+          <text class="s-sm" x="350" y="336" text-anchor="middle">wchan：do_wait_intr（kernel 的 wait queue）</text>
+          <text class="s-mono" x="14" y="412">USERSPACE</text>
+          <rect class="s-box" x="130" y="380" width="440" height="58" rx="9" style="stroke: var(--user)"/>
+          <text class="s-key" x="350" y="405" text-anchor="middle">edge_gpio_button：rising → pressed</text>
+          <text class="s-sm" x="350" y="426" text-anchor="middle">略過不改變狀態的事件，印出 seq=1 pressed t=…</text>
+          <line class="sv-down" x1="200" y1="79" x2="200" y2="106" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="169" x2="200" y2="196" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="259" x2="200" y2="286" marker-end="url(#m5aDown)"/>
+          <line class="sv-down" x1="200" y1="349" x2="200" y2="376" marker-end="url(#m5aDown)"/>
+          <text class="s-sm" x="590" y="226">5-b 這裡是</text>
+          <text class="s-sm" x="590" y="244">我們的 driver</text>
+          <text class="s-sm" x="590" y="316">5-b：睡在</text>
+          <text class="s-sm" x="590" y="334">edge_button_read</text>
+        </svg>
+        <figcaption>圖 5.3 — 圖裡沒有任何「我們寫的 driver」顏色的方框：IRQ、debounce、佇列、wait queue 都是 kernel 內建的。5-b 會把中間兩站換成自己寫的 <code>edge_button.ko</code>。</figcaption>
       </figure>
-      <p>pin 33 和 pin 34 在 header 上前後相鄰（奇數腳一排、偶數腳一排），按鍵兩腳正好跨在這兩根上。header 上任何一根 GND 都可以，選 pin 34 只是因為線最短。</p>
+    </div>
+  </section>
+
+  <section id="number">
+    <div class="rail"><span class="no">5a.3</span><b>編號</b>pin 33 = line 43</div>
+    <div class="content">
+      <h2>同一根腳的五個名字</h2>
+      <p>按鍵接的 header pin 33，和 4-a 的 pin 29 一樣，在不同層有不同的名字：</p>
+      <table>
+        <thead><tr><th>名字</th><th>是什麼</th><th>誰這樣叫</th></tr></thead>
+        <tbody>
+          <tr><td><code>pin 33</code></td><td>40-pin header 上的腳位編號</td><td>接線時</td></tr>
+          <tr><td><code>GPIO13</code></td><td>這根腳的功能名稱</td><td>Jetson 文件（載板規格書的 40-pin 表）</td></tr>
+          <tr><td><code>PH.00</code></td><td>SoC 的 port/pin：port H 的第 0 支</td><td>SoC，<code>gpioinfo</code> 的 line 名稱也是它</td></tr>
+          <tr><td><code>soc_gpio21_ph0</code></td><td>這根腳的 pad 名稱</td><td>pinctrl（5-b 的 overlay 用它設定 pad）</td></tr>
+          <tr><td><b class="hl-key">line 43</b></td><td><code>gpiochip0</code> 裡的 line 編號</td><td>userspace 的 GPIO 工具，和這章的程式</td></tr>
+        </tbody>
+      </table>
+      <p>在任何目錄執行（不需要 root）：</p>
+<pre class="cmd">gpioinfo gpiochip0 | grep '"PH.00"'</pre>
+<pre class="out">	line  43:      "PH.00"       unused   input  active-high</pre>
+      <p>line 編號的算法和 4-a 相同：<code>gpiochip0</code> 把每個 port 實際有的腳依序接起來編號。<a href="step04a.html#number">4a.3</a> 的表裡 port H 從 43 開始，PH.00 是第 0 支，所以 <b class="hl-key">43 + 0 = 43</b>。Device Tree 則用 <code>port × 8 + pin</code>：H 是第 7 個 port（A 是 0），所以同一根腳在 DT 裡是 7 × 8 + 0 = 56，5-b 的 overlay 寫成 <code>TEGRA234_MAIN_GPIO(H, 0)</code>。這章的程式只用 line 43，DT 編號要到 5-b 才會用到。</p>
+      <p>電路還用到 header 上另外兩根腳，它們是電源和地，不是 GPIO，所以沒有上面那些名字：</p>
+      <table>
+        <thead><tr><th>腳位</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>pin 1</code></td><td>3.3 V，經 330 Ω 上拉 pin 33（沒按時讀到高電位）</td></tr>
+          <tr><td><code>pin 34</code></td><td>GND，按鍵的另一腳（按下時把 pin 33 拉到低電位）</td></tr>
+        </tbody>
+      </table>
+      <p>pin 33 和 pin 34 在 header 上前後相鄰（奇數腳一排、偶數腳一排），兩條線從相鄰的兩根腳接出，接線圖見本章開頭的圖 5.1。header 上任何一根 GND 都可以，選 pin 34 只是因為線最短。</p>
     </div>
   </section>
 
@@ -845,7 +844,7 @@ seq=4 released t=1397.750802063</pre>
         <li class="n">沒有實測：佇列滿（依 gpiolib-cdev 原始碼是丟最舊的事件、seq 跳號；未在本機核對）。</li>
         <li class="n">20 ms 假事件的原因、時間戳落在 1 ms 格點的原因都沒有查證；50 ms 的穩定期是依實測值留的餘裕。</li>
       </ul>
-      <p>下一章 5-b 做同一件事，但把圖 5.2 中間的 gpiolib-cdev 換成自己寫的 kernel driver：Device Tree 描述按鍵、<code>devm_request_irq()</code>、IRQ handler 只排一個 20 ms 後的 work、自己的 kfifo 和 wait queue。兩章的輸出格式一樣，可以直接對照。</p>
+      <p>下一章 5-b 做同一件事，但把圖 5.3 中間的 gpiolib-cdev 換成自己寫的 kernel driver：Device Tree 描述按鍵、<code>devm_request_irq()</code>、IRQ handler 只排一個 20 ms 後的 work、自己的 kfifo 和 wait queue。兩章的輸出格式一樣，可以直接對照。</p>
       <details class="quiz"><summary>1. 這一章的程式沒有 IRQ handler，按下按鍵時是誰處理中斷的？</summary><p>kernel 的 gpiolib-cdev。請求 line 時帶了 <code>EDGE_RISING | EDGE_FALLING</code>，它就替這條 line 登記中斷，中斷進來時做 debounce、把 <code>gpio_v2_line_event</code> 放進這次請求的佇列，再叫醒睡在 <code>read()</code> 的程式。</p></details>
       <details class="quiz"><summary>2. 按鍵是接地觸發（按下 = 低電位），為什麼程式把 rising 當成按下？</summary><p>請求時加了 <code>GPIO_V2_LINE_FLAG_ACTIVE_LOW</code>，kernel 回報的是邏輯值；uAPI 的 rising 定義是 inactive → active，也就是按下。</p></details>
       <details class="quiz"><summary>3. 為什麼程式啟動後要先睡 50 ms？拿掉會怎樣？</summary><p>請求 line 後約 20 ms 內 pin 讀到 0，恢復時 kernel 會報一筆 released。拿掉的話，line 閒置一陣子之後啟動，第一筆就是這個假事件；只讀一筆的話程式會直接結束，實機測試「沒人按不能有事件」會失敗。</p></details>
