@@ -148,6 +148,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 12-a · register map v1.0</div>
     <h1>register map v1.0：把 demo 變成契約</h1>
     <p class="lede">Step 11 的四個 register 能動，但只是 demo：多 byte 怎麼讀沒定義，寫錯了 Jetson 也不會知道，firmware 改版時 driver 不知道能不能繼續用。這一步不加任何新周邊、不接新線，只把 <b class="hl-key">protocol 本身</b>定成一份可以維護的契約：位址分區、版本號、auto-increment、回報錯誤的 STATUS register，以及 bus 出錯後讓 I2C1 自己恢復。</p>
+    <div class="callout"><p><b>接線</b>：和 Step 11 完全相同，這一步只換 firmware，見 <a href="step11.html#wiring">Step 11 的圖 11.1</a>。</p></div>
     <p class="meta">kernel 5.15.148-tegra · L4T R36.4.7 · 新增 <span class="new">docs/step12a.html</span>；修改 firmware/stm32f103/{Core/Inc/i2c_target.h, Core/Src/i2c_target.c, Core/Src/main.c, docs/register-map.md, README.md}、tests/{test_i2c_target.cpp, test_stm32_i2c_target.py}、scripts/verify_stm32_i2c.sh、CLAUDE.md、ROADMAP.md、phase05.md、docs/{baseline.md, step11.html, index.html} · 本章程式碼停在 <code>07435b6</code>（合併 commit）</p>
     <div class="legend" aria-label="顏色代表的執行者">
       <span style="--c: var(--user)">userspace 程式（i2c-tools）</span>

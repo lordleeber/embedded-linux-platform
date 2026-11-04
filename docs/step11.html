@@ -148,7 +148,7 @@ pre, code { font-variant-ligatures: none; }
     <div class="eyebrow">Jetson Orin Nano · Step 11 · STM32F103 I2C target</div>
     <h1>STM32F103：自己寫一顆 I2C 周邊</h1>
     <p class="lede">前十步都在操作別人做好的晶片：INA219、SSD1306 的暫存器是廠商定的，我們只照著 datasheet 讀寫。這一步換邊站：在一塊 Blue Pill（STM32F103C8T6）上寫 firmware，讓它變成 Jetson I2C bus 上 <code>0x42</code> 的一顆周邊，有我們<b class="hl-key">自己設計的 register map</b>：裝置 ID、版本號、一個控制板上 LED 的 register。Jetson 這邊只用 <code>i2cget</code> / <code>i2cset</code>，不寫 driver。</p>
-    <figure class="figure">
+    <figure class="figure" id="wiring">
       <svg viewBox="0 0 820 470" role="img" aria-label="接線示意：Blue Pill 跨在麵包板中間的溝槽上，上排腳插在 d 列、下排腳插在 h 列。Jetson header 的 pin 25（GND）接 Blue Pill 上排 USB 端的 G，pin 27（SDA）接 PB7，pin 28（SCL）接 PB6。另一端的 SWD 排針用四條線接 ST-Link V2，ST-Link 的 USB 插 Jetson，替 Blue Pill 供電">
         <text class="s-mono" x="90" y="30" text-anchor="middle">JETSON 40-PIN HEADER</text>
         <rect class="s-box" x="40" y="40" width="100" height="326" rx="8" style="stroke: var(--hw)"/>
@@ -521,7 +521,7 @@ pre, code { font-variant-ligatures: none; }
         <rect x="578.5" y="174.5" width="7" height="7" rx="1" style="fill: #d4b25c"/>
         <text x="584.5" y="190" transform="rotate(-90 584.5 190)" text-anchor="end" style="font-family: var(--font-mono); font-size: 7.5px; fill: #c9d6ea">C13</text>
         <rect x="596.5" y="174.5" width="7" height="7" rx="1" style="fill: #d4b25c"/>
-        <text x="602.5" y="190" transform="rotate(-90 602.5 190)" text-anchor="end" style="font-family: var(--font-mono); font-size: 7.5px; fill: #c9d6ea">VB</text>
+        <text x="602.5" y="190" transform="rotate(-90 602.5 190)" text-anchor="end" style="font-family: var(--font-mono); font-size: 7.5px; fill: #c9d6ea">VBT</text>
         <rect x="254.5" y="274.5" width="7" height="7" rx="1" style="fill: #d4b25c"/>
         <text x="260.5" y="266" transform="rotate(-90 260.5 266)" text-anchor="start" style="font-family: var(--font-mono); font-size: 7.5px; fill: #c9d6ea">B12</text>
         <rect x="272.5" y="274.5" width="7" height="7" rx="1" style="fill: #d4b25c"/>
