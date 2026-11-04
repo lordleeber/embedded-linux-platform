@@ -211,8 +211,39 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
     </div>
   </section>
 
+  <section id="number">
+    <div class="rail"><span class="no">5a.3</span><b>編號</b>pin 33 = line 43</div>
+    <div class="content">
+      <h2>同一根腳的五個名字</h2>
+      <p>按鍵接的 header pin 33，和 4-a 的 pin 29 一樣，在不同層有不同的名字：</p>
+      <table>
+        <thead><tr><th>名字</th><th>是什麼</th><th>誰這樣叫</th></tr></thead>
+        <tbody>
+          <tr><td><code>pin 33</code></td><td>40-pin header 上的腳位編號</td><td>接線時</td></tr>
+          <tr><td><code>GPIO13</code></td><td>這根腳的功能名稱</td><td>Jetson 文件（載板規格書的 40-pin 表）</td></tr>
+          <tr><td><code>PH.00</code></td><td>SoC 的 port/pin：port H 的第 0 支</td><td>SoC，<code>gpioinfo</code> 的 line 名稱也是它</td></tr>
+          <tr><td><code>soc_gpio21_ph0</code></td><td>這根腳的 pad 名稱</td><td>pinctrl（5-b 的 overlay 用它設定 pad）</td></tr>
+          <tr><td><b class="hl-key">line 43</b></td><td><code>gpiochip0</code> 裡的 line 編號</td><td>userspace 的 GPIO 工具，和這章的程式</td></tr>
+        </tbody>
+      </table>
+      <p>在任何目錄執行（不需要 root）：</p>
+<pre class="cmd">gpioinfo gpiochip0 | grep '"PH.00"'</pre>
+<pre class="out">	line  43:      "PH.00"       unused   input  active-high</pre>
+      <p>line 編號的算法和 4-a 相同：<code>gpiochip0</code> 把每個 port 實際有的腳依序接起來編號。<a href="step04a.html#number">4a.3</a> 的表裡 port H 從 43 開始，PH.00 是第 0 支，所以 <b class="hl-key">43 + 0 = 43</b>。Device Tree 則用 <code>port × 8 + pin</code>：H 是第 7 個 port（A 是 0），所以同一根腳在 DT 裡是 7 × 8 + 0 = 56，5-b 的 overlay 寫成 <code>TEGRA234_MAIN_GPIO(H, 0)</code>。這章的程式只用 line 43，DT 編號要到 5-b 才會用到。</p>
+      <p>電路還用到 header 上另外兩根腳，它們是電源和地，不是 GPIO，所以沒有上面那些名字：</p>
+      <table>
+        <thead><tr><th>腳位</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>pin 1</code></td><td>3.3 V，經 330 Ω 上拉 pin 33（沒按時讀到高電位）</td></tr>
+          <tr><td><code>pin 34</code></td><td>GND，按鍵的另一腳（按下時把 pin 33 拉到低電位）</td></tr>
+        </tbody>
+      </table>
+      <p>pin 33 和 pin 34 在 header 上前後相鄰（奇數腳一排、偶數腳一排），按鍵兩腳正好跨在這兩根上。header 上任何一根 GND 都可以，選 pin 34 只是因為線最短。</p>
+    </div>
+  </section>
+
   <section id="compare">
-    <div class="rail"><span class="no">5a.3</span><b>對照</b>5-a / 5-b</div>
+    <div class="rail"><span class="no">5a.4</span><b>對照</b>5-a / 5-b</div>
     <div class="content">
       <h2>兩種做法，各自負責什麼</h2>
       <table>
@@ -220,7 +251,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
         <tbody>
           <tr><td>中斷、debounce、佇列、wait queue</td><td>kernel 內建，請求時用旗標和屬性指定</td><td>自己寫：<code>devm_request_irq</code>、delayed work、kfifo、<code>wait_event_interruptible</code></td></tr>
           <tr><td>GPIO 接在哪裡</td><td>程式裡寫死 gpiochip0 line 43</td><td>Device Tree 描述，driver 不知道腳位</td></tr>
-          <tr><td>pad 設定</td><td>開機預設值（5a.7）</td><td>DT 的 pinctrl 狀態，probe 前套用</td></tr>
+          <tr><td>pad 設定</td><td>開機預設值（5a.8）</td><td>DT 的 pinctrl 狀態，probe 前套用</td></tr>
           <tr><td>事件格式</td><td><code>struct gpio_v2_line_event</code>（48 bytes，kernel 定義）</td><td><code>struct edge_button_event</code>（16 bytes，自己定義）</td></tr>
           <tr><td>權限</td><td><code>/dev/gpiochip0</code> 是 <code>root:gpio 0660</code>，gpio 群組才能用</td><td><code>/dev/edge_button</code> 0444，任何人都能開（已知限制）</td></tr>
           <tr><td>同時兩個 reader</td><td>同一條 line 只能請求一次，第二個拿到 <code>EBUSY</code></td><td>獨占 open，第二個拿到 <code>EBUSY</code></td></tr>
@@ -232,7 +263,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
   </section>
 
   <section id="request">
-    <div class="rail"><span class="no">5a.4</span><b>請求</b><span class="dot" style="background: var(--user)"></span>ioctl</div>
+    <div class="rail"><span class="no">5a.5</span><b>請求</b><span class="dot" style="background: var(--user)"></span>ioctl</div>
     <div class="content">
       <h2>請求 line：輸入、低電位有效、雙邊緣、20 ms debounce</h2>
       <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:70–85 — 請求 line 43：四個旗標加一個 debounce 屬性</figcaption>
@@ -263,7 +294,7 @@ details.quiz p { margin: 0.5rem 0 0.2rem; color: var(--muted); }
   </section>
 
   <section id="settle">
-    <div class="rail"><span class="no">5a.5</span><b>啟動</b><span class="dot" style="background: var(--bad)"></span>假事件</div>
+    <div class="rail"><span class="no">5a.6</span><b>啟動</b><span class="dot" style="background: var(--bad)"></span>假事件</div>
     <div class="content">
       <h2>沒人按，卻先收到一筆 released</h2>
       <p>第一版程式寫完，實機測試卻紅了：沒有人碰按鍵，程式一啟動就讀到 <code>seq=1 released</code>，正常結束。用一支只在 scratchpad 裡的實驗程式（不入庫）量了兩件事：請求後每 2 ms 讀一次實體電位，以及第一筆事件距離請求多久。</p>
@@ -356,7 +387,7 @@ interrupted
   </section>
 
   <section id="read">
-    <div class="rail"><span class="no">5a.6</span><b>read()</b><span class="dot" style="background: var(--user)"></span>事件迴圈</div>
+    <div class="rail"><span class="no">5a.7</span><b>read()</b><span class="dot" style="background: var(--user)"></span>事件迴圈</div>
     <div class="content">
       <h2>讀事件：一次一筆 gpio_v2_line_event</h2>
       <figure class="listing"><figcaption>apps/edge_gpio_button.cpp@389af41:113–140 — 事件迴圈：signal 旗標、blocking read、rising → pressed</figcaption>
@@ -398,7 +429,7 @@ interrupted
   </section>
 
   <section id="pad">
-    <div class="rail"><span class="no">5a.7</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>開機預設</div>
+    <div class="rail"><span class="no">5a.8</span><b>pad</b><span class="dot" style="background: var(--hw)"></span>開機預設</div>
     <div class="content">
       <h2>不設 pad 也讀得到嗎？</h2>
       <p>5-b 的 overlay 有一組 pinctrl 狀態，但它只在 <code>edge_button.ko</code> probe 時才會套用。這一章沒有 driver，pad 就維持開機時的設定。4-a 的 LED 正是卡在這裡：開機時 pad 是 tristate，輸出到不了腳位。輸入的情況呢？驗收前<b>重開機、不載入 driver</b>，讀到的就是開機預設值：</p>
@@ -408,12 +439,12 @@ interrupted
         <li><span class="mk">1</span><span><code>enable-input=1</code>：輸入有開，所以不需要任何 pad 設定就能讀。<code>tristate=1</code> 只關掉輸出，對輸入沒有影響。<code>pull=1</code> 是內部<b>下拉</b>（5-b 的 pinctrl 設的是上拉 <code>pull=2</code>）；外接的 330 Ω 上拉比它強很多，所以放開時還是 1。</span></li>
         <li><span class="mk">2</span><span>腳本用 <code>dmesg</code> 找這次開機有沒有 <code>edge_button</code> probe 過：pinctrl 狀態在 driver 卸載後不會還原，probe 過的話看到的就不是開機預設值了。</span></li>
       </ol>
-      <p>這個輸出來自下一節的驗收腳本（要 root 才能讀 debugfs 的 pinconf）。注意最後的 <code>gpio-mode=0</code>：同一次開機裡，line 43 被請求、釋放過之後它會變成 1（5a.9 的重跑就是），所以只有 pull、tristate、enable-input 三項算開機預設值，腳本的訊息後來也改成這樣。</p>
+      <p>這個輸出來自下一節的驗收腳本（要 root 才能讀 debugfs 的 pinconf）。注意最後的 <code>gpio-mode=0</code>：同一次開機裡，line 43 被請求、釋放過之後它會變成 1（5a.10 的重跑就是），所以只有 pull、tristate、enable-input 三項算開機預設值，腳本的訊息後來也改成這樣。</p>
     </div>
   </section>
 
   <section id="tests">
-    <div class="rail"><span class="no">5a.8</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
+    <div class="rail"><span class="no">5a.9</span><b>測試</b><span class="dot" style="background: var(--bad)"></span>red → green</div>
     <div class="content">
       <h2>不按按鍵能測的，先寫成測試</h2>
       <p><code>tests/test_edge_gpio_button.py</code>：<span data-tests="tests/test_edge_gpio_button.py@389af41">15</span> 個案例。</p>
@@ -422,7 +453,7 @@ interrupted
         <li><b>CLI（2）</b>：參數錯誤回 2；chip 不存在（<code>EDGE_GPIO_CHIP</code> 指到不存在的路徑）回 1。</li>
         <li><b>實機（5）</b>：<code>EDGE_GPIO_HW=1</code> 才跑，只要 gpio 群組、<b>不需要按</b>。持有 line 時 <code>gpioinfo</code> 顯示 active-low input；<b>沒人按時 0.5 秒內不能有任何事件</b>；第二個實例拿到 busy；等待時 0 CPU；SIGTERM、SIGINT 都讓程式結束並釋放 line。</li>
       </ul>
-      <p>紅燈紀錄：程式不存在時原始碼 6 個 failure、另外兩組 error。第一版程式寫好後，實機有 3 個 failure（程式一啟動就讀到假事件結束了），這就是 5a.5 的起點；補上「沒人按不能有事件」這條，先看它紅，加了穩定期才轉綠。<code>SA_RESTART</code> 那條第一版寫成「原始碼不能出現這個字」，結果比對到我自己寫的註解，改成只檢查 <code>sa_flags</code>。</p>
+      <p>紅燈紀錄：程式不存在時原始碼 6 個 failure、另外兩組 error。第一版程式寫好後，實機有 3 個 failure（程式一啟動就讀到假事件結束了），這就是 5a.6 的起點；補上「沒人按不能有事件」這條，先看它紅，加了穩定期才轉綠。<code>SA_RESTART</code> 那條第一版寫成「原始碼不能出現這個字」，結果比對到我自己寫的註解，改成只檢查 <code>sa_flags</code>。</p>
 <pre class="cmd">python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v
 EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_button.py' -v</pre>
       <p>第一行只跑不需要硬體的 10 個（實機那組 skip）；第二行要求 line 43 沒被佔用（<code>edge_button.ko</code> 沒載入），使用者在 gpio 群組。</p>
@@ -430,7 +461,7 @@ EDGE_GPIO_HW=1 python3 -m unittest discover -s tests -p 'test_edge_gpio_button.p
   </section>
 
   <section id="verify">
-    <div class="rail"><span class="no">5a.9</span><b>驗收</b>有人按</div>
+    <div class="rail"><span class="no">5a.10</span><b>驗收</b>有人按</div>
     <div class="content">
       <h2>驗收：和 5-b 同一套按鍵檢查</h2>
       <p><code>scripts/verify_edge_gpio_button.sh</code> 的按鍵段和 5-b 的腳本一樣（按一下、長按、快速連按），前面換成 5-a 的檢查：<code>edge_button.ko</code> 不能載入、pad 設定與來源、程式持有 line 並穩定後讀 debugfs 確認放開時是 <code>hi</code>、reader 睡著不吃 CPU、第二個 reader busy、SIGTERM 結束並釋放 line、實機 unittest。在 repo 根目錄執行（整支要 root；要有人照提示按，沒辦法按時加 <code>--no-press</code>）：</p>
@@ -466,10 +497,10 @@ PASS rapid presses: 44 events, alternating, no seq gap «6»
 PASS dmesg free of Oops/BUG/WARNING
 === 0 failure(s)</pre>
       <ol class="notes">
-        <li><span class="mk">1</span><span>這次 <code>gpio-mode=1</code>，剛開機的第一次是 0（5a.7）：這次開機 line 43 已經被 userspace 請求、釋放過很多次，和 4-b 觀察到的「釋放後變 1」一樣。下一行的訊息因此太絕對，腳本已經改成「pull / tristate / enable-input 是開機預設值，gpio-mode 不是」。</span></li>
+        <li><span class="mk">1</span><span>這次 <code>gpio-mode=1</code>，剛開機的第一次是 0（5a.8）：這次開機 line 43 已經被 userspace 請求、釋放過很多次，和 4-b 觀察到的「釋放後變 1」一樣。下一行的訊息因此太絕對，腳本已經改成「pull / tristate / enable-input 是開機預設值，gpio-mode 不是」。</span></li>
         <li><span class="mk">2</span><span>consumer 是程式裡填的 <code>"edge_gpio_button"</code>；<code>active-low</code> 是請求時的旗標。5-b 這一行是 <code>"button"</code>，來自 DT。</span></li>
         <li><span class="mk">3</span><span>3 秒 <b class="hl-ok">0 個 CPU tick</b>：blocking <code>read()</code> 真的在睡。這是 kernel 內建的 wait queue（<code>do_wait_intr</code>），我們沒寫任何 kernel code。</span></li>
-        <li><span class="mk">4</span><span>被 SIGTERM 結束的那個 reader 啟動時丟掉了一筆假事件（5a.5）。</span></li>
+        <li><span class="mk">4</span><span>被 SIGTERM 結束的那個 reader 啟動時丟掉了一筆假事件（5a.6）。</span></li>
         <li><span class="mk">5</span><span>每一段都從 <code>seq=1</code> 開始、連號：印的是程式自己的計數。修正前這裡是 <code>seq=2</code>（kernel 的 seqno 把丟掉的假事件也算進去）。</span></li>
         <li><span class="mk">6</span><span>6 秒讀到 44 筆，交替、連號，stderr 沒有 <code>lost</code>（kernel 的 seqno 沒有缺口）。依 gpiolib-cdev 的原始碼，預設佇列是每條 line 16 筆、滿了丟掉<b>最舊</b>的事件（這台沒有附 kernel 原始碼，我沒在本機核對）；這次沒有發生，佇列滿的情況沒有實測。</span></li>
       </ol>
@@ -485,7 +516,7 @@ seq=4 released t=1397.750802063</pre>
   </section>
 
   <section id="pitfalls">
-    <div class="rail"><span class="no">5a.10</span><b>常見錯誤</b></div>
+    <div class="rail"><span class="no">5a.11</span><b>常見錯誤</b></div>
     <div class="content">
       <h2>踩過的坑</h2>
       <div class="pitfalls">
@@ -500,7 +531,7 @@ seq=4 released t=1397.750802063</pre>
   </section>
 
   <section id="next">
-    <div class="rail"><span class="no">5a.11</span><b>收尾</b>5-a → 5-b</div>
+    <div class="rail"><span class="no">5a.12</span><b>收尾</b>5-a → 5-b</div>
     <div class="content">
       <h2>這一步做到了什麼</h2>
       <ul class="checks">
